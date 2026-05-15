@@ -22,6 +22,7 @@
     "src/adapters/discord/**/*.ts",
     "scripts/**/*.ts",
     "tests/**/*.ts",
+    "src/web/**/*.ts",
     "playwright.config.ts"
   ]
 }

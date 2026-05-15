@@ -2,27 +2,183 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AppTask Auditor</title>
     <style>
-      body { font-family: system-ui, sans-serif; max-width: 32rem; margin: 2rem auto; }
-      label { display: block; margin-top: 1rem; }
-      input { width: 100%; padding: 0.5rem; }
-      button { margin-top: 1rem; padding: 0.5rem 1rem; }
+      * { box-sizing: border-box; }
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 36rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.45;
+      }
+      h1 { font-size: 1.25rem; margin-bottom: 0.25rem; }
+      .hint { color: #555; font-size: 0.9rem; margin-bottom: 1rem; }
+      label { display: block; margin-top: 0.75rem; font-size: 0.9rem; }
+      input {
+        width: 100%;
+        margin-top: 0.25rem;
+        padding: 0.5rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+      button {
+        margin-top: 1rem;
+        padding: 0.55rem 1rem;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      #status {
+        margin-top: 1.25rem;
+        padding: 0.75rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background: #fafafa;
+        white-space: pre-wrap;
+        font-size: 0.9rem;
+      }
+      #status.running { border-color: #7eb8da; background: #f0f8ff; }
+      #status.done { border-color: #8bc78b; background: #f4fff4; }
+      #status.error { border-color: #e0a0a0; background: #fff5f5; }
+      #reports { margin-top: 0.75rem; font-size: 0.9rem; }
+      #reports a { display: block; margin-top: 0.35rem; }
+      #reports.hidden { display: none; }
     </style>
   </head>
   <body>
     <h1>AppTask Auditor</h1>
-    <p>Каркас UI. Запуск аудита будет подключён к <code>run-audit</code>.</p>
+    <p class="hint">Локальный запуск аудита. Нужен профиль Playwright (<code>npm run auth:profile</code>).</p>
+
     <form id="audit-form">
       <label>
-        Board URL
-        <input name="boardUrl" type="url" placeholder="https://apptask.ru/c/7/board/445" />
+        AppTask board URL
+        <input
+          id="boardUrl"
+          name="boardUrl"
+          type="url"
+          required
+          placeholder="https://apptask.ru/c/7/board/445"
+        />
       </label>
       <label>
-        Discord Webhook URL
-        <input name="webhookUrl" type="url" placeholder="https://discord.com/api/webhooks/..." />
+        Discord webhook URL <span style="color:#888">(необязательно)</span>
+        <input
+          id="webhookUrl"
+          name="webhookUrl"
+          type="url"
+          placeholder="https://discord.com/api/webhooks/..."
+        />
       </label>
-      <button type="submit" disabled>Run audit (soon)</button>
+      <button type="submit" id="runBtn">Run audit</button>
     </form>
+
+    <div id="status" class="idle">Готов к запуску</div>
+
+    <div id="reports" class="hidden">
+      <strong>Отчёт:</strong>
+      <a id="linkJson" href="#" target="_blank" rel="noopener">audit.json</a>
+      <a id="linkMd" href="#" target="_blank" rel="noopener">audit.md</a>
+      <a id="linkSummary" href="#" target="_blank" rel="noopener">summary.md</a>
+    </div>
+
+    <script>
+      const form = document.getElementById("audit-form");
+      const runBtn = document.getElementById("runBtn");
+      const statusEl = document.getElementById("status");
+      const reportsEl = document.getElementById("reports");
+      const linkJson = document.getElementById("linkJson");
+      const linkMd = document.getElementById("linkMd");
+      const linkSummary = document.getElementById("linkSummary");
+
+      let pollTimer = null;
+
+      const defaultBoard =
+        "https://apptask.ru/c/7/board/445";
+      document.getElementById("boardUrl").value = defaultBoard;
+
+      function setStatus(data) {
+        statusEl.className = data.phase;
+        const lines = [data.message];
+        if (data.cardsChecked != null) {
+          lines.push(
+            `Карточек: ${data.cardsChecked} | FAIL: ${data.failCount ?? 0} | WARN: ${data.warnCount ?? 0}`,
+          );
+        }
+        if (data.discordPublished) lines.push("Discord: отправлено");
+        if (data.discordError) lines.push(`Discord: ${data.discordError}`);
+        if (data.reportDir) lines.push(`Папка: ${data.reportDir}`);
+        statusEl.textContent = lines.join("\n");
+
+        const hasLinks =
+          data.reportLinks?.json || data.reportLinks?.markdown || data.reportLinks?.summary;
+        if (data.phase === "done" && hasLinks) {
+          reportsEl.classList.remove("hidden");
+          linkJson.href = data.reportLinks.json || "#";
+          linkMd.href = data.reportLinks.markdown || "#";
+          linkSummary.href = data.reportLinks.summary || "#";
+          linkJson.style.display = data.reportLinks.json ? "block" : "none";
+          linkMd.style.display = data.reportLinks.markdown ? "block" : "none";
+          linkSummary.style.display = data.reportLinks.summary ? "block" : "none";
+        } else if (data.phase !== "running") {
+          reportsEl.classList.add("hidden");
+        }
+      }
+
+      async function pollStatus() {
+        try {
+          const res = await fetch("/api/audit/status");
+          const data = await res.json();
+          setStatus(data);
+          if (data.phase === "running") {
+            runBtn.disabled = true;
+            pollTimer = setTimeout(pollStatus, 2000);
+          } else {
+            runBtn.disabled = false;
+            pollTimer = null;
+          }
+        } catch (err) {
+          statusEl.className = "error";
+          statusEl.textContent = "Ошибка опроса статуса: " + err.message;
+          runBtn.disabled = false;
+        }
+      }
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (pollTimer) clearTimeout(pollTimer);
+
+        const boardUrl = document.getElementById("boardUrl").value.trim();
+        const webhookUrl = document.getElementById("webhookUrl").value.trim();
+
+        runBtn.disabled = true;
+        statusEl.className = "running";
+        statusEl.textContent = "Запуск…";
+        reportsEl.classList.add("hidden");
+
+        try {
+          const res = await fetch("/api/audit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              boardUrl,
+              webhookUrl: webhookUrl || undefined,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || res.statusText);
+          }
+          setStatus(data.status || { phase: "running", message: "Выполняется…" });
+          pollTimer = setTimeout(pollStatus, 1500);
+        } catch (err) {
+          statusEl.className = "error";
+          statusEl.textContent = err.message || String(err);
+          runBtn.disabled = false;
+        }
+      });
+
+      pollStatus();
+    </script>
   </body>
 </html>
