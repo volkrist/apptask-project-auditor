@@ -1,0 +1,11 @@
+node_modules/
+dist/
+output/
+.env
+*.log
+
+playwright/.auth/
+playwright/.user-data/
+playwright-report/
+test-results/
+blob-report/
