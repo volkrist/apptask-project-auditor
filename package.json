@@ -8,7 +8,9 @@
     "test:board": "playwright test tests/e2e/board-smoke.spec.ts",
     "trace:network": "tsx scripts/parse-trace-network.ts",
     "auth:profile": "tsx scripts/auth-profile.ts",
-    "board:headed": "tsx scripts/board-headed.ts"
+    "board:headed": "tsx scripts/board-headed.ts",
+    "collect:sample": "tsx scripts/collect-sample.ts",
+    "test:parse": "playwright test tests/e2e/task-parse.spec.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",

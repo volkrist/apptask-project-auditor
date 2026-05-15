@@ -1,7 +1,6 @@
 /** Normalized card from DOM. Empty UI → null / []. */
 export type RawTask = {
   id: string | null;
-  number: string | null;
   url: string | null;
   title: string | null;
   descriptionText: string | null;
@@ -15,8 +14,8 @@ export type RawTask = {
   assignees: string[];
   category: string | null;
   stage: string | null;
-  actualTime: string | null;
   plannedTime: string | null;
+  actualTime: string | null;
   links: string[];
   attachments: Array<{ name: string; url: string | null }>;
 };
@@ -24,7 +23,6 @@ export type RawTask = {
 export function emptyRawTask(): RawTask {
   return {
     id: null,
-    number: null,
     url: null,
     title: null,
     descriptionText: null,
@@ -38,8 +36,8 @@ export function emptyRawTask(): RawTask {
     assignees: [],
     category: null,
     stage: null,
-    actualTime: null,
     plannedTime: null,
+    actualTime: null,
     links: [],
     attachments: [],
   };
