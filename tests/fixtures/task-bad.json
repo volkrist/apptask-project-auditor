@@ -1,0 +1,20 @@
+{
+  "id": "102",
+  "url": "https://apptask.ru/c/7/board/445/102",
+  "title": "правки",
+  "descriptionText": "коротко",
+  "createdAt": "01.05.2026",
+  "startDate": "01.01.2020",
+  "dueDate": "01.01.2020",
+  "priority": null,
+  "status": "В процессе",
+  "tags": [],
+  "creator": null,
+  "assignees": [],
+  "category": "Разное",
+  "stage": null,
+  "plannedTime": "00:00",
+  "actualTime": null,
+  "links": ["not-a-url"],
+  "attachments": [{ "name": "file.pdf", "url": null }]
+}

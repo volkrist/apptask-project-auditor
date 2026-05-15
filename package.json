@@ -10,7 +10,8 @@
     "auth:profile": "tsx scripts/auth-profile.ts",
     "board:headed": "tsx scripts/board-headed.ts",
     "collect:sample": "tsx scripts/collect-sample.ts",
-    "test:parse": "playwright test tests/e2e/task-parse.spec.ts"
+    "test:parse": "playwright test tests/e2e/task-parse.spec.ts",
+    "test:rules": "node --import tsx --test tests/rules/*.test.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",

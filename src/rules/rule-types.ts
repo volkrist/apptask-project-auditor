@@ -25,6 +25,12 @@ export type CardAudit = {
   results: RuleResult[];
 };
 
+export type ProjectEvaluation = {
+  cards: CardAudit[];
+  failCount: number;
+  warnCount: number;
+};
+
 export type AuditResult = {
   meta: {
     projectName: string;

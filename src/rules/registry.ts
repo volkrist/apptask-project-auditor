@@ -1,4 +1,5 @@
+import { hardRules } from "./hard-rules.js";
+import { softRules } from "./soft-rules.js";
 import type { Rule } from "./rule-types.js";
 
-/** Register rules here when hard-rules / soft-rules are implemented. */
-export const allRules: Rule[] = [];
+export const allRules: Rule[] = [...hardRules, ...softRules];
