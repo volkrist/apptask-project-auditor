@@ -11,7 +11,9 @@
     "board:headed": "tsx scripts/board-headed.ts",
     "collect:sample": "tsx scripts/collect-sample.ts",
     "test:parse": "playwright test tests/e2e/task-parse.spec.ts",
-    "test:rules": "node --import tsx --test tests/rules/*.test.ts"
+    "test:rules": "node --import tsx --test tests/rules/*.test.ts",
+    "test:reports": "node --import tsx --test tests/reports/*.test.ts",
+    "audit": "tsx src/app/run-audit.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",

@@ -18,6 +18,8 @@
     "src/rules/**/*.ts",
     "src/config/**/*.ts",
     "src/reports/**/*.ts",
+    "src/app/**/*.ts",
+    "src/adapters/discord/**/*.ts",
     "scripts/**/*.ts",
     "tests/**/*.ts",
     "playwright.config.ts"
