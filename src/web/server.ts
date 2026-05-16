@@ -38,6 +38,26 @@ function auditFolderSafe(folder: string): boolean {
   return /^audit-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$/.test(folder);
 }
 
+/** 0 или пусто — все карточки; иначе лимит. Тело запроса имеет приоритет над env. */
+function resolveMaxCards(bodyValue: unknown): { maxCards?: number; error?: string } {
+  const envDefault = Number(process.env.APPTASK_AUDIT_MAX_CARDS ?? "0");
+
+  if (bodyValue === undefined || bodyValue === null || bodyValue === "") {
+    if (Number.isInteger(envDefault) && envDefault > 0) {
+      return { maxCards: envDefault };
+    }
+    return { maxCards: undefined };
+  }
+
+  const n = typeof bodyValue === "number" ? bodyValue : Number(bodyValue);
+  if (!Number.isInteger(n) || n < 0) {
+    return {
+      error: "Лимит карточек: целое число ≥ 0 (0 — проверить все карточки на доске)",
+    };
+  }
+  return { maxCards: n > 0 ? n : undefined };
+}
+
 export function startWebServer(): void {
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
@@ -64,23 +84,30 @@ export function startWebServer(): void {
         const body = (await readJsonBody(req)) as {
           boardUrl?: string;
           webhookUrl?: string;
+          maxCards?: number | string;
         };
         const env = loadEnv();
         const boardUrl = body.boardUrl?.trim() || env.boardUrl;
         const webhookUrl = body.webhookUrl?.trim() || null;
-        const maxCards = Number(process.env.APPTASK_AUDIT_MAX_CARDS ?? "0");
+        const { maxCards, error: maxCardsError } = resolveMaxCards(body.maxCards);
 
         if (!boardUrl) {
           sendJson(res, 400, { error: "Укажите URL доски" });
           return;
         }
+        if (maxCardsError) {
+          sendJson(res, 400, { error: maxCardsError });
+          return;
+        }
 
-        markAuditRunning("Сбор карточек и проверка правил…");
+        const runningMessage =
+          maxCards != null
+            ? `Сбор до ${maxCards} карточек и проверка правил…`
+            : "Сбор карточек и проверка правил…";
+        markAuditRunning(runningMessage);
         sendJson(res, 202, { ok: true, status: getAuditJobStatus() });
 
-        void runAudit(boardUrl, webhookUrl, {
-          maxCards: maxCards > 0 ? maxCards : undefined,
-        })
+        void runAudit(boardUrl, webhookUrl, { maxCards })
           .then((result) => markAuditDone(result))
           .catch((err) => {
             const message = err instanceof Error ? err.message : String(err);

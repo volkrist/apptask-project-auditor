@@ -44,6 +44,7 @@
       #reports { margin-top: 0.75rem; font-size: 0.9rem; }
       #reports a { display: block; margin-top: 0.35rem; }
       #reports.hidden { display: none; }
+      .field-hint { color: #888; font-size: 0.85rem; font-weight: normal; }
     </style>
   </head>
   <body>
@@ -68,6 +69,19 @@
           name="webhookUrl"
           type="url"
           placeholder="https://discord.com/api/webhooks/..."
+        />
+      </label>
+      <label>
+        Сколько карточек проверить
+        <span class="field-hint">(0 или пусто — все на доске)</span>
+        <input
+          id="maxCards"
+          name="maxCards"
+          type="number"
+          min="0"
+          step="1"
+          inputmode="numeric"
+          placeholder="например, 2"
         />
       </label>
       <button type="submit" id="runBtn">Run audit</button>
@@ -150,6 +164,21 @@
 
         const boardUrl = document.getElementById("boardUrl").value.trim();
         const webhookUrl = document.getElementById("webhookUrl").value.trim();
+        const maxCardsRaw = document.getElementById("maxCards").value.trim();
+        const payload = {
+          boardUrl,
+          webhookUrl: webhookUrl || undefined,
+        };
+        if (maxCardsRaw !== "") {
+          const maxCards = Number(maxCardsRaw);
+          if (!Number.isInteger(maxCards) || maxCards < 0) {
+            statusEl.className = "error";
+            statusEl.textContent =
+              "Лимит карточек: целое число ≥ 0 (0 — все карточки на доске)";
+            return;
+          }
+          payload.maxCards = maxCards;
+        }
 
         runBtn.disabled = true;
         statusEl.className = "running";
@@ -160,10 +189,7 @@
           const res = await fetch("/api/audit", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              boardUrl,
-              webhookUrl: webhookUrl || undefined,
-            }),
+            body: JSON.stringify(payload),
           });
           const data = await res.json();
           if (!res.ok) {
