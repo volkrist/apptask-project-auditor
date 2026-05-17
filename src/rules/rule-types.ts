@@ -17,7 +17,10 @@ export type RuleContext = {
 export type Rule = {
   id: string;
   severity: "hard" | "soft";
-  evaluate: (task: RawTask, ctx: RuleContext) => RuleResult;
+  evaluate: (
+    task: RawTask,
+    ctx: RuleContext,
+  ) => RuleResult | Promise<RuleResult>;
 };
 
 export type CardAudit = {

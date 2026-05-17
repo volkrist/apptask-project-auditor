@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { WebhookPublisher, DiscordPublishError } from "../adapters/discord/webhook.js";
 import type { ReportArtifact } from "../adapters/discord/publisher.js";
-import { auditConfig } from "../config/audit-config.js";
+import { loadAuditConfig } from "../config/audit-config.js";
 import { loadEnv } from "../config/env.js";
 import { createLogger } from "../adapters/apptask/logger.js";
 import type { AuditResult } from "../rules/rule-types.js";
@@ -24,6 +24,7 @@ export type RunAuditResult = {
   output: AuditOutputPaths;
   discordPublished: boolean;
   discordError?: string;
+  totalOnBoard: number;
 };
 
 /**
@@ -38,15 +39,16 @@ export async function runAudit(
   const projectName = options.projectName ?? env.projectName;
 
   log.info(`collect board: ${boardUrl}`);
-  const tasks = await collectTasksFromBoard(boardUrl, {
+  const { tasks, totalOnBoard } = await collectTasksFromBoard(boardUrl, {
     maxCards: options.maxCards,
     onProgress: (cur, total, title) => {
       log.info(`progress ${cur}/${total}: ${title ?? "?"}`);
     },
   });
 
-  log.info(`evaluate ${tasks.length} tasks`);
-  const result = buildAuditResult(tasks, auditConfig, {
+  log.info(`evaluate ${tasks.length} tasks (${totalOnBoard} on board)`);
+  const config = loadAuditConfig();
+  const result = await buildAuditResult(tasks, config, {
     projectName,
     boardUrl,
   });
@@ -88,7 +90,7 @@ export async function runAudit(
     log.info("discord: skipped (no webhook URL)");
   }
 
-  return { result, output, discordPublished, discordError };
+  return { result, output, discordPublished, discordError, totalOnBoard };
 }
 
 function parseCliArgs(): {
@@ -98,9 +100,25 @@ function parseCliArgs(): {
 } {
   const env = loadEnv();
   const argv = process.argv.slice(2);
-  const boardUrl = argv[0] ?? env.boardUrl;
-  const webhook = argv[1] ?? env.discordWebhookUrl;
-  const maxCards = Number(process.env.APPTASK_AUDIT_MAX_CARDS ?? "0");
+  let boardUrl = env.boardUrl;
+  let webhook: string | null = env.discordWebhookUrl;
+  let maxCards = Number(process.env.APPTASK_AUDIT_MAX_CARDS ?? "0");
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--limit" && argv[i + 1]) {
+      maxCards = Number(argv[++i]);
+      continue;
+    }
+    if (!arg.startsWith("-")) {
+      if (!boardUrl || boardUrl === env.boardUrl) {
+        boardUrl = arg;
+      } else if (!webhook) {
+        webhook = arg;
+      }
+    }
+  }
+
   return { boardUrl, webhook, maxCards };
 }
 

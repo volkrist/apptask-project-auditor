@@ -45,12 +45,12 @@ export function buildTopIssues(
 }
 
 /** Сборка AuditResult из сырых карточек и конфига правил. */
-export function buildAuditResult(
+export async function buildAuditResult(
   tasks: RawTask[],
   config: AuditConfig,
   meta: AuditMetaInput,
-): AuditResult {
-  const project = evaluateProject(tasks, config);
+): Promise<AuditResult> {
+  const project = await evaluateProject(tasks, config);
   const base: AuditResult = {
     meta: {
       projectName: meta.projectName,

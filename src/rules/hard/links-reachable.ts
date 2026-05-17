@@ -6,42 +6,45 @@ import {
   pass,
   warn,
 } from "../helpers.js";
+import { checkHttpUrl } from "../helpers/link-check.js";
 
 export const linksReachableRule: Rule = {
   id: "links_reachable",
   severity: "hard",
-  evaluate(task, { config }) {
-    const issues: string[] = [];
+  evaluate: async (task, { config }) => {
+    const fails: string[] = [];
+    const warns: string[] = [];
 
     for (const attachment of task.attachments) {
       if (!attachment.url?.trim()) {
-        issues.push(
-          `вложение «${attachment.name}» без ссылки (проверка доступности невозможна)`,
-        );
+        fails.push(`вложение «${attachment.name}» без ссылки`);
       }
     }
 
     const targets = collectLinkTargets(task);
     for (const url of targets) {
       if (!isValidHttpUrl(url)) {
-        issues.push(`некорректная ссылка: «${url}»`);
+        fails.push(`некорректная ссылка: «${url}»`);
+        continue;
+      }
+
+      if (!config.linkCheckEnabled) {
+        continue;
+      }
+
+      const outcome = await checkHttpUrl(url, config.linkCheckTimeoutMs);
+      if (outcome === "fail") {
+        fails.push(`ссылка недоступна (HTTP 4xx/5xx): ${url}`);
+      } else if (outcome === "timeout") {
+        warns.push(`таймаут при проверке ссылки: ${url}`);
       }
     }
 
-    if (issues.length > 0) {
-      const hasHard = targets.some((url) => url && !isValidHttpUrl(url));
-      const message = issues.join("; ");
-      if (hasHard) {
-        return fail("links_reachable", message);
-      }
-      return warn("links_reachable", message);
+    if (fails.length > 0) {
+      return fail("links_reachable", fails.join("; "));
     }
-
-    if (config.linkCheckEnabled) {
-      return warn(
-        "links_reachable",
-        "HTTP-проверка ссылок включена, но пока не реализована в синхронном движке",
-      );
+    if (warns.length > 0) {
+      return warn("links_reachable", warns.join("; "));
     }
 
     if (targets.length === 0 && task.attachments.length === 0) {

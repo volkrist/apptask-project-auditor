@@ -2,7 +2,7 @@
   "id": "101",
   "url": "https://apptask.ru/c/7/board/445/101",
   "title": "Настроить отчёт по найму за май",
-  "descriptionText": "Цель: собрать метрики найма за май. Ожидаемый результат — сводная таблица для HR.",
+  "descriptionText": "Цель: собрать метрики найма за май. Ожидаемый результат — сводная таблица для HR. Бюджет согласован в смете на май.",
   "createdAt": "01.05.2026",
   "startDate": "10.05.2026",
   "dueDate": "31.12.2026",
@@ -15,6 +15,9 @@
   "stage": "1 этап",
   "plannedTime": "08:00",
   "actualTime": "02:00",
-  "links": ["https://example.com/estimate/may"],
+  "links": [
+    "https://example.com/estimate/may",
+    "https://figma.com/file/abc/mockup"
+  ],
   "attachments": []
 }

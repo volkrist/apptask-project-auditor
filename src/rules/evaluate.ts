@@ -16,6 +16,14 @@ function buildContext(
   return { config, allTasks };
 }
 
+async function runRule(
+  rule: (typeof allRules)[number],
+  task: RawTask,
+  ctx: RuleContext,
+): Promise<RuleResult> {
+  return Promise.resolve(rule.evaluate(task, ctx));
+}
+
 function countStatuses(results: RuleResult[]): {
   failCount: number;
   warnCount: number;
@@ -30,25 +38,29 @@ function countStatuses(results: RuleResult[]): {
 }
 
 /** Оценка одной карточки по всем правилам. */
-export function evaluateTask(
+export async function evaluateTask(
   rawTask: RawTask,
   config: AuditConfig,
   allTasks: RawTask[] = [],
-): RuleResult[] {
+): Promise<RuleResult[]> {
   const ctx = buildContext(config, allTasks.length > 0 ? allTasks : [rawTask]);
-  return allRules.map((rule) => rule.evaluate(rawTask, ctx));
+  return Promise.all(allRules.map((rule) => runRule(rule, rawTask, ctx)));
 }
 
 /** Оценка всех карточек доски. */
-export function evaluateProject(
+export async function evaluateProject(
   tasks: RawTask[],
   config: AuditConfig,
-): ProjectEvaluation {
+): Promise<ProjectEvaluation> {
   const ctx = buildContext(config, tasks);
-  const cards: CardAudit[] = tasks.map((task) => ({
-    task,
-    results: allRules.map((rule) => rule.evaluate(task, ctx)),
-  }));
+  const cards: CardAudit[] = await Promise.all(
+    tasks.map(async (task) => ({
+      task,
+      results: await Promise.all(
+        allRules.map((rule) => runRule(rule, task, ctx)),
+      ),
+    })),
+  );
 
   let failCount = 0;
   let warnCount = 0;
@@ -62,21 +74,21 @@ export function evaluateProject(
 }
 
 /** @deprecated Используйте evaluateTask. */
-export function evaluateCard(
+export async function evaluateCard(
   task: RawTask,
   allTasks: RawTask[],
   config: AuditConfig,
-): RuleResult[] {
+): Promise<RuleResult[]> {
   return evaluateTask(task, config, allTasks);
 }
 
 /** Сборка AuditResult для отчётов (meta задаёт вызывающий код). */
-export function evaluateBoard(
+export async function evaluateBoard(
   tasks: RawTask[],
   config: AuditConfig,
   meta: AuditResult["meta"],
-): AuditResult {
-  const project = evaluateProject(tasks, config);
+): Promise<AuditResult> {
+  const project = await evaluateProject(tasks, config);
   return {
     meta: {
       ...meta,

@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { loadAuditConfig } from "../../src/config/audit-config.js";
 import {
+  extractTaskType,
+  isTitleBlacklisted,
   parseRuDate,
   titleSimilarity,
   isValidHttpUrl,
 } from "../../src/rules/helpers.js";
+import type { RawTask } from "../../src/adapters/apptask/types.js";
+
+const config = loadAuditConfig({ linkCheckEnabled: false });
 
 test("parseRuDate разбирает DD.MM.YYYY", () => {
   const date = parseRuDate("15.05.2026");
@@ -29,4 +35,14 @@ test("titleSimilarity находит похожие заголовки", () => {
 test("isValidHttpUrl", () => {
   assert.equal(isValidHttpUrl("https://example.com"), true);
   assert.equal(isValidHttpUrl("not-a-url"), false);
+});
+
+test("isTitleBlacklisted: токен, не подстрока", () => {
+  assert.equal(isTitleBlacklisted("работа", config), true);
+  assert.equal(isTitleBlacklisted("Работа с регламентами: изменение процессов", config), false);
+});
+
+test("extractTaskType: категория Найм → найм", () => {
+  const task = { category: "Найм", tags: [] } as RawTask;
+  assert.equal(extractTaskType(task, config), "найм");
 });

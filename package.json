@@ -14,12 +14,18 @@
     "test:rules": "node --import tsx --test tests/rules/*.test.ts",
     "test:reports": "node --import tsx --test tests/reports/*.test.ts",
     "audit": "tsx src/app/run-audit.ts",
-    "web": "tsx src/web/server.ts"
+    "audit:scheduled": "tsx src/scripts/run-scheduled-audit.ts",
+    "web": "tsx src/web/server.ts",
+    "discord:bot": "tsx src/discord/bot.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",
     "@types/node": "^22.13.0",
     "tsx": "^4.22.0",
     "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "discord.js": "^14.26.4",
+    "dotenv": "^17.4.2"
   }
 }

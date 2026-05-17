@@ -16,6 +16,7 @@
   "include": [
     "src/adapters/apptask/**/*.ts",
     "src/rules/**/*.ts",
+    "src/rules/helpers/**/*.ts",
     "src/config/**/*.ts",
     "src/reports/**/*.ts",
     "src/app/**/*.ts",
@@ -23,6 +24,8 @@
     "scripts/**/*.ts",
     "tests/**/*.ts",
     "src/web/**/*.ts",
+    "src/discord/**/*.ts",
+    "src/scripts/**/*.ts",
     "playwright.config.ts"
   ]
 }

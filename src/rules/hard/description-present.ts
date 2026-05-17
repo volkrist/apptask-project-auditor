@@ -1,5 +1,5 @@
 import type { Rule } from "../rule-types.js";
-import { fail, isBlank, pass } from "../helpers.js";
+import { fail, pass } from "../helpers.js";
 
 export const descriptionPresentRule: Rule = {
   id: "description_present",

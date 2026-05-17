@@ -114,21 +114,54 @@ async function readAsideSelect(modal: Locator, caption: string): Promise<string 
   );
 }
 
+const EMPTY_DATE_LABELS = new Set([
+  "поставить срок",
+  "указать срок",
+  "не указано",
+  "—",
+  "-",
+]);
+
+const RU_DATE_RE = /(\d{1,2}\.\d{1,2}\.\d{4})/;
+
+function parseDateFromFieldText(text: string | null): string | null {
+  if (!text) return null;
+  const normalized = text.trim();
+  if (!normalized) return null;
+  if (EMPTY_DATE_LABELS.has(normalized.toLowerCase())) return null;
+  if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(normalized)) return normalized;
+  const match = normalized.match(RU_DATE_RE);
+  return match?.[1] ?? null;
+}
+
 async function readDateField(modal: Locator, caption: string): Promise<string | null> {
   const aside = asideScope(modal);
-  const block = aside.locator(".modal-card-body__wrapper").filter({
-    has: modal.page().locator(".form-field__caption", { hasText: caption }),
-  });
-  if (!(await block.count())) return null;
-  const text = normalizeText(
-    await block
-      .locator(".modal-card-term__text")
-      .first()
-      .textContent({ timeout: 5_000 })
-      .catch(() => null),
+  const captionLocator = modal.page().locator(
+    ".form-field__caption, .modal-card-term__caption",
+    { hasText: caption },
   );
-  if (!text || text === "Поставить срок") return null;
-  return text;
+  const block = aside.locator(".modal-card-body__wrapper").filter({ has: captionLocator });
+  if (!(await block.count())) return null;
+
+  const valueLocators = [
+    block.locator(".modal-card-term__text").first(),
+    block.locator(".modal-card-term a").first(),
+    block.locator(".modal-card-term span").first(),
+    block.locator("time").first(),
+  ];
+
+  for (const locator of valueLocators) {
+    if (!(await locator.count())) continue;
+    const parsed = parseDateFromFieldText(
+      normalizeText(await locator.textContent({ timeout: 5_000 }).catch(() => null)),
+    );
+    if (parsed) return parsed;
+  }
+
+  const blockText = normalizeText(
+    await block.textContent({ timeout: 5_000 }).catch(() => null),
+  );
+  return parseDateFromFieldText(blockText);
 }
 
 async function readTimeValue(modal: Locator, label: string): Promise<string | null> {

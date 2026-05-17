@@ -2,13 +2,21 @@
  * Business thresholds for audit rules.
  * Rule implementations read from here — do not hardcode in adapters.
  */
-export const auditConfig = {
+
+export const defaultAuditConfig = {
   genericTitleBlacklist: [
     "правки",
     "доработки",
     "баги",
     "сайт",
     "проверить",
+    "исправить",
+    "сделать",
+    "задача",
+    "тест",
+    "работа",
+    "обновить",
+    "посмотреть",
   ],
   requiredTaskTypes: [
     "баг",
@@ -18,27 +26,67 @@ export const auditConfig = {
     "аналитика",
     "релиз",
     "поддержка",
+    "найм",
   ],
+  /** Категория доски → тип задачи (точное совпадение, lower case). */
+  categoryTaskTypeMap: {
+    найм: "найм",
+  } as Record<string, string>,
   requiredTags: [] as string[],
-  descriptionMinLength: 50,
+  descriptionMinLength: 80,
   titleMinLength: 8,
-  goalKeywords: ["цель", "ожидаем", "результат", "итог"],
+  titleMinWords: 2,
+  goalKeywords: [
+    "цель",
+    "цели",
+    "основные цели",
+    "результат",
+    "ожидаемый результат",
+    "ожидается",
+    "ожидаем",
+    "критерии",
+    "критерий",
+    "нужно чтобы",
+    "пользователь должен",
+    "должно работать",
+    "готово когда",
+    "итог",
+  ],
   taskTypeSource: "tag_or_category" as const,
   reportMode: "summary_plus_details" as const,
   linkCheckTimeoutMs: 5000,
-  linkCheckEnabled: false,
+  linkCheckEnabled: true,
   duplicateSimilarityThreshold: 0.85,
-  estimateLinkPatterns: [/смет/i, /договор/i, /estimate/i, /budget/i],
+  estimateLinkPatterns: [
+    /смет/i,
+    /договор/i,
+    /заявк/i,
+    /согласован/i,
+    /invoice/i,
+    /estimate/i,
+    /contract/i,
+    /budget/i,
+  ],
   artifactLinkPatterns: [
     /figma\.com/i,
+    /docs\.google\.com/i,
+    /google\.com\/document/i,
+    /notion\./i,
     /github\.com/i,
     /gitlab\./i,
+    /bitbucket\./i,
+    /jira\./i,
+    /youtrack/i,
+    /confluence/i,
+    /drive\.google/i,
     /макет/i,
     /mockup/i,
-    /spec/i,
     /тз/i,
+    /документац/i,
+    /репозитор/i,
+    /spec/i,
   ],
-  /** Ожидаемые подстроки этапа для колонки статуса (эвристика). */
+  estimateTextPatterns: [/бюджет/i, /смет/i, /стоимост/i, /часов/i, /estimate/i, /budget/i],
   stageByStatus: {
     "Новая задача": ["этап", "нов"],
     "В процессе": ["этап", "процесс"],
@@ -46,6 +94,54 @@ export const auditConfig = {
     "Завершено": ["этап", "заверш"],
   } as Record<string, string[]>,
   emptyPlannedTimeValues: ["00:00", "0:00", "0"],
+  /** Минимальный срок задачи (дни) при совпадении created/due — эвристика. */
+  minRealisticDueSpanDays: 1,
 } as const;
 
-export type AuditConfig = typeof auditConfig;
+export type AuditConfig = {
+  readonly genericTitleBlacklist: readonly string[];
+  readonly requiredTaskTypes: readonly string[];
+  readonly categoryTaskTypeMap: Readonly<Record<string, string>>;
+  requiredTags: string[];
+  readonly descriptionMinLength: number;
+  readonly titleMinLength: number;
+  readonly titleMinWords: number;
+  readonly goalKeywords: readonly string[];
+  readonly taskTypeSource: "tag_or_category";
+  readonly reportMode: "summary_plus_details";
+  readonly linkCheckTimeoutMs: number;
+  linkCheckEnabled: boolean;
+  readonly duplicateSimilarityThreshold: number;
+  readonly estimateLinkPatterns: readonly RegExp[];
+  readonly artifactLinkPatterns: readonly RegExp[];
+  readonly estimateTextPatterns: readonly RegExp[];
+  readonly stageByStatus: Record<string, string[]>;
+  readonly emptyPlannedTimeValues: readonly string[];
+  readonly minRealisticDueSpanDays: number;
+};
+
+function parseRequiredTagsFromEnv(): string[] {
+  const raw = process.env.REQUIRED_TAGS?.trim();
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+/** Конфиг с учётом env (REQUIRED_TAGS, LINK_CHECK_ENABLED). */
+export function loadAuditConfig(overrides: Partial<AuditConfig> = {}): AuditConfig {
+  const linkEnv = process.env.LINK_CHECK_ENABLED?.trim().toLowerCase();
+  const linkCheckEnabled =
+    linkEnv === "false" || linkEnv === "0" ? false : defaultAuditConfig.linkCheckEnabled;
+
+  return {
+    ...defaultAuditConfig,
+    requiredTags: parseRequiredTagsFromEnv(),
+    linkCheckEnabled,
+    ...overrides,
+  };
+}
+
+/** @deprecated Используйте loadAuditConfig() — оставлено для тестов с linkCheckEnabled: false */
+export const auditConfig: AuditConfig = loadAuditConfig();

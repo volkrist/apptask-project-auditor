@@ -52,6 +52,50 @@ export function normalizeTitle(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+export function countTitleWords(value: string): number {
+  return normalizeTitle(value)
+    .split(" ")
+    .filter((word) => word.length > 0).length;
+}
+
+/** Значимые токены названия (целые слова, без пунктуации). */
+export function titleTokens(value: string): string[] {
+  return normalizeTitle(value)
+    .split(/[^a-zа-яё0-9]+/i)
+    .filter((token) => token.length > 0);
+}
+
+/** Blacklist: только если всё название — одно запрещённое слово. */
+export function isTitleBlacklisted(value: string, config: AuditConfig): boolean {
+  const normalized = normalizeTitle(value);
+  if (config.genericTitleBlacklist.includes(normalized)) return true;
+
+  const tokens = titleTokens(value);
+  return (
+    tokens.length === 1 &&
+    config.genericTitleBlacklist.includes(tokens[0] ?? "")
+  );
+}
+
+/** Все значимые слова названия — из blacklist общих слов. */
+export function titleHasOnlyGenericWords(value: string, config: AuditConfig): boolean {
+  const words = normalizeTitle(value)
+    .split(" ")
+    .filter((word) => word.length > 0 && !TITLE_STOP_WORDS.has(word));
+  if (words.length === 0) return true;
+  return words.every((word) =>
+    config.genericTitleBlacklist.some((generic) => word === generic),
+  );
+}
+
+export function descriptionMatchesPatterns(
+  text: string | null | undefined,
+  patterns: readonly RegExp[],
+): boolean {
+  if (!text?.trim()) return false;
+  return patterns.some((pattern) => pattern.test(text));
+}
+
 const TITLE_STOP_WORDS = new Set(["по", "за", "для", "и", "в", "на", "к", "о"]);
 
 function significantTitleWords(value: string): Set<string> {
@@ -91,16 +135,29 @@ export function extractTaskType(
 ): string | null {
   const allowed = config.requiredTaskTypes.map((t) => t.toLowerCase());
 
+  if (task.category) {
+    const category = task.category.toLowerCase().trim();
+    const mapped = config.categoryTaskTypeMap[category];
+    if (mapped) {
+      const normalized = mapped.toLowerCase();
+      if (allowed.includes(normalized)) return normalized;
+    }
+    const exactCategory = allowed.find((t) => category === t);
+    if (exactCategory) return exactCategory;
+  }
+
   for (const tag of task.tags) {
-    const lower = tag.toLowerCase();
-    const hit = allowed.find((t) => lower.includes(t));
-    if (hit) return hit;
+    const lower = tag.toLowerCase().trim();
+    const exactTag = allowed.find((t) => lower === t);
+    if (exactTag) return exactTag;
+    const partialTag = allowed.find((t) => lower.includes(t));
+    if (partialTag) return partialTag;
   }
 
   if (task.category) {
-    const lower = task.category.toLowerCase();
-    const hit = allowed.find((t) => lower.includes(t));
-    if (hit) return hit;
+    const category = task.category.toLowerCase();
+    const partialCategory = allowed.find((t) => category.includes(t));
+    if (partialCategory) return partialCategory;
   }
 
   return null;

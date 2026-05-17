@@ -4,7 +4,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import type { RawTask } from "../../src/adapters/apptask/types.js";
-import { auditConfig } from "../../src/config/audit-config.js";
+import { loadAuditConfig } from "../../src/config/audit-config.js";
+
+const testConfig = loadAuditConfig({ linkCheckEnabled: false });
 import {
   buildAuditResult,
   buildTopIssues,
@@ -28,10 +30,10 @@ function loadFixture(name: string): RawTask {
   ) as RawTask;
 }
 
-test("buildTopIssues считает нарушения по ruleId", () => {
+test("buildTopIssues считает нарушения по ruleId", async () => {
   const good = loadFixture("task-good.json");
   const bad = loadFixture("task-bad.json");
-  const result = buildAuditResult([good, bad], auditConfig, {
+  const result = await buildAuditResult([good, bad], testConfig, {
     projectName: "Test",
     boardUrl: "https://example.com/board/1",
   });
@@ -42,8 +44,8 @@ test("buildTopIssues считает нарушения по ruleId", () => {
   assert.ok(assignee && assignee.count >= 1);
 });
 
-test("buildDiscordSummary не превышает лимит", () => {
-  const result = buildAuditResult([loadFixture("task-bad.json")], auditConfig, {
+test("buildDiscordSummary не превышает лимит", async () => {
+  const result = await buildAuditResult([loadFixture("task-bad.json")], testConfig, {
     projectName: "Test",
     boardUrl: "https://example.com/board/1",
   });
@@ -58,9 +60,9 @@ test("truncateDiscordSummary сокращает длинный текст", () =
   assert.match(out, /сокращено/);
 });
 
-test("writeAuditReports создаёт json и markdown", () => {
+test("writeAuditReports создаёт json и markdown", async () => {
   const tmp = fs.mkdtempSync(join(os.tmpdir(), "audit-test-"));
-  const result = buildAuditResult([loadFixture("task-good.json")], auditConfig, {
+  const result = await buildAuditResult([loadFixture("task-good.json")], testConfig, {
     projectName: "Test",
     boardUrl: "https://example.com/board/1",
   });

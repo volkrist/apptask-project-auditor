@@ -54,12 +54,17 @@ export type CollectTasksOptions = {
   onProgress?: (current: number, total: number, title: string | null) => void;
 };
 
+export type CollectTasksResult = {
+  tasks: RawTask[];
+  totalOnBoard: number;
+};
+
 async function collectTasksOnPage(
   page: Page,
   boardUrl: string,
   boardId: string,
   options: CollectTasksOptions,
-): Promise<RawTask[]> {
+): Promise<CollectTasksResult> {
   await openBoardWithReadiness(page, boardUrl);
   const refs = await collectTaskRefsFromBoard(page);
 
@@ -67,19 +72,18 @@ async function collectTasksOnPage(
     throw new Error("На доске не найдено карточек после раскрытия категорий");
   }
 
-  const limit =
-    options.maxCards && options.maxCards > 0
-      ? Math.min(options.maxCards, refs.length)
-      : refs.length;
+  const totalOnBoard = refs.length;
+  const refsToProcess =
+    options.maxCards && options.maxCards > 0 ? refs.slice(0, options.maxCards) : refs;
 
   const tasks: RawTask[] = [];
 
-  for (let i = 0; i < limit; i++) {
-    const ref = refs[i]!;
+  for (let i = 0; i < refsToProcess.length; i++) {
+    const ref = refsToProcess[i]!;
     const title = ref.titlePreview ?? ref.taskId ?? "?";
-    options.onProgress?.(i + 1, limit, ref.titlePreview);
+    options.onProgress?.(i + 1, refsToProcess.length, ref.titlePreview);
 
-    log.info(`[${i + 1}/${limit}] parse: ${title}`);
+    log.info(`[${i + 1}/${refsToProcess.length}] parse: ${title}`);
     await openTaskCard(page, ref, boardId);
     const task = await parseTaskCard(page, ref);
     await closeTaskCard(page);
@@ -87,14 +91,14 @@ async function collectTasksOnPage(
     tasks.push(task);
   }
 
-  return tasks;
+  return { tasks, totalOnBoard };
 }
 
 /** Сбор всех карточек с доски через существующий parser (без изменений adapter API). */
 export async function collectTasksFromBoard(
   boardUrl: string,
   options: CollectTasksOptions = {},
-): Promise<RawTask[]> {
+): Promise<CollectTasksResult> {
   assertProfileExists();
   const boardId = parseBoardId(boardUrl);
   if (!boardId) throw new Error(`Некорректный URL доски: ${boardUrl}`);
