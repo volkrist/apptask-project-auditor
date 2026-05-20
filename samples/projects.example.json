@@ -1,0 +1,16 @@
+[
+  {
+    "id": "appfox",
+    "name": "AppFox",
+    "boardUrl": "https://apptask.ru/c/7/board/445",
+    "discordChannelId": "1505507007040323676",
+    "enabled": true
+  },
+  {
+    "id": "other-project",
+    "name": "Other Project",
+    "boardUrl": "https://apptask.ru/c/7/board/123",
+    "discordChannelId": "1234567890123456789",
+    "enabled": false
+  }
+]

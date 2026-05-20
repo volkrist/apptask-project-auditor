@@ -2,6 +2,7 @@ import "dotenv/config";
 import path from "node:path";
 import { Client, GatewayIntentBits } from "discord.js";
 import { runAudit } from "../app/run-audit.js";
+import { getEnabledProjects } from "../config/projects.js";
 import {
   publishFullReportToChannel,
   resolveAuditChannel,
@@ -27,43 +28,82 @@ async function waitForClientReady(client: Client): Promise<void> {
 async function main(): Promise<void> {
   console.log("scheduled audit started");
 
-  const boardUrl = requireEnv("APPTASK_BOARD_URL");
-  const channelId = requireEnv("AUDIT_DISCORD_CHANNEL_ID");
+  const projects = getEnabledProjects();
+  if (projects.length === 0) {
+    console.error(
+      "No projects configured: add via /project_add, config/projects.json, or set APPTASK_BOARD_URL and AUDIT_DISCORD_CHANNEL_ID in .env",
+    );
+    process.exit(1);
+  }
+
   const token = requireEnv("DISCORD_BOT_TOKEN");
-
-  console.log("board url:", boardUrl);
-  console.log("audit channel id:", channelId);
-
   const maxCards = Number(process.env.APPTASK_AUDIT_MAX_CARDS ?? "0");
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+
+  let failed = 0;
 
   try {
     await client.login(token);
     await waitForClientReady(client);
 
-    const out = await runAudit(boardUrl, null, {
-      maxCards: maxCards > 0 ? maxCards : undefined,
-    });
+    for (const project of projects) {
+      console.log("[audit]");
+      console.log(`project=${project.name}`);
+      console.log(`board=${project.boardUrl}`);
+      console.log(`channel=${project.discordChannelId}`);
 
-    console.log("output dir:", path.resolve(out.output.dir));
-    console.log(
-      `audit stats: cards=${out.result.meta.cardsChecked} FAIL=${out.result.meta.failCount} WARN=${out.result.meta.warnCount}`,
-    );
+      try {
+        const out = await runAudit(project.boardUrl, null, {
+          maxCards: maxCards > 0 ? maxCards : undefined,
+          projectName: project.name,
+        });
 
-    const channel = await resolveAuditChannel(client, channelId);
-    if (!channel) {
-      throw new Error(`Cannot publish to audit channel ${channelId}`);
+        console.log("output dir:", path.resolve(out.output.dir));
+        console.log(
+          `audit stats: cards=${out.result.meta.cardsChecked} FAIL=${out.result.meta.failCount} WARN=${out.result.meta.warnCount}`,
+        );
+
+        const channel = await resolveAuditChannel(
+          client,
+          project.discordChannelId,
+        );
+        if (!channel) {
+          throw new Error(
+            `Cannot publish to audit channel ${project.discordChannelId}`,
+          );
+        }
+
+        const sentFiles = await publishFullReportToChannel(
+          channel,
+          out,
+          project.discordChannelId,
+        );
+        console.log(
+          sentFiles.length > 0
+            ? `files sent: ${sentFiles.join(", ")}`
+            : "files sent: (none — report files missing)",
+        );
+      } catch (err) {
+        failed += 1;
+        console.error(
+          `scheduled audit failed for project ${project.name} (${project.id}):`,
+          err,
+        );
+      }
     }
 
-    const sentFiles = await publishFullReportToChannel(channel, out, channelId);
-    console.log(
-      sentFiles.length > 0
-        ? `files sent: ${sentFiles.join(", ")}`
-        : "files sent: (none — report files missing)",
-    );
-
-    console.log("scheduled audit completed");
     await client.destroy();
+
+    if (failed > 0) {
+      console.error(
+        `scheduled audit completed with ${failed} failure(s) of ${projects.length} project(s)`,
+      );
+      process.exit(1);
+    }
+
+    console.log(
+      `scheduled audit completed (${projects.length} project(s))`,
+    );
     process.exit(0);
   } catch (err) {
     console.error("scheduled audit failed:", err);

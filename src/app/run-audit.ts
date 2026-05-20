@@ -39,6 +39,9 @@ export async function runAudit(
   const projectName = options.projectName ?? env.projectName;
 
   log.info(`collect board: ${boardUrl}`);
+  if (options.maxCards && options.maxCards > 0) {
+    log.info(`card limit: ${options.maxCards}`);
+  }
   const { tasks, totalOnBoard } = await collectTasksFromBoard(boardUrl, {
     maxCards: options.maxCards,
     onProgress: (cur, total, title) => {
@@ -93,6 +96,25 @@ export async function runAudit(
   return { result, output, discordPublished, discordError, totalOnBoard };
 }
 
+function parseLimitValue(raw: string | undefined): number | null {
+  if (raw == null || raw === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/** `--limit 3` и `--limit=3` (npm часто передаёт второй вариант). */
+function readLimitFromArgv(argv: string[], index: number): { value: number | null; nextIndex: number } {
+  const arg = argv[index]!;
+  if (arg === "--limit" || arg === "-l") {
+    return { value: parseLimitValue(argv[index + 1]), nextIndex: index + 1 };
+  }
+  const inline = arg.match(/^(?:--limit|-l)=(.+)$/);
+  if (inline) {
+    return { value: parseLimitValue(inline[1]), nextIndex: index };
+  }
+  return { value: null, nextIndex: index };
+}
+
 function parseCliArgs(): {
   boardUrl: string;
   webhook: string | null;
@@ -106,8 +128,10 @@ function parseCliArgs(): {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--limit" && argv[i + 1]) {
-      maxCards = Number(argv[++i]);
+    const limit = readLimitFromArgv(argv, i);
+    if (arg === "--limit" || arg === "-l" || /^(--limit|-l)=/.test(arg)) {
+      if (limit.value != null) maxCards = limit.value;
+      i = limit.nextIndex;
       continue;
     }
     if (!arg.startsWith("-")) {
