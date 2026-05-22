@@ -4,6 +4,7 @@ output/
 !output/samples/.gitkeep
 .env
 *.log
+logs/bot.pid
 
 playwright/.auth/
 playwright/.user-data/
