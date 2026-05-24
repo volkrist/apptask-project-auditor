@@ -1,5 +1,6 @@
 import type { AuditConfig } from "../config/audit-config.js";
 import type { RawTask } from "../adapters/apptask/types.js";
+import type { AppTaskUser } from "../users/app-task-users.js";
 import { allRules } from "./registry.js";
 import type {
   AuditResult,
@@ -12,8 +13,9 @@ import type {
 function buildContext(
   config: AuditConfig,
   allTasks: RawTask[],
+  appTaskUsers?: AppTaskUser[],
 ): RuleContext {
-  return { config, allTasks };
+  return { config, allTasks, appTaskUsers };
 }
 
 async function runRule(
@@ -42,8 +44,13 @@ export async function evaluateTask(
   rawTask: RawTask,
   config: AuditConfig,
   allTasks: RawTask[] = [],
+  appTaskUsers?: AppTaskUser[],
 ): Promise<RuleResult[]> {
-  const ctx = buildContext(config, allTasks.length > 0 ? allTasks : [rawTask]);
+  const ctx = buildContext(
+    config,
+    allTasks.length > 0 ? allTasks : [rawTask],
+    appTaskUsers,
+  );
   return Promise.all(allRules.map((rule) => runRule(rule, rawTask, ctx)));
 }
 
@@ -51,8 +58,9 @@ export async function evaluateTask(
 export async function evaluateProject(
   tasks: RawTask[],
   config: AuditConfig,
+  appTaskUsers?: AppTaskUser[],
 ): Promise<ProjectEvaluation> {
-  const ctx = buildContext(config, tasks);
+  const ctx = buildContext(config, tasks, appTaskUsers);
   const cards: CardAudit[] = await Promise.all(
     tasks.map(async (task) => ({
       task,
@@ -78,8 +86,9 @@ export async function evaluateCard(
   task: RawTask,
   allTasks: RawTask[],
   config: AuditConfig,
+  appTaskUsers?: AppTaskUser[],
 ): Promise<RuleResult[]> {
-  return evaluateTask(task, config, allTasks);
+  return evaluateTask(task, config, allTasks, appTaskUsers);
 }
 
 /** Сборка AuditResult для отчётов (meta задаёт вызывающий код). */
@@ -87,8 +96,9 @@ export async function evaluateBoard(
   tasks: RawTask[],
   config: AuditConfig,
   meta: AuditResult["meta"],
+  appTaskUsers?: AppTaskUser[],
 ): Promise<AuditResult> {
-  const project = await evaluateProject(tasks, config);
+  const project = await evaluateProject(tasks, config, appTaskUsers);
   return {
     meta: {
       ...meta,

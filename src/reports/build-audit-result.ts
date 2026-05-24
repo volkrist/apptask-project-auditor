@@ -1,5 +1,6 @@
 import type { AuditConfig } from "../config/audit-config.js";
 import type { RawTask } from "../adapters/apptask/types.js";
+import type { AppTaskUser } from "../users/app-task-users.js";
 import { evaluateProject } from "../rules/evaluate.js";
 import type { AuditResult, RuleStatus } from "../rules/rule-types.js";
 import { ruleLabel } from "./rule-labels.js";
@@ -49,8 +50,9 @@ export async function buildAuditResult(
   tasks: RawTask[],
   config: AuditConfig,
   meta: AuditMetaInput,
+  appTaskUsers?: AppTaskUser[],
 ): Promise<AuditResult> {
-  const project = await evaluateProject(tasks, config);
+  const project = await evaluateProject(tasks, config, appTaskUsers);
   const base: AuditResult = {
     meta: {
       projectName: meta.projectName,

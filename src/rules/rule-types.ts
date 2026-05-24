@@ -1,5 +1,6 @@
 import type { AuditConfig } from "../config/audit-config.js";
 import type { RawTask } from "../adapters/apptask/types.js";
+import type { AppTaskUser } from "../users/app-task-users.js";
 
 export type RuleStatus = "PASS" | "FAIL" | "WARN";
 
@@ -12,6 +13,7 @@ export type RuleResult = {
 export type RuleContext = {
   config: AuditConfig;
   allTasks: RawTask[];
+  appTaskUsers?: AppTaskUser[];
 };
 
 export type Rule = {

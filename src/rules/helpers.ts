@@ -1,5 +1,7 @@
-import type { RawTask } from "../adapters/apptask/types.js";
+import { htmlCommentContentToText } from "../comments/app-task-comments.js";
+import type { RawTask, TaskComment } from "../adapters/apptask/types.js";
 import type { AuditConfig } from "../config/audit-config.js";
+import type { AppTaskUser } from "../users/app-task-users.js";
 import type { RuleResult, RuleStatus } from "./rule-types.js";
 
 export function pass(ruleId: string, reason = "Проверка пройдена"): RuleResult {
@@ -187,4 +189,177 @@ export function collectLinkTargets(task: RawTask): string[] {
     if (attachment.url) targets.push(attachment.url);
   }
   return targets;
+}
+
+export function findKeywordInText(
+  text: string | null | undefined,
+  keywords: readonly string[],
+): string | null {
+  if (!text?.trim()) return null;
+  const hay = text.toLowerCase();
+  for (const keyword of keywords) {
+    const needle = keyword.toLowerCase();
+    if (hay.includes(needle)) return keyword;
+  }
+  return null;
+}
+
+export function isReviewStage(
+  task: RawTask,
+  reviewStageKeywords: readonly string[],
+): boolean {
+  const parts = [task.status, task.stage]
+    .filter((value): value is string => !!value?.trim())
+    .map((value) => value.toLowerCase());
+  if (parts.length === 0) return false;
+  const combined = parts.join(" ");
+  return reviewStageKeywords.some((keyword) =>
+    combined.includes(keyword.toLowerCase()),
+  );
+}
+
+export function normalizePersonName(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+export function assigneeNameMatches(
+  assigneeName: string,
+  expectedName: string,
+): boolean {
+  const a = normalizePersonName(assigneeName);
+  const b = normalizePersonName(expectedName);
+  if (!a || !b) return false;
+  return a === b || a.includes(b) || b.includes(a);
+}
+
+export function assigneeMatchesQaList(
+  assignees: string[],
+  qaTesters: readonly string[],
+): boolean {
+  if (qaTesters.length === 0) return true;
+  return qaTesters.some((qa) =>
+    assignees.some((name) => assigneeNameMatches(name, qa)),
+  );
+}
+
+/** Текст комментария для keyword-правил: content (HTML) → plain, иначе text. */
+export function commentPlainTextForRules(comment: TaskComment): string {
+  const raw = comment.content ?? comment.text;
+  return htmlCommentContentToText(raw) || comment.text?.trim() || "";
+}
+
+export type UnresolvedQuestionSource = "title" | "description" | "comment";
+
+export type UnresolvedQuestionHit = {
+  keyword: string;
+  source: UnresolvedQuestionSource;
+};
+
+export function unresolvedQuestionSourceLabel(
+  source: UnresolvedQuestionSource,
+): string {
+  switch (source) {
+    case "title":
+      return "названии";
+    case "description":
+      return "описании";
+    case "comment":
+      return "комментарии";
+  }
+}
+
+export function findUnresolvedQuestionInCard(
+  task: RawTask,
+  keywords: readonly string[],
+): UnresolvedQuestionHit | null {
+  const titleHit = findKeywordInText(task.title, keywords);
+  if (titleHit) return { keyword: titleHit, source: "title" };
+
+  const descHit = findKeywordInText(task.descriptionText, keywords);
+  if (descHit) return { keyword: descHit, source: "description" };
+
+  for (const comment of task.comments ?? []) {
+    const commentHit = findKeywordInText(
+      commentPlainTextForRules(comment),
+      keywords,
+    );
+    if (commentHit) return { keyword: commentHit, source: "comment" };
+  }
+
+  return null;
+}
+
+const QA_ROLE_RE =
+  /\b(qa|тестировщик|тестирование)\b|qa\s*инженер/i;
+
+export function isQaRoleText(role: string | null | undefined): boolean {
+  if (!role?.trim()) return false;
+  return QA_ROLE_RE.test(role.trim());
+}
+
+export function isQaUser(
+  user: AppTaskUser,
+  qaTesters: readonly string[],
+): boolean {
+  if (qaTesters.length > 0) {
+    return qaTesters.some((qa) => assigneeNameMatches(user.realName, qa));
+  }
+  return isQaRoleText(user.roleUser) || isQaRoleText(user.role);
+}
+
+export function canDetermineQaFromUsers(
+  users: AppTaskUser[] | undefined,
+): boolean {
+  if (!users?.length) return false;
+  return users.some((u) => isQaRoleText(u.roleUser) || isQaRoleText(u.role));
+}
+
+export function hasAnyAssignee(task: RawTask): boolean {
+  if (task.assignees.some((n) => n?.trim() && !n.includes("Добавить"))) {
+    return true;
+  }
+  return task.assigneeRefs.some(
+    (r) => r.name?.trim() && !r.name.includes("Добавить"),
+  );
+}
+
+export function findQaAssignee(
+  task: RawTask,
+  users: AppTaskUser[] | undefined,
+  qaTesters: readonly string[],
+): { found: boolean; assigneeName?: string } {
+  const refs =
+    task.assigneeRefs.length > 0
+      ? task.assigneeRefs
+      : task.assignees.map((name) => ({ name, userId: null as string | null }));
+
+  const byId = new Map(
+    (users ?? []).map((u) => [String(u.id), u] as const),
+  );
+  const byName = new Map(
+    (users ?? []).map((u) => [normalizePersonName(u.realName), u] as const),
+  );
+
+  for (const ref of refs) {
+    const name = ref.name?.trim();
+    if (!name || name.includes("Добавить")) continue;
+
+    if (qaTesters.length > 0) {
+      if (qaTesters.some((qa) => assigneeNameMatches(name, qa))) {
+        return { found: true, assigneeName: name };
+      }
+      continue;
+    }
+
+    if (users?.length) {
+      let user: AppTaskUser | undefined;
+      if (ref.userId) user = byId.get(String(ref.userId));
+      if (!user) user = byName.get(normalizePersonName(name));
+      if (user && isQaUser(user, [])) {
+        return { found: true, assigneeName: name };
+      }
+    }
+  }
+
+  return { found: false };
 }

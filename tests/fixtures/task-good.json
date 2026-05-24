@@ -11,6 +11,7 @@
   "tags": ["аналитика"],
   "creator": "Нина Пинчук",
   "assignees": ["Игнатий Филатов"],
+  "assigneeRefs": [{ "name": "Игнатий Филатов", "userId": null }],
   "category": "Найм",
   "stage": "1 этап",
   "plannedTime": "08:00",
@@ -19,5 +20,6 @@
     "https://example.com/estimate/may",
     "https://figma.com/file/abc/mockup"
   ],
-  "attachments": []
+  "attachments": [],
+  "comments": []
 }

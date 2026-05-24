@@ -9,6 +9,7 @@ import type { AuditResult } from "../rules/rule-types.js";
 import { buildAuditResult } from "../reports/build-audit-result.js";
 import { buildDiscordSummary } from "../reports/discord-summary.js";
 import { writeAuditReports, type AuditOutputPaths } from "../reports/output.js";
+import type { CommentsAuditMode } from "../comments/comments-audit-config.js";
 import { collectTasksFromBoard } from "./collect-tasks.js";
 
 const log = createLogger("audit");
@@ -17,6 +18,8 @@ export type RunAuditOptions = {
   projectName?: string;
   /** 0 = все карточки на доске */
   maxCards?: number;
+  /** Переопределяет COMMENTS_AUDIT_MODE (off | candidates | all). */
+  commentsAuditMode?: CommentsAuditMode;
 };
 
 export type RunAuditResult = {
@@ -42,19 +45,27 @@ export async function runAudit(
   if (options.maxCards && options.maxCards > 0) {
     log.info(`card limit: ${options.maxCards}`);
   }
-  const { tasks, totalOnBoard } = await collectTasksFromBoard(boardUrl, {
+  const { tasks, totalOnBoard, appTaskUsers } = await collectTasksFromBoard(boardUrl, {
     maxCards: options.maxCards,
+    commentsAuditMode: options.commentsAuditMode,
     onProgress: (cur, total, title) => {
       log.info(`progress ${cur}/${total}: ${title ?? "?"}`);
     },
   });
 
-  log.info(`evaluate ${tasks.length} tasks (${totalOnBoard} on board)`);
+  log.info(
+    `evaluate ${tasks.length} tasks (${totalOnBoard} on board), users=${appTaskUsers.length}`,
+  );
   const config = loadAuditConfig();
-  const result = await buildAuditResult(tasks, config, {
-    projectName,
-    boardUrl,
-  });
+  const result = await buildAuditResult(
+    tasks,
+    config,
+    {
+      projectName,
+      boardUrl,
+    },
+    appTaskUsers,
+  );
 
   log.info(`save reports (FAIL=${result.meta.failCount}, WARN=${result.meta.warnCount})`);
   const output = writeAuditReports(result);

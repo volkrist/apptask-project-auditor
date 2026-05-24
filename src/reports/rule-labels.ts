@@ -5,6 +5,10 @@ export const RULE_LABELS: Record<string, string> = {
   description_present: "Нет или короткое описание",
   description_has_goal: "Нет цели в описании",
   assignee_present: "Нет исполнителя",
+  blocked_assignee_not_allowed:
+    "Задача не назначена на заблокированного/неактивного пользователя",
+  assignee_not_in_users_list:
+    "Исполнитель найден в списке пользователей AppTask",
   deadline_present: "Нет дедлайна",
   deadline_not_overdue: "Просроченный дедлайн",
   deadline_start_not_after_due: "Дата начала позже дедлайна",
@@ -18,6 +22,10 @@ export const RULE_LABELS: Record<string, string> = {
   artifact_links_present: "Нет ссылок на артефакты",
   links_reachable: "Проблемы со ссылками",
   not_duplicate: "Возможный дубликат",
+  unresolved_question_keywords_in_card:
+    "В карточке нет признаков незакрытого вопроса",
+  review_stage_requires_assignee:
+    "На этапе проверки назначен тестировщик",
 };
 
 export function ruleLabel(ruleId: string): string {

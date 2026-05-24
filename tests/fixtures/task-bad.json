@@ -11,10 +11,12 @@
   "tags": [],
   "creator": null,
   "assignees": [],
+  "assigneeRefs": [],
   "category": "Разное",
   "stage": null,
   "plannedTime": "00:00",
   "actualTime": null,
   "links": ["not-a-url"],
-  "attachments": [{ "name": "file.pdf", "url": null }]
+  "attachments": [{ "name": "file.pdf", "url": null }],
+  "comments": []
 }

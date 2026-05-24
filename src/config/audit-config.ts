@@ -96,6 +96,24 @@ export const defaultAuditConfig = {
   emptyPlannedTimeValues: ["00:00", "0:00", "0"],
   /** Минимальный срок задачи (дни) при совпадении created/due — эвристика. */
   minRealisticDueSpanDays: 1,
+  /** Признаки незакрытого вопроса — title, descriptionText, comments[]. */
+  unresolvedQuestionKeywords: [
+    "уточнить",
+    "обсудить",
+    "ждем ответ",
+    "ждём ответ",
+    "непонятно",
+  ],
+  /** status/stage: карточка на проверке. */
+  reviewStageKeywords: [
+    "проверка",
+    "на проверке",
+    "testing",
+    "review",
+    "qa",
+  ],
+  /** Имена тестировщиков из QA_TESTERS (пусто = не требовать QA по имени). */
+  qaTesters: [] as string[],
 } as const;
 
 export type AuditConfig = {
@@ -118,15 +136,26 @@ export type AuditConfig = {
   readonly stageByStatus: Record<string, string[]>;
   readonly emptyPlannedTimeValues: readonly string[];
   readonly minRealisticDueSpanDays: number;
+  readonly unresolvedQuestionKeywords: readonly string[];
+  readonly reviewStageKeywords: readonly string[];
+  qaTesters: string[];
 };
 
-function parseRequiredTagsFromEnv(): string[] {
-  const raw = process.env.REQUIRED_TAGS?.trim();
+function parseCommaListFromEnv(envKey: string): string[] {
+  const raw = process.env[envKey]?.trim();
   if (!raw) return [];
   return raw
     .split(",")
-    .map((tag) => tag.trim())
+    .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function parseRequiredTagsFromEnv(): string[] {
+  return parseCommaListFromEnv("REQUIRED_TAGS");
+}
+
+function parseQaTestersFromEnv(): string[] {
+  return parseCommaListFromEnv("QA_TESTERS");
 }
 
 /** Конфиг с учётом env (REQUIRED_TAGS, LINK_CHECK_ENABLED). */
@@ -138,6 +167,7 @@ export function loadAuditConfig(overrides: Partial<AuditConfig> = {}): AuditConf
   return {
     ...defaultAuditConfig,
     requiredTags: parseRequiredTagsFromEnv(),
+    qaTesters: parseQaTestersFromEnv(),
     linkCheckEnabled,
     ...overrides,
   };

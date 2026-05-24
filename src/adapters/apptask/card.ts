@@ -3,13 +3,14 @@ import { createLogger } from "./logger.js";
 import { saveParseFailureArtifacts } from "./parse-debug.js";
 import { BOARD_SELECTORS, TASK_MODAL_SELECTORS } from "./selectors.js";
 import type { TaskRef } from "./task-ref.js";
-import { emptyRawTask, type RawTask } from "./types.js";
+import { emptyRawTask, type RawTask, type TaskAssigneeRef } from "./types.js";
 import { parseTaskIdFromUrl, taskUrlPattern } from "./urls.js";
 
 const log = createLogger("card");
 
 const OPEN_CARD_TIMEOUT_MS = 30_000;
-const MODAL_WAIT_MS = 30_000;
+const MODAL_WAIT_MS = 60_000;
+const GET_TASK_DETAILS_RE = /\/board\/get_task_details/i;
 
 export class ParseTaskCardError extends Error {
   constructor(
@@ -44,6 +45,11 @@ async function taskCardLocator(page: Page, ref: TaskRef): Promise<Locator> {
   return category.locator(BOARD_SELECTORS.taskCard).first();
 }
 
+function boardBaseUrlFromPage(page: Page, boardId: string): string {
+  const match = page.url().match(/^(https?:\/\/[^/]+\/c\/\d+\/board\/\d+)/);
+  return match?.[1] ?? `https://apptask.ru/c/7/board/${boardId}`;
+}
+
 export async function openTaskCard(
   page: Page,
   ref: TaskRef,
@@ -53,14 +59,30 @@ export async function openTaskCard(
     `open card: category=${ref.categoryId} taskId=${ref.taskId ?? "?"} title="${ref.titlePreview ?? ""}"`,
   );
 
-  const card = await taskCardLocator(page, ref);
-  await card.scrollIntoViewIfNeeded();
-  await card.click();
+  const detailsPromise = page.waitForResponse(
+    (r) =>
+      GET_TASK_DETAILS_RE.test(r.url()) &&
+      r.request().method() === "POST" &&
+      r.status() === 200,
+    { timeout: MODAL_WAIT_MS },
+  );
 
-  await page.waitForURL(taskUrlPattern(boardId), {
-    timeout: OPEN_CARD_TIMEOUT_MS,
-  });
+  if (ref.taskId) {
+    const taskUrl = `${boardBaseUrlFromPage(page, boardId)}/${ref.taskId}`;
+    await page.goto(taskUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: OPEN_CARD_TIMEOUT_MS,
+    });
+  } else {
+    const card = await taskCardLocator(page, ref);
+    await card.scrollIntoViewIfNeeded();
+    await card.click();
+    await page.waitForURL(taskUrlPattern(boardId), {
+      timeout: OPEN_CARD_TIMEOUT_MS,
+    });
+  }
 
+  await detailsPromise.catch(() => undefined);
   await waitForTaskModal(page);
   log.info(`card open: ${page.url()}`);
 }
@@ -78,8 +100,12 @@ export async function closeTaskCard(page: Page): Promise<void> {
 }
 
 async function waitForTaskModal(page: Page): Promise<Locator> {
-  const modal = page.locator(TASK_MODAL_SELECTORS.root);
-  await modal.waitFor({ state: "visible", timeout: MODAL_WAIT_MS });
+  const modal = page.locator(TASK_MODAL_SELECTORS.root).first();
+  try {
+    await modal.waitFor({ state: "visible", timeout: 20_000 });
+  } catch {
+    await modal.waitFor({ state: "attached", timeout: 10_000 });
+  }
   return modal;
 }
 
@@ -193,16 +219,27 @@ async function readTags(modal: Locator): Promise<string[]> {
   return tags;
 }
 
-async function readAssignees(modal: Locator): Promise<string[]> {
+async function readAssigneeRefs(modal: Locator): Promise<TaskAssigneeRef[]> {
   const section = modal.locator(".modal-card-settings__item--executors");
-  const overlays = section.locator(".project-user--modal-card .parent-overlay");
-  const count = await overlays.count();
-  const names: string[] = [];
+  const userCards = section.locator(".project-user--modal-card");
+  const count = await userCards.count();
+  const refs: TaskAssigneeRef[] = [];
+
   for (let i = 0; i < count; i++) {
-    const name = await readMemberName(overlays.nth(i));
-    if (name && !name.includes("Добавить")) names.push(name);
+    const card = userCards.nth(i);
+    if (await card.locator(".project-user--add").count()) continue;
+
+    const rawId = await card.getAttribute("id");
+    const userId =
+      rawId && /^\d+$/.test(rawId) ? rawId : null;
+    const overlay = card.locator(".parent-overlay").first();
+    const name = await readMemberName(overlay);
+    if (name && !name.includes("Добавить")) {
+      refs.push({ name, userId });
+    }
   }
-  return names;
+
+  return refs;
 }
 
 async function readCreator(modal: Locator): Promise<string | null> {
@@ -274,7 +311,8 @@ export async function parseTaskCard(
     task.status = await readAsideSelect(modal, "Статус");
     task.tags = await readTags(modal);
     task.creator = await readCreator(modal);
-    task.assignees = await readAssignees(modal);
+    task.assigneeRefs = await readAssigneeRefs(modal);
+    task.assignees = task.assigneeRefs.map((r) => r.name);
     task.stage = await readAsideSelect(modal, "Этап");
     task.category = (await readAsideSelect(modal, "Категория")) ?? task.category;
     task.actualTime = await readTimeValue(modal, "Фактическое время");

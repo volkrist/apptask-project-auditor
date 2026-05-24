@@ -18,6 +18,18 @@ import { TASK_MODAL_SELECTORS } from "../adapters/apptask/selectors.js";
 import { createLogger } from "../adapters/apptask/logger.js";
 import type { RawTask } from "../adapters/apptask/types.js";
 import { parseBoardId } from "../adapters/apptask/urls.js";
+import { attachCommentsApiDiscovery } from "../comments/app-task-comments.js";
+import {
+  loadCommentsAuditConfig,
+  type CommentsAuditMode,
+} from "../comments/comments-audit-config.js";
+import { enrichTasksWithComments } from "../comments/enrich-tasks-comments.js";
+import {
+  loadAppTaskUsers,
+  type AppTaskUser,
+} from "../users/app-task-users.js";
+import { loadCollectorConfig } from "../collectors/collector-config.js";
+import { collectTasksViaApi } from "../collectors/api-collector.js";
 
 const log = createLogger("audit:collect");
 
@@ -52,19 +64,33 @@ export type CollectTasksOptions = {
   /** Ограничение числа карточек (для отладки). 0 = без лимита. */
   maxCards?: number;
   onProgress?: (current: number, total: number, title: string | null) => void;
+  /** Переопределяет COMMENTS_AUDIT_MODE из env. */
+  commentsAuditMode?: CommentsAuditMode;
 };
 
 export type CollectTasksResult = {
   tasks: RawTask[];
   totalOnBoard: number;
+  appTaskUsers: AppTaskUser[];
 };
 
-async function collectTasksOnPage(
+async function collectTasksPlaywrightOnPage(
   page: Page,
   boardUrl: string,
   boardId: string,
   options: CollectTasksOptions,
+  appTaskUsers: AppTaskUser[],
 ): Promise<CollectTasksResult> {
+  const commentsConfig = loadCommentsAuditConfig(
+    options.commentsAuditMode
+      ? { mode: options.commentsAuditMode }
+      : {},
+  );
+  const stopApiDiscovery =
+    commentsConfig.mode !== "off"
+      ? attachCommentsApiDiscovery(page)
+      : () => undefined;
+
   await openBoardWithReadiness(page, boardUrl);
   const refs = await collectTaskRefsFromBoard(page);
 
@@ -73,8 +99,18 @@ async function collectTasksOnPage(
   }
 
   const totalOnBoard = refs.length;
-  const refsToProcess =
-    options.maxCards && options.maxCards > 0 ? refs.slice(0, options.maxCards) : refs;
+  const taskIdFilter = process.env.AUDIT_TASK_IDS?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  let refsToProcess = refs;
+  if (taskIdFilter?.length) {
+    refsToProcess = refs.filter(
+      (r) => r.taskId && taskIdFilter.includes(r.taskId),
+    );
+  }
+  if (options.maxCards && options.maxCards > 0) {
+    refsToProcess = refsToProcess.slice(0, options.maxCards);
+  }
 
   const tasks: RawTask[] = [];
 
@@ -91,13 +127,21 @@ async function collectTasksOnPage(
     tasks.push(task);
   }
 
-  return { tasks, totalOnBoard };
+  stopApiDiscovery();
+  const boardIdNum = Number(boardId);
+  await enrichTasksWithComments(
+    page,
+    tasks,
+    commentsConfig,
+    Number.isFinite(boardIdNum) ? boardIdNum : undefined,
+  );
+
+  return { tasks, totalOnBoard, appTaskUsers };
 }
 
-/** Сбор всех карточек с доски через существующий parser (без изменений adapter API). */
-export async function collectTasksFromBoard(
+async function collectTasksPlaywright(
   boardUrl: string,
-  options: CollectTasksOptions = {},
+  options: CollectTasksOptions,
 ): Promise<CollectTasksResult> {
   assertProfileExists();
   const boardId = parseBoardId(boardUrl);
@@ -107,8 +151,41 @@ export async function collectTasksFromBoard(
   const page = context.pages()[0] ?? (await context.newPage());
 
   try {
-    return await collectTasksOnPage(page, boardUrl, boardId, options);
+    log.info("load AppTask users (get_users)");
+    const appTaskUsers = await loadAppTaskUsers(page);
+    log.info(`AppTask users loaded: ${appTaskUsers.length}`);
+    return await collectTasksPlaywrightOnPage(
+      page,
+      boardUrl,
+      boardId,
+      options,
+      appTaskUsers,
+    );
   } finally {
     await context.close();
+  }
+}
+
+/** Сбор карточек: APPTASK_COLLECTOR=api|playwright (по умолчанию playwright). */
+export async function collectTasksFromBoard(
+  boardUrl: string,
+  options: CollectTasksOptions = {},
+): Promise<CollectTasksResult> {
+  const collectorCfg = loadCollectorConfig();
+  if (collectorCfg.collector !== "api") {
+    return collectTasksPlaywright(boardUrl, options);
+  }
+
+  log.info("collector mode: api");
+  try {
+    return await collectTasksViaApi(boardUrl, options);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.info(`API collector critical error: ${message}`);
+    if (!collectorCfg.apiFallbackToPlaywright) {
+      throw new Error(`API collector failed: ${message}`);
+    }
+    log.info("fallback to playwright collector");
+    return collectTasksPlaywright(boardUrl, options);
   }
 }

@@ -16,6 +16,7 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { runAudit, type RunAuditResult } from "../app/run-audit.js";
+import type { CommentsAuditMode } from "../comments/comments-audit-config.js";
 import {
   addProject,
   loadProjects,
@@ -57,6 +58,17 @@ const slashCommands = [
         required: false,
         min_value: 1,
         max_value: 100,
+      },
+      {
+        name: "comments_mode",
+        description: "Task card comments: off (default), candidates, or all",
+        type: ApplicationCommandOptionType.String,
+        required: false,
+        choices: [
+          { name: "off", value: "off" },
+          { name: "candidates", value: "candidates" },
+          { name: "all", value: "all" },
+        ],
       },
     ],
   },
@@ -374,6 +386,14 @@ async function handleAuditCommand(
   const envMaxCards = Number(process.env.APPTASK_AUDIT_MAX_CARDS ?? "0");
   const maxCards = limit ?? (envMaxCards > 0 ? envMaxCards : undefined);
 
+  const commentsModeRaw = interaction.options.getString("comments_mode");
+  const commentsAuditMode =
+    commentsModeRaw === "off" ||
+    commentsModeRaw === "candidates" ||
+    commentsModeRaw === "all"
+      ? (commentsModeRaw as CommentsAuditMode)
+      : undefined;
+
   await safeEditReply(
     interaction,
     "⏳ **Audit started.** Сбор карточек и проверка правил…",
@@ -385,7 +405,10 @@ async function handleAuditCommand(
       board: boardUrl,
       limit: maxCards != null ? String(maxCards) : "all",
     });
-    const out = await runAudit(boardUrl, null, { maxCards });
+    const out = await runAudit(boardUrl, null, {
+      maxCards,
+      commentsAuditMode,
+    });
     logInteraction("audit", interaction, {
       status: "done",
       cards: String(out.result.meta.cardsChecked),

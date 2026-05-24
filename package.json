@@ -16,7 +16,18 @@
     "audit": "tsx src/app/run-audit.ts",
     "audit:scheduled": "tsx src/scripts/run-scheduled-audit.ts",
     "web": "tsx src/web/server.ts",
-    "discord:bot": "tsx src/discord/bot.ts"
+    "discord:bot": "tsx src/discord/bot.ts",
+    "debug:users": "tsx src/scripts/debug-users-page.ts",
+    "probe:comments:bulk": "tsx scripts/probe-task-comments-bulk.ts",
+    "probe:comments:targets": "tsx scripts/probe-task-comments-targets.ts",
+    "probe:comments:board": "tsx scripts/probe-task-comments-board.ts",
+    "probe:comments:fast": "tsx scripts/probe-task-comments-fast.ts",
+    "probe:board:api": "tsx scripts/probe-board-api.ts",
+    "probe:collector:api": "tsx scripts/probe-api-collector.ts",
+    "test:collectors": "node --import tsx --test tests/collectors/*.test.ts",
+    "probe:users:inactive": "tsx scripts/probe-users-inactive-diagnostic.ts",
+    "probe:payroll:fired": "tsx scripts/probe-payroll-fired-diagnostic.ts",
+    "probe:tracking:comments": "tsx scripts/probe-tracking-comments.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",

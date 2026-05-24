@@ -8,6 +8,10 @@ Infrastructure for running the Discord bot at login and the weekly audit via Tas
 - `.env` configured (see `.env.example`)
 - Project path stable (scheduled task and startup shortcut use absolute paths from setup time)
 
+## API collector (optional)
+
+Fast task collection via internal AppTask HTTP APIs (Playwright only for session). See [API_COLLECTOR.md](./API_COLLECTOR.md). Default remains `APPTASK_COLLECTOR=playwright`.
+
 ## Autostart (Discord bot)
 
 From the project root in PowerShell:
@@ -19,6 +23,17 @@ powershell -ExecutionPolicy Bypass -File infra\windows\setup-startup.ps1
 This creates a shortcut in the user **Startup** folder (`shell:startup`) pointing to `start-bot.bat`. After the next sign-in or reboot, Windows runs the bot and appends output to `logs\bot.log`.
 
 Safe to run again: if the shortcut already exists, it is not duplicated.
+
+### `logs\bot.pid` (single instance)
+
+`start-bot.bat` and the Node bot both use `logs\bot.pid` to prevent two Discord bots at once:
+
+1. If the file exists, `start-bot.bat` reads the PID and checks it with `tasklist`.
+2. **Process still running** → prints `bot already running, pid=…` and exits (no second process).
+3. **Process gone** (stale lock after crash or reboot) → deletes `logs\bot.pid` and starts the bot.
+4. On a successful start, the bot process writes its own PID into `logs\bot.pid` (see `bot-lock.ts`).
+
+You normally do not need to delete `bot.pid` by hand after a reboot.
 
 ### Disable autostart
 
@@ -84,7 +99,8 @@ Get-ScheduledTaskInfo -TaskName "AppTask Weekly Audit"
 
 | File | Source |
 |------|--------|
-| `logs\bot.log` | `start-bot.bat` → `npm run discord:bot` |
+| `logs\bot.log` | `start-bot.bat` → `npm run discord:bot` (stdout/stderr append) |
+| `logs\bot.pid` | Lock file: live bot PID; stale locks removed automatically by `start-bot.bat` |
 | `logs\scheduled.log` | `start-scheduled-audit.bat` → `npm run audit:scheduled` |
 
 Audit artifacts remain under `output\` (unchanged).

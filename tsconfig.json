@@ -25,6 +25,7 @@
     "tests/**/*.ts",
     "src/web/**/*.ts",
     "src/discord/**/*.ts",
+    "src/users/**/*.ts",
     "src/scripts/**/*.ts",
     "playwright.config.ts"
   ]
