@@ -1,16 +1,17 @@
-# Registers or updates the weekly scheduled audit task (idempotent).
+# Registers or updates the daily scheduled audit (cards + comments) at 09:00 local time.
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $BatPath = Join-Path $ProjectRoot 'start-scheduled-audit.bat'
-$TaskName = 'AppTask Weekly Audit'
+$TaskName = 'AppTask Daily Audit'
+$LegacyTaskName = 'AppTask Weekly Audit'
 
 if (-not (Test-Path -LiteralPath $BatPath)) {
     Write-Error "start-scheduled-audit.bat not found: $BatPath"
 }
 
 $Action = New-ScheduledTaskAction -Execute $BatPath -WorkingDirectory $ProjectRoot
-$Trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At '08:00'
+$Trigger = New-ScheduledTaskTrigger -Daily -At '09:00'
 $Settings = New-ScheduledTaskSettingsSet `
     -RestartCount 3 `
     -RestartInterval (New-TimeSpan -Minutes 1) `
@@ -18,6 +19,12 @@ $Settings = New-ScheduledTaskSettingsSet `
     -DontStopIfGoingOnBatteries `
     -StartWhenAvailable
 $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+
+$legacy = Get-ScheduledTask -TaskName $LegacyTaskName -ErrorAction SilentlyContinue
+if ($legacy) {
+    Write-Host "Removing legacy task: $LegacyTaskName"
+    Unregister-ScheduledTask -TaskName $LegacyTaskName -Confirm:$false
+}
 
 $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($existing) {
@@ -32,11 +39,11 @@ Register-ScheduledTask `
     -Trigger $Trigger `
     -Settings $Settings `
     -Principal $Principal `
-    -Description 'Weekly AppTask audit (Monday 08:00)' `
+    -Description 'Daily AppTask audit: full cards (projects) + full comments at 09:00' `
     -Force | Out-Null
 
 Write-Host "Task registered: $TaskName"
-Write-Host "Schedule: every Monday at 08:00"
+Write-Host "Schedule: every day at 09:00 (local PC time)"
 Write-Host "Command: $BatPath"
 Write-Host "Working directory: $ProjectRoot"
 Write-Host "On failure: restart up to 3 times, interval 1 minute"

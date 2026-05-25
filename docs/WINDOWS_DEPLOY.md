@@ -1,6 +1,6 @@
 # Windows runtime deployment
 
-Infrastructure for running the Discord bot at login and the weekly audit via Task Scheduler. Application code, env, and Playwright profile are unchanged — only these scripts and setup helpers.
+Infrastructure for running the Discord bot at login and the daily audit via Task Scheduler. Application code, env, and Playwright profile are unchanged — only these scripts and setup helpers.
 
 ## Prerequisites
 
@@ -42,7 +42,7 @@ You normally do not need to delete `bot.pid` by hand after a reboot.
 
 Or remove only the shortcut; do not delete `start-bot.bat` if you still run the bot manually.
 
-## Weekly audit (Task Scheduler)
+## Daily audit (Task Scheduler)
 
 From the project root in PowerShell (may prompt for admin depending on policy):
 
@@ -50,26 +50,30 @@ From the project root in PowerShell (may prompt for admin depending on policy):
 powershell -ExecutionPolicy Bypass -File infra\windows\setup-task-scheduler.ps1
 ```
 
-Creates or updates task **AppTask Weekly Audit**:
+Creates or updates task **AppTask Daily Audit** (removes legacy **AppTask Weekly Audit** if present):
 
 | Setting | Value |
 |--------|--------|
-| Schedule | Every Monday, 08:00 |
-| Action | `start-scheduled-audit.bat` |
-| Working directory | Project root |
+| Schedule | Every day, **09:00** (local PC time) |
+| Action | `start-scheduled-audit.bat` → `npm run audit:scheduled` |
+| Cards | Full audit per enabled project in `config/projects.json` |
+| Comments | Full check on `APPTASK_COMMENTS_BOARD_URL` |
+| Publish | Discord channel per project + comments to `AUDIT_DISCORD_CHANNEL_ID` |
 | On failure | Restart after 1 minute, up to 3 attempts |
 
 Logs: `logs\scheduled.log`.
+
+Requires `.env`: `DISCORD_BOT_TOKEN`, `APPTASK_COMMENTS_BOARD_URL`, projects or `APPTASK_BOARD_URL` + `AUDIT_DISCORD_CHANNEL_ID`.
 
 ### Remove the scheduled task
 
 PowerShell:
 
 ```powershell
-Unregister-ScheduledTask -TaskName "AppTask Weekly Audit" -Confirm:$false
+Unregister-ScheduledTask -TaskName "AppTask Daily Audit" -Confirm:$false
 ```
 
-Or: **Task Scheduler** → find **AppTask Weekly Audit** → Delete.
+Or: **Task Scheduler** → find **AppTask Daily Audit** → Delete.
 
 ## Verify
 
@@ -82,17 +86,17 @@ Or: **Task Scheduler** → find **AppTask Weekly Audit** → Delete.
 2. Check `logs\bot.log` for npm/Discord output.
 3. After enabling startup, reboot or sign out/in and confirm the log grows.
 
-### Weekly task
+### Daily task
 
-1. **Task Scheduler** → **AppTask Weekly Audit** → **Run** (right-click).
+1. **Task Scheduler** → **AppTask Daily Audit** → **Run** (right-click).
 2. Check `logs\scheduled.log`.
-3. Confirm `output\` contains a new audit folder after a successful run.
+3. Confirm `output\` contains new `audit-*` and `comments-*` folders after a successful run.
 
 ### List task (PowerShell)
 
 ```powershell
-Get-ScheduledTask -TaskName "AppTask Weekly Audit" | Format-List *
-Get-ScheduledTaskInfo -TaskName "AppTask Weekly Audit"
+Get-ScheduledTask -TaskName "AppTask Daily Audit" | Format-List *
+Get-ScheduledTaskInfo -TaskName "AppTask Daily Audit"
 ```
 
 ## Log files

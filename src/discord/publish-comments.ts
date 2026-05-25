@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { AttachmentBuilder } from "discord.js";
+import { AttachmentBuilder, type SendableChannels } from "discord.js";
 import type { RunCommentsCheckResult } from "../app/run-comments-check.js";
 
 export function formatBriefCommentsSummary(out: RunCommentsCheckResult): string {
@@ -49,4 +49,28 @@ export function buildCommentsReportAttachment(
 export function logCommentsReportSent(files: AttachmentBuilder[]): void {
   const names = files.map((f) => f.name).filter(Boolean).join(", ");
   console.log(`[comments-report] sent files ${names}`);
+}
+
+/** Публикует summary + файлы проверки комментариев в канал (scheduled / cron). */
+export async function publishFullCommentsReportToChannel(
+  channel: SendableChannels,
+  out: RunCommentsCheckResult,
+  channelId: string,
+): Promise<string[]> {
+  const content = formatCommentsCheckReply(out);
+  const files = buildCommentsReportAttachments(out);
+
+  await channel.send({ content });
+
+  const sentNames = files.map((f) => f.name).filter((n): n is string => !!n);
+  if (files.length === 0) {
+    console.warn("[comments-channel] No report files found for Discord attachments");
+    return sentNames;
+  }
+
+  await channel.send({ content: "📎 Report files", files });
+  console.log(
+    `[comments-channel] posted summary + ${files.length} file(s) to channel ${channelId}`,
+  );
+  return sentNames;
 }
