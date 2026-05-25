@@ -1,16 +1,59 @@
 import type { Locator, Page } from "@playwright/test";
+import { expandAllCategories } from "./collect.js";
+import {
+  loadCardOpenStrategy,
+  loadCardOpenTimeouts,
+  resolveOpenAttempts,
+} from "./card-open-config.js";
+import { saveCardOpenFailureArtifacts } from "./card-open-debug.js";
 import { createLogger } from "./logger.js";
 import { saveParseFailureArtifacts } from "./parse-debug.js";
 import { BOARD_SELECTORS, TASK_MODAL_SELECTORS } from "./selectors.js";
 import type { TaskRef } from "./task-ref.js";
 import { emptyRawTask, type RawTask, type TaskAssigneeRef } from "./types.js";
-import { parseTaskIdFromUrl, taskUrlPattern } from "./urls.js";
+import {
+  boardUrlPattern,
+  parseTaskIdFromUrl,
+  taskUrlPattern,
+} from "./urls.js";
 
 const log = createLogger("card");
 
-const OPEN_CARD_TIMEOUT_MS = 30_000;
-const MODAL_WAIT_MS = 60_000;
+const PARSE_UI_WAIT_MS = 12_000;
 const GET_TASK_DETAILS_RE = /\/board\/get_task_details/i;
+
+/** Селекторы готовности UI карточки (строгие первыми). */
+const TASK_UI_CANDIDATES: Array<{ selector: string; name: string }> = [
+  {
+    selector: TASK_MODAL_SELECTORS.root,
+    name: TASK_MODAL_SELECTORS.root,
+  },
+  { selector: ".modal.detailed-task", name: ".modal.detailed-task" },
+  {
+    selector:
+      ".modal-card-header__number, .modal-card-content__title, .modal-card-body__aside.js-asideSettings",
+    name: "modal-card markers",
+  },
+  { selector: ".modal-card-header", name: ".modal-card-header" },
+  { selector: ".modal-card.task-details", name: ".modal-card.task-details" },
+  { selector: ".modal-card", name: ".modal-card" },
+  { selector: '[class*="detailed-task"]', name: '[class*="detailed-task"]' },
+  { selector: '[class*="modal-card"]', name: '[class*="modal-card"]' },
+];
+
+export type OpenTaskCardResult =
+  | { ok: true; method: "direct" | "click"; matchedSelector: string }
+  | { ok: false; reason: string };
+
+export function buildPartialRawTask(ref: TaskRef, boardUrl: string): RawTask {
+  const task = emptyRawTask();
+  const base = boardUrl.replace(/\/$/, "");
+  task.id = ref.taskId;
+  task.url = ref.taskId ? `${base}/${ref.taskId}` : boardUrl;
+  task.title = ref.titlePreview;
+  task.category = ref.categoryName;
+  return task;
+}
 
 export class ParseTaskCardError extends Error {
   constructor(
@@ -28,85 +71,322 @@ function normalizeText(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-async function taskCardLocator(page: Page, ref: TaskRef): Promise<Locator> {
+function boardBaseUrl(boardUrl: string, page: Page, boardId: string): string {
+  const match = page.url().match(/^(https?:\/\/[^/]+\/c\/\d+\/board\/\d+)/);
+  return match?.[1] ?? boardUrl.replace(/\/$/, "");
+}
+
+function remainingMs(deadline: number): number {
+  return Math.max(0, deadline - Date.now());
+}
+
+async function waitForBoardReady(page: Page, timeoutMs: number): Promise<void> {
+  await page
+    .locator(BOARD_SELECTORS.category)
+    .first()
+    .waitFor({ state: "attached", timeout: timeoutMs });
+  await expandAllCategories(page);
+}
+
+async function gotoBoard(page: Page, boardUrl: string, gotoMs: number): Promise<void> {
+  await page.goto(boardUrl, {
+    waitUntil: "domcontentloaded",
+    timeout: gotoMs,
+  });
+  await waitForBoardReady(page, Math.min(gotoMs, 60_000));
+}
+
+async function ensureOnBoard(
+  page: Page,
+  boardUrl: string,
+  boardId: string,
+  gotoMs: number,
+): Promise<void> {
+  const onTaskDeepLink = /\/board\/\d+\/\d+/.test(page.url());
+  const onBoard =
+    boardUrlPattern(boardId).test(page.url()) && !onTaskDeepLink;
+  if (!onBoard) {
+    await gotoBoard(page, boardUrl, gotoMs);
+  }
+}
+
+async function findTaskCardOnBoard(page: Page, ref: TaskRef, boardId: string): Promise<Locator | null> {
   const category = page.locator(`[id="${ref.categoryId}"]`);
 
   if (ref.taskId) {
-    return page.locator(`[id="${ref.taskId}"].project-card`);
+    const byId = page.locator(`[id="${ref.taskId}"].project-card`);
+    if (await byId.count()) return byId.first();
+
+    const byHref = page.locator(
+      `a[href*="/board/${boardId}/${ref.taskId}"], [data-id="${ref.taskId}"]`,
+    );
+    if (await byHref.count()) {
+      const card = byHref.locator(BOARD_SELECTORS.taskCard).first();
+      if (await card.count()) return card;
+      return byHref.first();
+    }
   }
 
   if (ref.titlePreview) {
-    return category
+    const exact = category
       .locator(BOARD_SELECTORS.taskCard)
       .filter({ hasText: ref.titlePreview })
       .first();
+    if (await exact.count()) return exact;
+
+    const loose = page
+      .locator(BOARD_SELECTORS.taskCard)
+      .filter({ hasText: ref.titlePreview })
+      .first();
+    if (await loose.count()) return loose;
   }
 
-  return category.locator(BOARD_SELECTORS.taskCard).first();
+  if (await category.locator(BOARD_SELECTORS.taskCard).count()) {
+    return category.locator(BOARD_SELECTORS.taskCard).first();
+  }
+
+  return null;
 }
 
-function boardBaseUrlFromPage(page: Page, boardId: string): string {
-  const match = page.url().match(/^(https?:\/\/[^/]+\/c\/\d+\/board\/\d+)/);
-  return match?.[1] ?? `https://apptask.ru/c/7/board/${boardId}`;
+async function waitForTaskCardUi(
+  page: Page,
+  timeoutMs: number,
+): Promise<{ locator: Locator; matchedSelector: string } | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    for (const cand of TASK_UI_CANDIDATES) {
+      const loc = page.locator(cand.selector).first();
+      if (!(await loc.count())) continue;
+      try {
+        await loc.waitFor({ state: "visible", timeout: 2_000 });
+        return { locator: loc, matchedSelector: cand.name };
+      } catch {
+        try {
+          await loc.waitFor({ state: "attached", timeout: 1_500 });
+          return { locator: loc, matchedSelector: cand.name };
+        } catch {
+          // next candidate
+        }
+      }
+    }
+    await page.waitForTimeout(300);
+  }
+  return null;
+}
+
+async function tryOpenDirect(
+  page: Page,
+  ref: TaskRef,
+  boardUrl: string,
+  boardId: string,
+  uiTimeoutMs: number,
+  gotoMs: number,
+): Promise<{ ok: true; matchedSelector: string } | null> {
+  if (!ref.taskId) return null;
+
+  const taskUrl = `${boardBaseUrl(boardUrl, page, boardId)}/${ref.taskId}`;
+  log.info(`[card] try direct url=${taskUrl}`);
+
+  const detailsPromise = page
+    .waitForResponse(
+      (r) =>
+        GET_TASK_DETAILS_RE.test(r.url()) &&
+        r.request().method() === "POST" &&
+        r.status() === 200,
+      { timeout: uiTimeoutMs },
+    )
+    .catch(() => null);
+
+  await page.goto(taskUrl, {
+    waitUntil: "domcontentloaded",
+    timeout: gotoMs,
+  });
+  await detailsPromise;
+  await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+
+  const ui = await waitForTaskCardUi(page, uiTimeoutMs);
+  if (ui) return { ok: true, matchedSelector: ui.matchedSelector };
+
+  log.info(`[card] direct url UI timeout taskId=${ref.taskId}`);
+  await saveCardOpenFailureArtifacts(
+    page,
+    ref,
+    "direct-fail",
+    `direct url UI timeout (${uiTimeoutMs}ms)`,
+  );
+  return null;
+}
+
+async function tryOpenClick(
+  page: Page,
+  ref: TaskRef,
+  boardUrl: string,
+  boardId: string,
+  uiTimeoutMs: number,
+  gotoMs: number,
+): Promise<{ ok: true; matchedSelector: string } | null> {
+  log.info(`[card] try click fallback taskId=${ref.taskId ?? "?"}`);
+
+  await gotoBoard(page, boardUrl, gotoMs);
+
+  const card = await findTaskCardOnBoard(page, ref, boardId);
+  if (!card) {
+    log.info(`[card] click fallback: card not found on board taskId=${ref.taskId ?? "?"}`);
+    return null;
+  }
+
+  const detailsPromise = page
+    .waitForResponse(
+      (r) =>
+        GET_TASK_DETAILS_RE.test(r.url()) &&
+        r.request().method() === "POST" &&
+        r.status() === 200,
+      { timeout: uiTimeoutMs },
+    )
+    .catch(() => null);
+
+  await card.scrollIntoViewIfNeeded();
+  await card.click({ timeout: 10_000 });
+  await page
+    .waitForURL(taskUrlPattern(boardId), { timeout: Math.min(gotoMs, 15_000) })
+    .catch(() => undefined);
+  await detailsPromise;
+  await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+
+  const ui = await waitForTaskCardUi(page, uiTimeoutMs);
+  if (ui) {
+    log.info(
+      `[card] click fallback opened taskId=${ref.taskId ?? "?"} selector=${ui.matchedSelector}`,
+    );
+    return { ok: true, matchedSelector: ui.matchedSelector };
+  }
+
+  await saveCardOpenFailureArtifacts(
+    page,
+    ref,
+    "click-fail",
+    `click fallback UI timeout (${uiTimeoutMs}ms)`,
+  );
+  return null;
 }
 
 export async function openTaskCard(
   page: Page,
   ref: TaskRef,
+  boardUrl: string,
   boardId: string,
-): Promise<void> {
+): Promise<OpenTaskCardResult> {
+  const strategy = loadCardOpenStrategy();
+  const timeouts = loadCardOpenTimeouts();
+  const attempts = resolveOpenAttempts(strategy, ref.taskId);
+  const deadline = Date.now() + timeouts.totalMs;
+
   log.info(
-    `open card: category=${ref.categoryId} taskId=${ref.taskId ?? "?"} title="${ref.titlePreview ?? ""}"`,
+    `[card] strategy=${strategy} taskId=${ref.taskId ?? "?"} title="${ref.titlePreview ?? ""}"`,
   );
 
-  const detailsPromise = page.waitForResponse(
-    (r) =>
-      GET_TASK_DETAILS_RE.test(r.url()) &&
-      r.request().method() === "POST" &&
-      r.status() === 200,
-    { timeout: MODAL_WAIT_MS },
+  await ensureOnBoard(
+    page,
+    boardUrl,
+    boardId,
+    Math.min(timeouts.gotoMs, remainingMs(deadline) || timeouts.gotoMs),
   );
 
-  if (ref.taskId) {
-    const taskUrl = `${boardBaseUrlFromPage(page, boardId)}/${ref.taskId}`;
-    await page.goto(taskUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: OPEN_CARD_TIMEOUT_MS,
-    });
-  } else {
-    const card = await taskCardLocator(page, ref);
-    await card.scrollIntoViewIfNeeded();
-    await card.click();
-    await page.waitForURL(taskUrlPattern(boardId), {
-      timeout: OPEN_CARD_TIMEOUT_MS,
-    });
+  let directFailed = false;
+
+  for (const method of attempts) {
+    if (remainingMs(deadline) <= 0) break;
+
+    const uiTimeout = Math.min(
+      method === "direct" ? timeouts.directUiMs : timeouts.clickUiMs,
+      remainingMs(deadline),
+    );
+    const gotoMs = Math.min(timeouts.gotoMs, remainingMs(deadline));
+
+    if (method === "direct") {
+      const direct = await tryOpenDirect(
+        page,
+        ref,
+        boardUrl,
+        boardId,
+        uiTimeout,
+        gotoMs,
+      );
+      if (direct) {
+        log.info(`[card] direct url opened taskId=${ref.taskId ?? "?"}`);
+        return { ok: true, method: "direct", matchedSelector: direct.matchedSelector };
+      }
+      directFailed = true;
+      continue;
+    }
+
+    if (directFailed) {
+      log.info(
+        `[card] direct URL failed, trying click fallback taskId=${ref.taskId ?? "?"}`,
+      );
+    }
+
+    const clicked = await tryOpenClick(
+      page,
+      ref,
+      boardUrl,
+      boardId,
+      uiTimeout,
+      gotoMs,
+    );
+    if (clicked) {
+      if (directFailed && ref.taskId) {
+        log.info(
+          `[card] direct URL failed, click fallback succeeded taskId=${ref.taskId}`,
+        );
+      }
+      return { ok: true, method: "click", matchedSelector: clicked.matchedSelector };
+    }
   }
 
-  await detailsPromise.catch(() => undefined);
-  await waitForTaskModal(page);
-  log.info(`card open: ${page.url()}`);
+  if (directFailed && ref.taskId) {
+    log.info(
+      `[card] direct URL failed, click fallback failed taskId=${ref.taskId}, using partial task`,
+    );
+  }
+
+  return {
+    ok: false,
+    reason: `card UI not ready (taskId=${ref.taskId ?? "?"})`,
+  };
 }
 
 export async function closeTaskCard(page: Page): Promise<void> {
-  const closeBtn = page.locator(
-    '.modal.detailed-task button, .modal-card-action__button',
-  ).first();
+  const closeBtn = page.locator(TASK_MODAL_SELECTORS.closeButton).first();
   if (await closeBtn.isVisible().catch(() => false)) {
-    await page.keyboard.press("Escape");
-  } else {
-    await page.keyboard.press("Escape");
+    await closeBtn.click({ force: true }).catch(() => undefined);
   }
+  await page.keyboard.press("Escape");
   await page.waitForTimeout(300);
 }
 
-async function waitForTaskModal(page: Page): Promise<Locator> {
-  const modal = page.locator(TASK_MODAL_SELECTORS.root).first();
-  try {
-    await modal.waitFor({ state: "visible", timeout: 20_000 });
-  } catch {
-    await modal.waitFor({ state: "attached", timeout: 10_000 });
+async function requireTaskCardModal(page: Page): Promise<Locator> {
+  const ui = await waitForTaskCardUi(page, PARSE_UI_WAIT_MS);
+  if (!ui) {
+    throw new Error(
+      `task card UI not ready (url=${page.url()}, selectors=${TASK_MODAL_SELECTORS.root})`,
+    );
   }
-  return modal;
+  const detailed = page.locator(TASK_MODAL_SELECTORS.root).first();
+  if (await detailed.count()) {
+    try {
+      await detailed.waitFor({ state: "visible", timeout: 5_000 });
+      return detailed;
+    } catch {
+      try {
+        await detailed.waitFor({ state: "attached", timeout: 3_000 });
+        return detailed;
+      } catch {
+        // fall through
+      }
+    }
+  }
+  return ui.locator;
 }
 
 function asideScope(modal: Locator): Locator {
@@ -283,7 +563,7 @@ export async function parseTaskCard(
   task.category = taskRef.categoryName;
 
   try {
-    const modal = await waitForTaskModal(page);
+    const modal = await requireTaskCardModal(page);
     const url = page.url();
     task.url = url;
     task.id = parseTaskIdFromUrl(url);
@@ -320,7 +600,9 @@ export async function parseTaskCard(
     task.links = await readLinks(modal);
     task.attachments = await readAttachments(modal);
 
-    log.info(`parsed task id=${task.id ?? "?"} title="${task.title ?? ""}"`);
+    log.info(
+      `[card] parse success taskId=${task.id ?? "?"} title="${task.title ?? ""}"`,
+    );
     return task;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

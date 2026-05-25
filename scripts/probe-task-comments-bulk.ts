@@ -253,7 +253,8 @@ async function openTaskForProbe(
     return;
   }
 
-  await openTaskCard(page, ref, boardId);
+  const opened = await openTaskCard(page, ref, boardUrl, boardId);
+  if (!opened.ok) throw new Error(opened.reason);
 }
 
 async function activateCommentsTab(page: Page): Promise<void> {

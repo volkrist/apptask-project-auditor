@@ -12,6 +12,10 @@ import {
   loadCommentsAuditConfig,
   shouldLoadCommentsForTask,
 } from "../../src/comments/comments-audit-config.js";
+import {
+  isTaskOnBoard,
+  resolveCommentsBoardContext,
+} from "../../src/comments/comments-board-context.js";
 import { enrichTasksWithComments } from "../../src/comments/enrich-tasks-comments.js";
 import { loadAuditConfig } from "../../src/config/audit-config.js";
 import { evaluateTask } from "../../src/rules/evaluate.js";
@@ -78,6 +82,76 @@ test("all: every task with id is selected", () => {
   assert.equal(selected.length, 2);
 });
 
+test("candidates + commentsLimit=2: only first two candidates", () => {
+  const tasks = [
+    task({ id: "1", status: "В процессе" }),
+    task({ id: "2", dueDate: null, status: "Завершено" }),
+    task({ id: "3", status: "На проверке" }),
+  ];
+  const selected = filterTasksForCommentsLoad(tasks, {
+    mode: "candidates",
+    commentsLimit: 2,
+  });
+  assert.deepEqual(
+    selected.map((t) => t.id),
+    ["1", "2"],
+  );
+});
+
+test("all + commentsLimit=2: only first two tasks with id", () => {
+  const tasks = [
+    task({ id: "1" }),
+    task({ id: "2" }),
+    task({ id: "3" }),
+  ];
+  const selected = filterTasksForCommentsLoad(tasks, {
+    mode: "all",
+    commentsLimit: 2,
+  });
+  assert.deepEqual(
+    selected.map((t) => t.id),
+    ["1", "2"],
+  );
+});
+
+test("commentsLimit does not affect audit task list size", () => {
+  const tasks = [
+    task({ id: "1", status: "В процессе" }),
+    task({ id: "2", status: "В процессе" }),
+    task({ id: "3", status: "В процессе" }),
+  ];
+  const forComments = filterTasksForCommentsLoad(tasks, {
+    mode: "all",
+    commentsLimit: 1,
+  });
+  assert.equal(forComments.length, 1);
+  assert.equal(tasks.length, 3);
+});
+
+test("COMMENTS_AUDIT_LIMIT from env", () => {
+  const prev = process.env.COMMENTS_AUDIT_LIMIT;
+  process.env.COMMENTS_AUDIT_LIMIT = "5";
+  try {
+    const cfg = loadCommentsAuditConfig();
+    assert.equal(cfg.commentsLimit, 5);
+  } finally {
+    if (prev === undefined) delete process.env.COMMENTS_AUDIT_LIMIT;
+    else process.env.COMMENTS_AUDIT_LIMIT = prev;
+  }
+});
+
+test("Discord override: commentsLimit in config beats env", () => {
+  const prev = process.env.COMMENTS_AUDIT_LIMIT;
+  process.env.COMMENTS_AUDIT_LIMIT = "10";
+  try {
+    const cfg = loadCommentsAuditConfig({ commentsLimit: 2 });
+    assert.equal(cfg.commentsLimit, 2);
+  } finally {
+    if (prev === undefined) delete process.env.COMMENTS_AUDIT_LIMIT;
+    else process.env.COMMENTS_AUDIT_LIMIT = prev;
+  }
+});
+
 test("htmlCommentContentToText: <br> → plain text", () => {
   const plain = htmlCommentContentToText(
     "Нужно <br>уточнить<br> сроки&nbsp;",
@@ -109,8 +183,29 @@ test("unresolved_question: keyword in comment.content (HTML)", async () => {
   assert.equal(statusOf(results, RULE_UNRESOLVED), "FAIL");
 });
 
+test("resolveCommentsBoardContext parses boardId from board_url", () => {
+  const ctx = resolveCommentsBoardContext(
+    "https://apptask.ru/c/7/board/54",
+  );
+  assert.ok(ctx);
+  assert.equal(ctx.boardId, "54");
+  assert.equal(ctx.boardIdNum, 54);
+  assert.equal(ctx.boardUrl, "https://apptask.ru/c/7/board/54");
+});
+
+test("isTaskOnBoard rejects task url from another board", () => {
+  const t = task({
+    id: "1",
+    url: "https://apptask.ru/c/7/board/445/1",
+  });
+  assert.equal(isTaskOnBoard(t, "54"), false);
+});
+
 test("enrichTasksWithComments: API error → comments=[], audit helpers ok", async () => {
   const fakePage = {
+    context: () => ({
+      cookies: async () => [],
+    }),
     request: {
       post: async () => ({
         ok: () => false,
@@ -120,11 +215,18 @@ test("enrichTasksWithComments: API error → comments=[], audit helpers ok", asy
     },
   } as unknown as Page;
 
-  const t = task({ id: "5765", status: "В процессе" });
+  const board = resolveCommentsBoardContext(
+    "https://apptask.ru/c/7/board/54",
+  )!;
+  const t = task({
+    id: "5765",
+    status: "В процессе",
+    url: "https://apptask.ru/c/7/board/54/5765",
+  });
   const stats = await enrichTasksWithComments(fakePage, [t], {
     mode: "candidates",
     concurrency: 1,
-  });
+  }, board);
 
   assert.equal(stats.checkedComments, 1);
   assert.deepEqual(t.comments, []);

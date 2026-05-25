@@ -6,8 +6,10 @@ import {
 import { openBoardWithReadiness, BOARD_READY_TIMEOUT_MS } from "../adapters/apptask/board.js";
 import { BOARD_SELECTORS } from "../adapters/apptask/selectors.js";
 import {
+  buildPartialRawTask,
   closeTaskCard,
   openTaskCard,
+  ParseTaskCardError,
   parseTaskCard,
 } from "../adapters/apptask/card.js";
 import {
@@ -23,7 +25,16 @@ import {
   loadCommentsAuditConfig,
   type CommentsAuditMode,
 } from "../comments/comments-audit-config.js";
-import { enrichTasksWithComments } from "../comments/enrich-tasks-comments.js";
+import {
+  enrichTasksWithComments,
+  type EnrichCommentsResult,
+} from "../comments/enrich-tasks-comments.js";
+import { collectRawTasksForCommentsBoard } from "../comments/comments-board-collect.js";
+import {
+  isSameCommentsBoard,
+  resolveCommentsBoardContext,
+  resolveCommentsBoardUrl,
+} from "../comments/comments-board-context.js";
 import {
   loadAppTaskUsers,
   type AppTaskUser,
@@ -48,7 +59,7 @@ async function restoreBoardView(page: Page, boardUrl: string): Promise<void> {
   }
 
   if (await modal.isVisible().catch(() => false) || /\/board\/\d+\/\d+/.test(page.url())) {
-    log.info("return to board list URL");
+    log.info(`[card] returned to board boardUrl=${boardUrl}`);
     await page.goto(boardUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
   }
 
@@ -66,12 +77,17 @@ export type CollectTasksOptions = {
   onProgress?: (current: number, total: number, title: string | null) => void;
   /** Переопределяет COMMENTS_AUDIT_MODE из env. */
   commentsAuditMode?: CommentsAuditMode;
+  /** Лимит только для загрузки комментариев (не maxCards). */
+  commentsAuditLimit?: number;
+  /** Отдельная доска для comments audit; если не задана — board_url. */
+  commentsBoardUrl?: string;
 };
 
 export type CollectTasksResult = {
   tasks: RawTask[];
   totalOnBoard: number;
   appTaskUsers: AppTaskUser[];
+  commentsAudit?: EnrichCommentsResult;
 };
 
 async function collectTasksPlaywrightOnPage(
@@ -81,11 +97,12 @@ async function collectTasksPlaywrightOnPage(
   options: CollectTasksOptions,
   appTaskUsers: AppTaskUser[],
 ): Promise<CollectTasksResult> {
-  const commentsConfig = loadCommentsAuditConfig(
-    options.commentsAuditMode
-      ? { mode: options.commentsAuditMode }
-      : {},
-  );
+  const commentsConfig = loadCommentsAuditConfig({
+    mode: options.commentsAuditMode ?? "off",
+    ...(options.commentsAuditLimit != null
+      ? { commentsLimit: options.commentsAuditLimit }
+      : {}),
+  });
   const stopApiDiscovery =
     commentsConfig.mode !== "off"
       ? attachCommentsApiDiscovery(page)
@@ -112,6 +129,14 @@ async function collectTasksPlaywrightOnPage(
     refsToProcess = refsToProcess.slice(0, options.maxCards);
   }
 
+  log.info(
+    `board refs=${totalOnBoard}, will audit=${refsToProcess.length}${
+      options.maxCards && options.maxCards > 0
+        ? ` (card limit=${options.maxCards})`
+        : " (no card limit)"
+    }`,
+  );
+
   const tasks: RawTask[] = [];
 
   for (let i = 0; i < refsToProcess.length; i++) {
@@ -120,23 +145,74 @@ async function collectTasksPlaywrightOnPage(
     options.onProgress?.(i + 1, refsToProcess.length, ref.titlePreview);
 
     log.info(`[${i + 1}/${refsToProcess.length}] parse: ${title}`);
-    await openTaskCard(page, ref, boardId);
-    const task = await parseTaskCard(page, ref);
-    await closeTaskCard(page);
-    await restoreBoardView(page, boardUrl);
-    tasks.push(task);
+    try {
+      const openResult = await openTaskCard(page, ref, boardUrl, boardId);
+      if (!openResult.ok) {
+        log.info(`[card] parse failed taskId=${ref.taskId ?? "?"}, using partial task`);
+        tasks.push(buildPartialRawTask(ref, boardUrl));
+        await closeTaskCard(page).catch(() => undefined);
+        await restoreBoardView(page, boardUrl).catch(() => undefined);
+        continue;
+      }
+
+      const task = await parseTaskCard(page, ref);
+      await closeTaskCard(page);
+      await restoreBoardView(page, boardUrl);
+      tasks.push(task);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const recoverable =
+        err instanceof ParseTaskCardError ||
+        /task card UI not ready|Timeout.*exceeded/i.test(message);
+      if (recoverable) {
+        log.info(`[card] parse failed taskId=${ref.taskId ?? "?"}, using partial task: ${message}`);
+        tasks.push(buildPartialRawTask(ref, boardUrl));
+        await closeTaskCard(page).catch(() => undefined);
+        await restoreBoardView(page, boardUrl).catch(() => undefined);
+        continue;
+      }
+      await closeTaskCard(page).catch(() => undefined);
+      await restoreBoardView(page, boardUrl).catch(() => undefined);
+      throw err;
+    }
   }
 
   stopApiDiscovery();
-  const boardIdNum = Number(boardId);
-  await enrichTasksWithComments(
-    page,
-    tasks,
-    commentsConfig,
-    Number.isFinite(boardIdNum) ? boardIdNum : undefined,
-  );
+  if (!page.url().includes(`/board/${boardId}`) || /\/board\/\d+\/\d+/.test(page.url())) {
+    await page.goto(boardUrl, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(
+      () => undefined,
+    );
+  }
+  let commentsAudit: EnrichCommentsResult | undefined;
+  if (commentsConfig.mode !== "off") {
+    const commentsBoardUrl = resolveCommentsBoardUrl(
+      boardUrl,
+      options.commentsBoardUrl,
+    );
+    log.info(`Comments audit boardUrl=${commentsBoardUrl}`);
+    const commentsBoard = resolveCommentsBoardContext(commentsBoardUrl);
+    if (!commentsBoard) {
+      log.info(`Comments audit skipped: invalid boardUrl=${commentsBoardUrl}`);
+    } else {
+      const useMainTasks = isSameCommentsBoard(boardUrl, commentsBoardUrl);
+      const tasksForComments = useMainTasks
+        ? tasks
+        : await collectRawTasksForCommentsBoard(page, commentsBoardUrl);
+      if (!useMainTasks) {
+        log.info(
+          `Comments audit: separate board, ${tasksForComments.length} task(s) for comment load`,
+        );
+      }
+      commentsAudit = await enrichTasksWithComments(
+        page,
+        tasksForComments,
+        commentsConfig,
+        commentsBoard,
+      );
+    }
+  }
 
-  return { tasks, totalOnBoard, appTaskUsers };
+  return { tasks, totalOnBoard, appTaskUsers, commentsAudit };
 }
 
 async function collectTasksPlaywright(

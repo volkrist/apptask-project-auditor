@@ -6,6 +6,8 @@ export type CommentsAuditMode = "off" | "candidates" | "all";
 export type CommentsAuditConfig = {
   mode: CommentsAuditMode;
   concurrency: number;
+  /** Макс. задач для загрузки комментариев (не общий limit аудита). */
+  commentsLimit?: number;
 };
 
 const IN_PROGRESS_RE = /в\s*процессе|in\s*progress|\bprogress\b/i;
@@ -23,16 +25,34 @@ function parseConcurrency(raw: string | undefined): number {
   return Math.min(Math.floor(n), 10);
 }
 
+function parseCommentsLimit(raw: string | undefined): number | undefined {
+  if (!raw?.trim()) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) return undefined;
+  return Math.min(Math.floor(n), 300);
+}
+
 export function loadCommentsAuditConfig(
   overrides: Partial<CommentsAuditConfig> = {},
 ): CommentsAuditConfig {
-  return {
+  const config: CommentsAuditConfig = {
     mode: overrides.mode ?? parseMode(process.env.COMMENTS_AUDIT_MODE),
     concurrency: overrides.concurrency ?? parseConcurrency(
       process.env.COMMENTS_AUDIT_CONCURRENCY,
     ),
   };
+  if (overrides.commentsLimit !== undefined) {
+    config.commentsLimit = overrides.commentsLimit;
+  } else {
+    const fromEnv = parseCommentsLimit(process.env.COMMENTS_AUDIT_LIMIT);
+    if (fromEnv !== undefined) config.commentsLimit = fromEnv;
+  }
+  return config;
 }
+
+export type CommentsFilterInput =
+  | CommentsAuditMode
+  | Pick<CommentsAuditConfig, "mode" | "commentsLimit">;
 
 export function isInProgressTask(task: RawTask): boolean {
   const hay = `${task.status ?? ""} ${task.stage ?? ""}`.trim();
@@ -64,10 +84,21 @@ export function shouldLoadCommentsForTask(task: RawTask): boolean {
 
 export function filterTasksForCommentsLoad(
   tasks: RawTask[],
-  mode: CommentsAuditMode,
+  input: CommentsFilterInput,
 ): RawTask[] {
+  const mode = typeof input === "string" ? input : input.mode;
+  const commentsLimit =
+    typeof input === "string" ? undefined : input.commentsLimit;
+
   if (mode === "off") return [];
+
   const withId = tasks.filter((t) => t.id?.trim());
-  if (mode === "all") return withId;
-  return withId.filter(shouldLoadCommentsForTask);
+  let matched =
+    mode === "all" ? withId : withId.filter(shouldLoadCommentsForTask);
+
+  if (commentsLimit != null && commentsLimit > 0) {
+    matched = matched.slice(0, commentsLimit);
+  }
+
+  return matched;
 }

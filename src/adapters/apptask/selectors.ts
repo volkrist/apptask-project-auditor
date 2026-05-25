@@ -9,7 +9,8 @@ export const BOARD_SELECTORS = {
 } as const;
 
 export const TASK_MODAL_SELECTORS = {
-  root: ".modal__content.modal-card.task-details, .modal-card.task-details",
+  root:
+    ".modal.detailed-task, .modal__content.modal-card.task-details, .modal-card.task-details",
   taskNumber: ".modal-card-header__number",
   createdAt: ".modal-card-header__date",
   title: ".modal-card-content__title",

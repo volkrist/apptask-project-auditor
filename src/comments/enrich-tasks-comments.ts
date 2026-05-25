@@ -6,6 +6,10 @@ import {
   type CommentsAuditConfig,
   filterTasksForCommentsLoad,
 } from "./comments-audit-config.js";
+import {
+  type CommentsBoardContext,
+  isTaskOnBoard,
+} from "./comments-board-context.js";
 
 const log = createLogger("comments:enrich");
 
@@ -29,7 +33,11 @@ async function runPool<T>(
 }
 
 export type EnrichCommentsResult = {
+  boardUrl: string;
+  boardId: string;
   mode: CommentsAuditConfig["mode"];
+  commentsLimit: number | null;
+  /** Задач-кандидатов по mode до применения commentsLimit. */
   candidates: number;
   checkedComments: number;
   tasksWithComments: number;
@@ -44,24 +52,51 @@ export async function enrichTasksWithComments(
   page: Page,
   tasks: RawTask[],
   config: CommentsAuditConfig,
-  boardId?: number,
+  board: CommentsBoardContext,
 ): Promise<EnrichCommentsResult> {
   const started = Date.now();
+  const limitLabel =
+    config.commentsLimit != null ? String(config.commentsLimit) : null;
+
   const empty: EnrichCommentsResult = {
+    boardUrl: board.boardUrl,
+    boardId: board.boardId,
     mode: config.mode,
+    commentsLimit: limitLabel != null ? config.commentsLimit! : null,
     candidates: 0,
     checkedComments: 0,
     tasksWithComments: 0,
     durationMs: 0,
   };
 
-  if (config.mode === "off") return empty;
+  if (config.mode === "off") {
+    return empty;
+  }
 
-  const targets = filterTasksForCommentsLoad(tasks, config.mode);
-  empty.candidates = targets.length;
+  log.info(
+    `Comments audit: boardUrl=${board.boardUrl}, boardId=${board.boardId}, mode=${config.mode}, comments_limit=${limitLabel ?? "none"}`,
+  );
+
+  const onBoard = tasks.filter((t) => isTaskOnBoard(t, board.boardId));
+  const skipped = tasks.length - onBoard.length;
+  if (skipped > 0) {
+    log.info(
+      `Comments audit: skipped ${skipped} task(s) not matching boardId=${board.boardId}`,
+    );
+  }
+
+  const candidates = filterTasksForCommentsLoad(onBoard, {
+    mode: config.mode,
+  });
+  empty.candidates = candidates.length;
+
+  const targets = filterTasksForCommentsLoad(onBoard, config);
 
   if (targets.length === 0) {
     empty.durationMs = Date.now() - started;
+    log.info(
+      `Comments audit: boardId=${board.boardId}, checked=0, withComments=0`,
+    );
     return empty;
   }
 
@@ -69,7 +104,11 @@ export async function enrichTasksWithComments(
 
   await runPool(targets, config.concurrency, async (task) => {
     const taskId = task.id!;
-    const apiComments = await loadTaskComments(page, taskId, boardId);
+    const apiComments = await loadTaskComments(
+      page,
+      taskId,
+      board.boardIdNum,
+    );
     const mapped = appTaskCommentsToTaskComments(apiComments);
     task.comments = mapped;
     if (mapped.length > 0) withComments++;
@@ -79,12 +118,15 @@ export async function enrichTasksWithComments(
   const durationSec = Math.round(durationMs / 1000);
 
   log.info(
-    `Comments audit: mode=${config.mode}, checked=${targets.length}, withComments=${withComments}, duration=${durationSec}s`,
+    `Comments audit: boardUrl=${board.boardUrl}, boardId=${board.boardId}, mode=${config.mode}, limit=${limitLabel ?? "none"}, checked=${targets.length}, withComments=${withComments}, duration=${durationSec}s`,
   );
 
   return {
+    boardUrl: board.boardUrl,
+    boardId: board.boardId,
     mode: config.mode,
-    candidates: targets.length,
+    commentsLimit: limitLabel != null ? config.commentsLimit! : null,
+    candidates: empty.candidates,
     checkedComments: targets.length,
     tasksWithComments: withComments,
     durationMs,

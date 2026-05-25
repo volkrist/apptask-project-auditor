@@ -119,8 +119,7 @@ async function collectCardsInContainer(
     if (!(await card.isVisible().catch(() => false))) continue;
 
     const rawId = await card.getAttribute("id");
-    const taskId =
-      rawId && /^\d+$/.test(rawId) && rawId.length >= 4 ? rawId : null;
+    const taskId = rawId && /^\d+$/.test(rawId) ? rawId : null;
     const titlePreview = await readCardTitle(card);
 
     refs.push({

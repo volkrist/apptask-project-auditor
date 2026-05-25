@@ -25,6 +25,7 @@
     "probe:board:api": "tsx scripts/probe-board-api.ts",
     "probe:collector:api": "tsx scripts/probe-api-collector.ts",
     "test:collectors": "node --import tsx --test tests/collectors/*.test.ts",
+    "test:discord": "node --import tsx --test tests/discord/*.test.ts",
     "probe:users:inactive": "tsx scripts/probe-users-inactive-diagnostic.ts",
     "probe:payroll:fired": "tsx scripts/probe-payroll-fired-diagnostic.ts",
     "probe:tracking:comments": "tsx scripts/probe-tracking-comments.ts"

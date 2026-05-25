@@ -28,7 +28,8 @@ async function probeCard(
     return;
   }
 
-  await openTaskCard(page, ref, boardId);
+  const opened = await openTaskCard(page, ref, BOARD_URL, boardId);
+  if (!opened.ok) throw new Error(opened.reason);
   const modal = page.locator(".modal-card.task-details");
   const aside = modal.locator(".modal-card-body__aside.js-asideSettings");
   const wrappers = await aside.locator(".modal-card-body__wrapper").evaluateAll((els) =>

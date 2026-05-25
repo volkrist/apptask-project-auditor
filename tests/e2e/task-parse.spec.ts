@@ -28,7 +28,8 @@ test.describe("AppTask task parser", () => {
     expect(refs.length).toBeGreaterThan(0);
 
     const ref = refs[0]!;
-    await openTaskCard(page, ref, boardId!);
+    const opened = await openTaskCard(page, ref, BOARD_URL, boardId!);
+    expect(opened.ok).toBe(true);
     const task = await parseTaskCard(page, ref);
     await closeTaskCard(page);
 

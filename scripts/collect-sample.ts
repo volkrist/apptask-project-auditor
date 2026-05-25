@@ -39,7 +39,8 @@ async function main(): Promise<void> {
     const ref = refs[0]!;
     console.log(`Sample card: ${JSON.stringify(ref)}`);
 
-    await openTaskCard(page, ref, boardId);
+    const opened = await openTaskCard(page, ref, BOARD_URL, boardId);
+    if (!opened.ok) throw new Error(opened.reason);
     const task = await parseTaskCard(page, ref);
     await closeTaskCard(page);
 

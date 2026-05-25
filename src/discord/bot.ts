@@ -4,7 +4,6 @@ import path from "node:path";
 
 acquireBotInstanceLock();
 import {
-  ApplicationCommandOptionType,
   type AttachmentBuilder,
   ChannelType,
   Client,
@@ -15,13 +14,30 @@ import {
   Routes,
   type ChatInputCommandInteraction,
 } from "discord.js";
+import { isAuditLocked } from "../app/audit-lock.js";
+import { runCommentsCheck } from "../app/run-comments-check.js";
 import { runAudit, type RunAuditResult } from "../app/run-audit.js";
-import type { CommentsAuditMode } from "../comments/comments-audit-config.js";
+import {
+  resolveAuditBoard,
+  resolveBoardUrl,
+  resolveCommentsBoard,
+} from "./resolve-board-url.js";
+import {
+  AUDIT_SLASH_COMMANDS,
+  COMMENTS_SLASH_COMMANDS,
+  formatSlashCommandsForLog,
+  slashCommands,
+} from "./slash-commands.js";
 import {
   addProject,
   loadProjects,
   removeProject,
 } from "../config/projects.js";
+import {
+  buildCommentsReportAttachments,
+  formatCommentsCheckReply,
+  logCommentsReportSent,
+} from "./publish-comments.js";
 import {
   buildReportAttachments,
   formatAuditReply,
@@ -39,81 +55,6 @@ const auditChannelId = process.env.AUDIT_DISCORD_CHANNEL_ID?.trim() || null;
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
-
-const slashCommands = [
-  {
-    name: "audit",
-    description: "Run AppTask audit",
-    options: [
-      {
-        name: "board_url",
-        description: "AppTask board URL",
-        type: ApplicationCommandOptionType.String,
-        required: false,
-      },
-      {
-        name: "limit",
-        description: "Limit number of cards for audit",
-        type: ApplicationCommandOptionType.Integer,
-        required: false,
-        min_value: 1,
-        max_value: 100,
-      },
-      {
-        name: "comments_mode",
-        description: "Task card comments: off (default), candidates, or all",
-        type: ApplicationCommandOptionType.String,
-        required: false,
-        choices: [
-          { name: "off", value: "off" },
-          { name: "candidates", value: "candidates" },
-          { name: "all", value: "all" },
-        ],
-      },
-    ],
-  },
-  {
-    name: "project_add",
-    description: "Save AppTask board → Discord channel mapping",
-    options: [
-      {
-        name: "name",
-        description: "Project name",
-        type: ApplicationCommandOptionType.String,
-        required: true,
-      },
-      {
-        name: "board_url",
-        description: "AppTask board URL",
-        type: ApplicationCommandOptionType.String,
-        required: true,
-      },
-      {
-        name: "channel",
-        description: "Discord channel for audit reports",
-        type: ApplicationCommandOptionType.Channel,
-        required: true,
-        channel_types: [ChannelType.GuildText, ChannelType.GuildAnnouncement],
-      },
-    ],
-  },
-  {
-    name: "project_list",
-    description: "List saved board → channel mappings",
-  },
-  {
-    name: "project_remove",
-    description: "Remove a saved project mapping",
-    options: [
-      {
-        name: "name",
-        description: "Project name or id",
-        type: ApplicationCommandOptionType.String,
-        required: true,
-      },
-    ],
-  },
-] as const;
 
 const INTERACTION_DEDUP_TTL_MS = 60 * 60 * 1000;
 const seenInteractionIds = new Map<string, number>();
@@ -289,16 +230,6 @@ async function deliverFullReportViaDm(
   }
 }
 
-/** Из опции Discord или .env; если вставили всю команду — вытащить https://… */
-function resolveBoardUrl(raw: string | undefined): string | undefined {
-  const trimmed = raw?.trim();
-  if (!trimmed) return undefined;
-  const match = trimmed.match(/https?:\/\/[^\s]+/i);
-  if (match) return match[0]!.replace(/[>,)\]]+$/, "");
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return undefined;
-}
-
 /** Полный отчёт только для вызвавшего пользователя (ephemeral followUp). */
 async function deliverEphemeralReport(
   interaction: ChatInputCommandInteraction,
@@ -355,61 +286,170 @@ async function replyWithAuditResult(
   await deliverEphemeralReport(interaction, out);
 }
 
-async function handleAuditCommand(
+function resolveAuditBoardFromInteraction(
   interaction: ChatInputCommandInteraction,
+): { boardUrl: string; source: string } | null {
+  const boardUrlRaw = interaction.options.getString("board_url") ?? undefined;
+  const resolved = resolveAuditBoard(
+    boardUrlRaw,
+    null,
+    process.env.APPTASK_BOARD_URL,
+  );
+  if (!resolved) return null;
+  return { boardUrl: resolved.boardUrl, source: resolved.source };
+}
+
+async function handleCommentsSlash(
+  interaction: ChatInputCommandInteraction,
+  options: { logTag: string; limit: number | undefined },
 ): Promise<void> {
-  logInteraction("audit", interaction);
+  logInteraction(options.logTag, interaction);
   logUserSlashPermission(interaction);
   await logBotChannelPermissions(interaction);
 
-  if (auditInProgress) {
+  if (auditInProgress || isAuditLocked()) {
     await safeEditReply(
       interaction,
-      "⏳ **Аудит уже выполняется** на машине бота. Дождитесь завершения и повторите команду.",
+      "⏳ **Операция уже выполняется**, дождитесь завершения.",
     );
     return;
   }
 
-  const boardUrl =
-    resolveBoardUrl(interaction.options.getString("board_url") ?? undefined) ||
-    resolveBoardUrl(process.env.APPTASK_BOARD_URL);
-
-  if (!boardUrl) {
+  const boardUrlRaw = interaction.options.getString("board_url") ?? undefined;
+  const resolved = resolveCommentsBoard(boardUrlRaw);
+  if (!resolved) {
+    const invalidExplicit = boardUrlRaw?.trim();
     await safeEditReply(
       interaction,
-      "Укажите URL доски: опция `board_url` (только https://…) или `APPTASK_BOARD_URL` в .env.",
+      invalidExplicit
+        ? "Укажите корректный `board_url`, например: `https://apptask.ru/c/7/board/54`"
+        : "Не указан board_url и не задан APPTASK_COMMENTS_BOARD_URL",
     );
     return;
   }
 
-  const limit = interaction.options.getInteger("limit");
-  const envMaxCards = Number(process.env.APPTASK_AUDIT_MAX_CARDS ?? "0");
-  const maxCards = limit ?? (envMaxCards > 0 ? envMaxCards : undefined);
+  const { boardUrl, source: boardSource } = resolved;
 
-  const commentsModeRaw = interaction.options.getString("comments_mode");
-  const commentsAuditMode =
-    commentsModeRaw === "off" ||
-    commentsModeRaw === "candidates" ||
-    commentsModeRaw === "all"
-      ? (commentsModeRaw as CommentsAuditMode)
+  const limitOpt =
+    options.limit != null && options.limit > 0
+      ? Math.min(500, Math.floor(options.limit))
       : undefined;
+
+  if (options.limit != null) {
+    console.log(
+      `[${options.logTag}] boardUrl=${boardUrl} source=${boardSource} limit=${limitOpt}`,
+    );
+  } else {
+    console.log(
+      `[${options.logTag}] boardUrl=${boardUrl} source=${boardSource}`,
+    );
+  }
 
   await safeEditReply(
     interaction,
-    "⏳ **Audit started.** Сбор карточек и проверка правил…",
+    `⏳ **Проверка комментариев…**\n📋 Доска: \`${boardUrl}\`${limitOpt != null ? `\n🔢 limit: ${limitOpt}` : "\n🔢 режим: full"}`,
   );
 
   auditInProgress = true;
   try {
-    logInteraction("audit", interaction, {
+    logInteraction(options.logTag, interaction, {
       board: boardUrl,
-      limit: maxCards != null ? String(maxCards) : "all",
+      board_source: boardSource,
+      board_url_raw: boardUrlRaw?.slice(0, 120) ?? "(env)",
+      limit: limitOpt != null ? String(limitOpt) : "full",
+    });
+    const out = await runCommentsCheck(boardUrl, { limit: limitOpt });
+    logInteraction(options.logTag, interaction, {
+      status: "done",
+      checked: String(out.checkedTasks),
+      withComments: String(out.tasksWithComments),
+      markers: String(out.markerHits.length),
+    });
+    const summary = formatCommentsCheckReply(out);
+    const replied = await safeEditReply(interaction, summary);
+    if (!replied) return;
+
+    const files = buildCommentsReportAttachments(out);
+    if (files.length === 0) {
+      console.warn("[comments-report] no files to attach");
+      return;
+    }
+    await interaction.followUp({
+      content: "📎 Report files",
+      files,
+      flags: MessageFlags.Ephemeral,
+    });
+    logCommentsReportSent(files);
+  } catch (err) {
+    logInteractionError(options.logTag, interaction, err);
+    await safeEditReply(
+      interaction,
+      `❌ **Проверка комментариев не удалась.**\n\`${formatDiscordError(err)}\``,
+    );
+  } finally {
+    auditInProgress = false;
+  }
+}
+
+async function handleAuditSlash(
+  interaction: ChatInputCommandInteraction,
+  options: { logTag: string; maxCards: number | undefined },
+): Promise<void> {
+  logInteraction(options.logTag, interaction);
+  logUserSlashPermission(interaction);
+  await logBotChannelPermissions(interaction);
+
+  if (auditInProgress || isAuditLocked()) {
+    await safeEditReply(
+      interaction,
+      "⏳ **Аудит уже выполняется, дождитесь завершения.**",
+    );
+    return;
+  }
+
+  const boardUrlRaw = interaction.options.getString("board_url") ?? undefined;
+  const resolved = resolveAuditBoardFromInteraction(interaction);
+  if (!resolved) {
+    await safeEditReply(
+      interaction,
+      "Укажите доску: `board_url` (https://apptask.ru/c/7/board/445) или `APPTASK_BOARD_URL` в .env.",
+    );
+    return;
+  }
+
+  const { boardUrl, source: boardSource } = resolved;
+  const maxCards = options.maxCards;
+
+  const boardHint =
+    boardSource === "env" ? "\n_(доска из .env)_" : "";
+
+  if (maxCards != null) {
+    console.log(
+      `[${options.logTag}] boardUrl=${boardUrl} limit=${maxCards} comments=off`,
+    );
+  } else {
+    console.log(`[${options.logTag}] boardUrl=${boardUrl} comments=off`);
+  }
+
+  await safeEditReply(
+    interaction,
+    `⏳ **Audit started.**\n📋 Доска: \`${boardUrl}\`${boardHint}${maxCards != null ? `\n🔢 limit: ${maxCards}` : "\n🔢 режим: full"}\nСбор карточек и проверка правил…`,
+  );
+
+  auditInProgress = true;
+  try {
+    logInteraction(options.logTag, interaction, {
+      board: boardUrl,
+      board_source: boardSource,
+      board_url_raw: boardUrlRaw?.slice(0, 120) ?? "(env)",
+      limit: maxCards != null ? String(maxCards) : "full",
+      comments: "off",
     });
     const out = await runAudit(boardUrl, null, {
       maxCards,
-      commentsAuditMode,
+      commentsAuditMode: "off",
     });
-    logInteraction("audit", interaction, {
+    logInteraction(options.logTag, interaction, {
       status: "done",
       cards: String(out.result.meta.cardsChecked),
       fail: String(out.result.meta.failCount),
@@ -417,7 +457,7 @@ async function handleAuditCommand(
     });
     await replyWithAuditResult(interaction, out);
   } catch (err) {
-    logInteractionError("audit", interaction, err);
+    logInteractionError(options.logTag, interaction, err);
     const failMsg = "❌ **Audit failed.** Check bot console logs.";
     const replied = await safeEditReply(interaction, failMsg);
     if (!replied) {
@@ -524,11 +564,18 @@ client.once("clientReady", async (readyClient) => {
   const rest = new REST().setToken(token);
   const guildId = process.env.DISCORD_GUILD_ID?.trim();
 
+  async function registerGuildCommands(targetGuildId: string, label: string): Promise<void> {
+    await rest.put(
+      Routes.applicationGuildCommands(readyClient.user.id, targetGuildId),
+      { body: [...slashCommands] },
+    );
+    console.log(
+      `[discord] slash commands replaced: ${formatSlashCommandsForLog()}`,
+    );
+  }
+
   if (guildId) {
-    await rest.put(Routes.applicationGuildCommands(readyClient.user.id, guildId), {
-      body: slashCommands,
-    });
-    console.log(`Slash commands registered for guild ${guildId}`);
+    await registerGuildCommands(guildId, `guild ${guildId}`);
     return;
   }
 
@@ -540,10 +587,7 @@ client.once("clientReady", async (readyClient) => {
   }
 
   for (const guild of readyClient.guilds.cache.values()) {
-    await rest.put(Routes.applicationGuildCommands(readyClient.user.id, guild.id), {
-      body: slashCommands,
-    });
-    console.log(`Slash commands registered for guild: ${guild.name} (${guild.id})`);
+    await registerGuildCommands(guild.id, `${guild.name} (${guild.id})`);
   }
 });
 
@@ -591,16 +635,45 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
-  if (interaction.commandName !== "audit") return;
+  const cmd = interaction.commandName;
+  const isAudit = (AUDIT_SLASH_COMMANDS as readonly string[]).includes(cmd);
+  const isComments = (COMMENTS_SLASH_COMMANDS as readonly string[]).includes(cmd);
+  if (!isAudit && !isComments) return;
 
   try {
     await interaction.deferReply({ flags: ephemeral });
   } catch (err) {
-    logInteractionError("audit", interaction, err);
+    logInteractionError(cmd, interaction, err);
     return;
   }
 
-  await handleAuditCommand(interaction);
+  if (cmd === "comments_full") {
+    await handleCommentsSlash(interaction, {
+      logTag: "comments-full-command",
+      limit: undefined,
+    });
+    return;
+  }
+  if (cmd === "comments_limit") {
+    await handleCommentsSlash(interaction, {
+      logTag: "comments-limit-command",
+      limit: interaction.options.getInteger("limit", true),
+    });
+    return;
+  }
+  if (cmd === "audit_full") {
+    await handleAuditSlash(interaction, {
+      logTag: "audit-full-command",
+      maxCards: undefined,
+    });
+    return;
+  }
+  if (cmd === "audit_limit") {
+    await handleAuditSlash(interaction, {
+      logTag: "audit-limit-command",
+      maxCards: Math.min(500, interaction.options.getInteger("limit", true)),
+    });
+  }
 });
 
 await client.login(token);

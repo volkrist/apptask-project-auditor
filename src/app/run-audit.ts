@@ -10,7 +10,13 @@ import { buildAuditResult } from "../reports/build-audit-result.js";
 import { buildDiscordSummary } from "../reports/discord-summary.js";
 import { writeAuditReports, type AuditOutputPaths } from "../reports/output.js";
 import type { CommentsAuditMode } from "../comments/comments-audit-config.js";
+import type { EnrichCommentsResult } from "../comments/enrich-tasks-comments.js";
 import { collectTasksFromBoard } from "./collect-tasks.js";
+import {
+  isAuditLocked,
+  releaseAuditLock,
+  tryAcquireAuditLock,
+} from "./audit-lock.js";
 
 const log = createLogger("audit");
 
@@ -20,6 +26,10 @@ export type RunAuditOptions = {
   maxCards?: number;
   /** Переопределяет COMMENTS_AUDIT_MODE (off | candidates | all). */
   commentsAuditMode?: CommentsAuditMode;
+  /** Лимит только для загрузки комментариев (Discord > env). */
+  commentsAuditLimit?: number;
+  /** Доска только для comments audit (если не задана — board_url). */
+  commentsBoardUrl?: string;
 };
 
 export type RunAuditResult = {
@@ -28,6 +38,7 @@ export type RunAuditResult = {
   discordPublished: boolean;
   discordError?: string;
   totalOnBoard: number;
+  commentsAudit?: EnrichCommentsResult;
 };
 
 /**
@@ -38,24 +49,50 @@ export async function runAudit(
   discordWebhookUrl?: string | null,
   options: RunAuditOptions = {},
 ): Promise<RunAuditResult> {
+  if (isAuditLocked()) {
+    throw new Error("Аудит уже выполняется, дождитесь завершения.");
+  }
+  if (!tryAcquireAuditLock()) {
+    throw new Error("Аудит уже выполняется, дождитесь завершения.");
+  }
+
+  try {
+    return await runAuditInner(boardUrl, discordWebhookUrl, options);
+  } finally {
+    releaseAuditLock();
+  }
+}
+
+async function runAuditInner(
+  boardUrl: string,
+  discordWebhookUrl?: string | null,
+  options: RunAuditOptions = {},
+): Promise<RunAuditResult> {
   const env = loadEnv();
   const projectName = options.projectName ?? env.projectName;
 
-  log.info(`collect board: ${boardUrl}`);
-  if (options.maxCards && options.maxCards > 0) {
-    log.info(`card limit: ${options.maxCards}`);
-  }
-  const { tasks, totalOnBoard, appTaskUsers } = await collectTasksFromBoard(boardUrl, {
-    maxCards: options.maxCards,
-    commentsAuditMode: options.commentsAuditMode,
-    onProgress: (cur, total, title) => {
-      log.info(`progress ${cur}/${total}: ${title ?? "?"}`);
-    },
-  });
+  log.info(
+    `[audit-command] boardUrl=${boardUrl} limit=${options.maxCards ?? "full"} comments=${options.commentsAuditMode ?? "off"}`,
+  );
+  const { tasks, totalOnBoard, appTaskUsers, commentsAudit } =
+    await collectTasksFromBoard(boardUrl, {
+      maxCards: options.maxCards,
+      commentsAuditMode: options.commentsAuditMode ?? "off",
+      commentsAuditLimit: options.commentsAuditLimit,
+      commentsBoardUrl: options.commentsBoardUrl,
+      onProgress: (cur, total, title) => {
+        log.info(`progress ${cur}/${total}: ${title ?? "?"}`);
+      },
+    });
 
   log.info(
     `evaluate ${tasks.length} tasks (${totalOnBoard} on board), users=${appTaskUsers.length}`,
   );
+  if (commentsAudit && commentsAudit.mode !== "off") {
+    log.info(
+      `Comments audit: boardId=${commentsAudit.boardId}, mode=${commentsAudit.mode}, limit=${commentsAudit.commentsLimit ?? "none"}, checked=${commentsAudit.checkedComments}, withComments=${commentsAudit.tasksWithComments}`,
+    );
+  }
   const config = loadAuditConfig();
   const result = await buildAuditResult(
     tasks,
@@ -104,7 +141,14 @@ export async function runAudit(
     log.info("discord: skipped (no webhook URL)");
   }
 
-  return { result, output, discordPublished, discordError, totalOnBoard };
+  return {
+    result,
+    output,
+    discordPublished,
+    discordError,
+    totalOnBoard,
+    commentsAudit,
+  };
 }
 
 function parseLimitValue(raw: string | undefined): number | null {

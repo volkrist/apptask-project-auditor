@@ -297,7 +297,8 @@ async function main(): Promise<void> {
     const ref = refs[0]!;
     console.log("Opening first card:", JSON.stringify(ref));
 
-    await openTaskCard(page, ref, boardId);
+    const opened = await openTaskCard(page, ref, BOARD_URL, boardId);
+    if (!opened.ok) throw new Error(opened.reason);
 
     const modal = page.locator(TASK_MODAL_SELECTORS.root);
     await modal.waitFor({ state: "visible", timeout: 30_000 });

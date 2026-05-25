@@ -22,6 +22,17 @@ type GetTaskCommentsPayload = {
 };
 
 let resolvedApiUrl: string | null = null;
+const commentsReplayHeaders: Record<string, string> = {};
+
+function rememberCommentsRequestHeaders(headers: Record<string, string>): void {
+  for (const [key, value] of Object.entries(headers)) {
+    if (value) commentsReplayHeaders[key.toLowerCase()] = value;
+  }
+}
+
+export function getCommentsReplayHeaders(): Record<string, string> {
+  return { ...commentsReplayHeaders };
+}
 
 export function getTaskCommentsApiUrl(): string {
   return resolvedApiUrl ?? `${getAppTaskApiBase()}${GET_TASK_COMMENTS_PATH}`;
@@ -35,13 +46,18 @@ export function setTaskCommentsApiUrlFromNetwork(url: string): void {
 }
 
 export function attachCommentsApiDiscovery(page: Page): () => void {
-  const handler = (request: { url: () => string; method: () => string }) => {
+  const handler = (request: {
+    url: () => string;
+    method: () => string;
+    headers: () => Record<string, string>;
+  }) => {
     const url = request.url();
     if (
       request.method() === "POST" &&
       /\/board\/get_task_comments/i.test(url)
     ) {
       setTaskCommentsApiUrlFromNetwork(url);
+      rememberCommentsRequestHeaders(request.headers());
     }
   };
   page.on("request", handler);
@@ -115,6 +131,33 @@ function buildRequestBody(
  * POST /board/get_task_comments без открытия модалки карточки.
  * Требует авторизованную сессию (board уже открыт на page).
  */
+async function loadTaskCommentsViaBrowser(
+  page: Page,
+  url: string,
+  body: Record<string, unknown>,
+): Promise<AppTaskComment[] | null> {
+  const result = await page
+    .evaluate(
+      async ({ requestUrl, requestBody }) => {
+        const res = await fetch(requestUrl, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        });
+        if (!res.ok) {
+          return { ok: false as const, status: res.status, json: null };
+        }
+        return { ok: true as const, status: res.status, json: await res.json() };
+      },
+      { requestUrl: url, requestBody: body },
+    )
+    .catch(() => null);
+
+  if (!result?.ok) return null;
+  return parseCommentList(result.json);
+}
+
 export async function loadTaskComments(
   page: Page,
   taskId: number | string,
@@ -124,29 +167,56 @@ export async function loadTaskComments(
   if (!Number.isFinite(id)) return [];
 
   const url = getTaskCommentsApiUrl();
+  const body = buildRequestBody(id, boardId);
   try {
     const origin = new URL(url).origin;
     const cookies = await page.context().cookies(origin);
     const cookie = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
+      ...getCommentsReplayHeaders(),
     };
-    if (cookie) headers.Cookie = cookie;
+    delete headers.host;
+    delete headers["content-length"];
+    if (cookie) headers.cookie = cookie;
 
     const response = await page.request.post(url, {
-      data: buildRequestBody(id, boardId),
+      data: body,
       headers,
     });
-    if (!response.ok()) {
-      log.info(`get_task_comments task=${id} HTTP ${response.status()}`);
-      return [];
+    if (response.ok()) {
+      const json = await response.json().catch(() => null);
+      const parsed = parseCommentList(json);
+      if (parsed.length > 0) return parsed;
+    } else {
+      log.info(
+        `get_task_comments task=${id} boardId=${boardId ?? "?"} HTTP ${response.status()}, retry via browser fetch`,
+      );
     }
-    const json = await response.json().catch(() => null);
-    return parseCommentList(json);
+
+    const viaBrowser = await loadTaskCommentsViaBrowser(page, url, body);
+    if (viaBrowser != null) {
+      log.info(
+        `get_task_comments task=${id} boardId=${boardId ?? "?"} via browser: ${viaBrowser.length} comments`,
+      );
+      return viaBrowser;
+    }
+
+    if (!response.ok()) {
+      log.info(
+        `get_task_comments task=${id} boardId=${boardId ?? "?"} HTTP ${response.status()}`,
+      );
+    }
+    return [];
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.info(`get_task_comments task=${id} error: ${message}`);
-    return [];
+    log.info(
+      `get_task_comments task=${id} boardId=${boardId ?? "?"} error: ${message}`,
+    );
+    const viaBrowser = await loadTaskCommentsViaBrowser(page, url, body).catch(
+      () => null,
+    );
+    return viaBrowser ?? [];
   }
 }
 

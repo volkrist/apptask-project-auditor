@@ -8,6 +8,34 @@ import {
   type SendableChannels,
 } from "discord.js";
 import type { RunAuditResult } from "../app/run-audit.js";
+import type { EnrichCommentsResult } from "../comments/enrich-tasks-comments.js";
+
+export function formatCommentsAuditBlock(
+  summary: EnrichCommentsResult | undefined,
+): string {
+  if (!summary) {
+    return "\n\n**Комментарии:**\nmode: off\nchecked: 0";
+  }
+  if (summary.mode === "off") {
+    return "\n\n**Комментарии:**\nmode: off\nchecked: 0";
+  }
+  const limitLine =
+    summary.commentsLimit != null
+      ? String(summary.commentsLimit)
+      : "не задан";
+  const durationSec = Math.max(0, Math.round(summary.durationMs / 1000));
+  return [
+    "",
+    "**Комментарии:**",
+    `board: ${summary.boardUrl}`,
+    `boardId: ${summary.boardId}`,
+    `mode: ${summary.mode}`,
+    `limit: ${limitLine}`,
+    `checked: ${summary.checkedComments}`,
+    `with comments: ${summary.tasksWithComments}`,
+    `duration: ${durationSec}s`,
+  ].join("\n");
+}
 
 export function formatBriefSummary(out: RunAuditResult): string {
   const { meta } = out.result;
@@ -44,6 +72,8 @@ export function formatAuditReply(out: RunAuditResult): string {
   } catch {
     // summary.md optional in reply
   }
+
+  lines.push(formatCommentsAuditBlock(out.commentsAudit));
 
   const text = lines.join("\n");
   return text.length > 2000 ? `${text.slice(0, 1980)}…` : text;

@@ -22,6 +22,7 @@ import {
   shouldLoadCommentsForTask,
   type CommentsAuditMode,
 } from "../src/comments/comments-audit-config.js";
+import { resolveCommentsBoardContext } from "../src/comments/comments-board-context.js";
 import { enrichTasksWithComments } from "../src/comments/enrich-tasks-comments.js";
 import { emptyRawTask, type RawTask } from "../src/adapters/apptask/types.js";
 
@@ -116,7 +117,13 @@ async function main(): Promise<void> {
       .map((r) => refToMinimalTask(r.taskId!, r.titlePreview, null, null));
 
     const candidates = tasks.filter(shouldLoadCommentsForTask).length;
-    const stats = await enrichTasksWithComments(page, tasks, commentsConfig);
+    const commentsBoard = resolveCommentsBoardContext(opts.boardUrl)!;
+    const stats = await enrichTasksWithComments(
+      page,
+      tasks,
+      commentsConfig,
+      commentsBoard,
+    );
 
     const found = tasks
       .filter((t) => (t.comments?.length ?? 0) > 0)

@@ -11,6 +11,7 @@
 | `APPTASK_COLLECTOR` | `playwright` \| `api` | `playwright` |
 | `API_DETAILS_MODE` | `off` \| `candidates` \| `all` | `candidates` |
 | `COMMENTS_AUDIT_MODE` | `off` \| `candidates` \| `all` | `off` |
+| `COMMENTS_AUDIT_LIMIT` | 1–300 | не задан (только загрузка комментариев; Discord `comments_limit` важнее) |
 | `API_COLLECTOR_CONCURRENCY` | 1–10 | `3` |
 | `APPTASK_API_BASE` | URL API host | `https://host2201.apptask.ru` (или host из network) |
 | `APPTASK_SPRINT_ID` | число | авто из `get_sprints` |

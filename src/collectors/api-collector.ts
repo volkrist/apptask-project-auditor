@@ -31,6 +31,12 @@ import {
   attachBoardApiSniffer,
   waitForSnifferTasks,
 } from "./board-api-sniffer.js";
+import { collectRawTasksForCommentsBoard } from "../comments/comments-board-collect.js";
+import {
+  isSameCommentsBoard,
+  resolveCommentsBoardContext,
+  resolveCommentsBoardUrl,
+} from "../comments/comments-board-context.js";
 import { loadCollectorConfig } from "./collector-config.js";
 import { filterTasksForDetailsLoad } from "./api-details-config.js";
 import {
@@ -112,9 +118,12 @@ export async function collectTasksViaApiOnPage(
   const totalStarted = Date.now();
   const warnings: string[] = [];
   const collectorCfg = loadCollectorConfig();
-  const commentsConfig = loadCommentsAuditConfig(
-    options.commentsAuditMode ? { mode: options.commentsAuditMode } : {},
-  );
+  const commentsConfig = loadCommentsAuditConfig({
+    ...(options.commentsAuditMode ? { mode: options.commentsAuditMode } : {}),
+    ...(options.commentsAuditLimit != null
+      ? { commentsLimit: options.commentsAuditLimit }
+      : {}),
+  });
 
   const boardIdStr = parseBoardId(boardUrl);
   if (!boardIdStr) throw new Error(`Некорректный URL доски: ${boardUrl}`);
@@ -299,12 +308,26 @@ export async function collectTasksViaApiOnPage(
   stopApiDiscovery();
   stopCommentsDiscovery();
 
-  const commentsResult = await enrichTasksWithComments(
-    page,
-    tasks,
-    commentsConfig,
-    boardId,
-  );
+  let commentsAudit: Awaited<ReturnType<typeof enrichTasksWithComments>> | undefined;
+  if (commentsConfig.mode !== "off") {
+    const commentsBoardUrl = resolveCommentsBoardUrl(
+      boardUrl,
+      options.commentsBoardUrl,
+    );
+    const commentsBoard = resolveCommentsBoardContext(commentsBoardUrl);
+    if (commentsBoard) {
+      const useMainTasks = isSameCommentsBoard(boardUrl, commentsBoardUrl);
+      const tasksForComments = useMainTasks
+        ? tasks
+        : await collectRawTasksForCommentsBoard(page, commentsBoardUrl);
+      commentsAudit = await enrichTasksWithComments(
+        page,
+        tasksForComments,
+        commentsConfig,
+        commentsBoard,
+      );
+    }
+  }
 
   if (options.maxCards && options.maxCards > 0) {
     tasks = tasks.slice(0, options.maxCards);
@@ -324,8 +347,8 @@ export async function collectTasksViaApiOnPage(
     tasksCollected: totalOnBoard,
     detailsLoaded,
     detailsMs,
-    commentsLoaded: commentsResult.checkedComments,
-    commentsMs: commentsResult.durationMs,
+    commentsLoaded: commentsAudit?.checkedComments ?? 0,
+    commentsMs: commentsAudit?.durationMs ?? 0,
     usersCount,
     usersMs,
     totalMs,
@@ -333,13 +356,13 @@ export async function collectTasksViaApiOnPage(
   };
 
   log.info(
-    `[api-collector] board=${boardId} tasks=${totalOnBoard} details=${detailsLoaded} comments=${commentsResult.checkedComments} users=${usersCount} total=${Math.round(totalMs / 1000)}s`,
+    `[api-collector] board=${boardId} tasks=${totalOnBoard} details=${detailsLoaded} comments=${commentsAudit?.checkedComments ?? 0} users=${usersCount} total=${Math.round(totalMs / 1000)}s`,
   );
   if (warnings.length) {
     for (const w of warnings) log.info(`[api-collector] warning: ${w}`);
   }
 
-  return { tasks, totalOnBoard, appTaskUsers, stats };
+  return { tasks, totalOnBoard, appTaskUsers, commentsAudit, stats };
 }
 
 /** API-first сбор задач: Playwright только для сессии, данные через внутренние API. */
@@ -364,6 +387,7 @@ export async function collectTasksViaApi(
       tasks: result.tasks,
       totalOnBoard: result.totalOnBoard,
       appTaskUsers: result.appTaskUsers,
+      commentsAudit: result.commentsAudit,
     };
   } finally {
     await context.close();
