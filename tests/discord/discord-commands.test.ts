@@ -6,6 +6,13 @@ import path from "node:path";
 import {
   AUDIT_SLASH_COMMANDS,
   COMMENTS_SLASH_COMMANDS,
+  LEGACY_AUDIT_COMMANDS,
+  LEGACY_AUDIT_DEPRECATION_MESSAGE,
+  LEGACY_COMMENTS_COMMANDS,
+  LEGACY_COMMENTS_DEPRECATION_MESSAGE,
+  LONG_RUNNING_SLASH_COMMANDS,
+  UNKNOWN_COMMAND_MESSAGE,
+  formatAuditCommentsSlashCommandsForLog,
   getCommandOptionNames,
   slashCommands,
 } from "../../src/discord/slash-commands.js";
@@ -34,7 +41,10 @@ const LEGACY_COMMANDS = ["audit", "comments"];
 test("slash commands are exactly audit_full, audit_limit, comments_full, comments_limit (+ projects)", () => {
   const names = slashCommands.map((c) => c.name);
   for (const cmd of LEGACY_COMMANDS) {
-    assert.ok(!names.includes(cmd), `legacy /${cmd} must be removed`);
+    assert.ok(
+      !names.includes(cmd),
+      `legacy /${cmd} must not be registered (handler still accepts stale /${cmd})`,
+    );
   }
   assert.ok(names.includes("audit_full"));
   assert.ok(names.includes("audit_limit"));
@@ -79,7 +89,8 @@ test("/audit handlers always pass commentsAuditMode off", () => {
 
 test("/audit_full runs audit without maxCards", () => {
   assert.match(botHandlerSrc, /audit-full-command/);
-  assert.match(botHandlerSrc, /maxCards:\s*undefined/);
+  assert.match(botHandlerSrc, /commandName === "audit_full"/);
+  assert.match(botHandlerSrc, /resolveAuditMaxCards/);
 });
 
 test("/audit_limit runs audit with maxCards from required limit", () => {
@@ -89,7 +100,8 @@ test("/audit_limit runs audit with maxCards from required limit", () => {
 
 test("/comments_full uses runCommentsCheck without limit", () => {
   assert.match(botHandlerSrc, /comments-full-command/);
-  assert.match(botHandlerSrc, /limit:\s*undefined/);
+  assert.match(botHandlerSrc, /commandName === "comments_full"/);
+  assert.match(botHandlerSrc, /resolveCommentsLimit/);
   assert.ok(!botHandlerSrc.includes("handleCommentsCommand"));
   assert.match(botHandlerSrc, /buildCommentsReportAttachments/);
 });
@@ -199,4 +211,100 @@ test("AUDIT_SLASH_COMMANDS and COMMENTS_SLASH_COMMANDS constants", () => {
     "comments_full",
     "comments_limit",
   ]);
+});
+
+test("LONG_RUNNING does not include legacy audit/comments (deprecation only)", () => {
+  for (const cmd of LEGACY_AUDIT_COMMANDS) {
+    assert.ok(
+      !(LONG_RUNNING_SLASH_COMMANDS as readonly string[]).includes(cmd),
+      cmd,
+    );
+  }
+  for (const cmd of LEGACY_COMMENTS_COMMANDS) {
+    assert.ok(
+      !(LONG_RUNNING_SLASH_COMMANDS as readonly string[]).includes(cmd),
+      cmd,
+    );
+  }
+});
+
+test("/audit responds with deprecation message without runAudit", () => {
+  assert.match(LEGACY_AUDIT_DEPRECATION_MESSAGE, /Команда \/audit устарела/);
+  assert.match(LEGACY_AUDIT_DEPRECATION_MESSAGE, /\/audit_full/);
+  assert.match(LEGACY_AUDIT_DEPRECATION_MESSAGE, /\/audit_limit/);
+  const start = botHandlerSrc.indexOf("if (isLegacyAuditSlashCommand(cmd))");
+  const end = botHandlerSrc.indexOf("if (isLegacyCommentsSlashCommand(cmd))", start);
+  const block = botHandlerSrc.slice(start, end);
+  assert.ok(block.includes("LEGACY_AUDIT_DEPRECATION_MESSAGE"));
+  assert.ok(!block.includes("runAudit"));
+  assert.ok(!block.includes("runCommentsCheck"));
+});
+
+test("/comments responds with deprecation message without runCommentsCheck", () => {
+  assert.match(LEGACY_COMMENTS_DEPRECATION_MESSAGE, /Команда \/comments устарела/);
+  assert.match(LEGACY_COMMENTS_DEPRECATION_MESSAGE, /\/comments_full/);
+  const start = botHandlerSrc.indexOf("if (isLegacyCommentsSlashCommand(cmd))");
+  const end = botHandlerSrc.indexOf("if (isLongRunningSlashCommand(cmd))", start);
+  const block = botHandlerSrc.slice(start, end);
+  assert.ok(block.includes("LEGACY_COMMENTS_DEPRECATION_MESSAGE"));
+  assert.ok(!block.includes("runAudit"));
+  assert.ok(!block.includes("runCommentsCheck"));
+});
+
+test("unknown command uses UNKNOWN_COMMAND_MESSAGE", () => {
+  assert.match(UNKNOWN_COMMAND_MESSAGE, /Команда не поддерживается/);
+  assert.match(UNKNOWN_COMMAND_MESSAGE, /\/audit_full/);
+  assert.match(botHandlerSrc, /UNKNOWN_COMMAND_MESSAGE/);
+});
+
+test("deferReply happens before runAudit and runCommentsCheck", () => {
+  const deferIdx = botHandlerSrc.indexOf("await interaction.deferReply");
+  const runAuditIdx = botHandlerSrc.indexOf("await runAudit(");
+  const runCommentsIdx = botHandlerSrc.indexOf("await runCommentsCheck(");
+  const handleAuditIdx = botHandlerSrc.indexOf("async function handleAuditSlash");
+  const handleCommentsIdx = botHandlerSrc.indexOf(
+    "async function handleCommentsSlash",
+  );
+  assert.ok(deferIdx >= 0);
+  assert.ok(runAuditIdx > deferIdx);
+  assert.ok(runCommentsIdx > deferIdx);
+  assert.ok(runAuditIdx > handleAuditIdx);
+  assert.ok(runCommentsIdx > handleCommentsIdx);
+  const dispatchIdx = botHandlerSrc.indexOf("dispatchLongRunningSlash");
+  const deferFnIdx = botHandlerSrc.indexOf("async function deferLongRunningReply");
+  assert.ok(dispatchIdx > deferFnIdx);
+});
+
+test("audit lock busy replies after defer without starting playwright", () => {
+  assert.match(botHandlerSrc, /audit lock busy/);
+  assert.match(botHandlerSrc, /AUDIT_BUSY_MSG/);
+  const runLongIdx = botHandlerSrc.indexOf("async function runLongRunningCommand");
+  const runAuditIdx = botHandlerSrc.indexOf("await runAudit(", runLongIdx);
+  const busyIdx = botHandlerSrc.indexOf("isAuditBusy()", runLongIdx);
+  assert.ok(busyIdx >= 0 && busyIdx < runAuditIdx);
+});
+
+test("unknown slash command still defers and editReply", () => {
+  assert.match(botHandlerSrc, /unknown command=\//);
+  assert.match(botHandlerSrc, /UNKNOWN_COMMAND_MESSAGE/);
+});
+
+test("structured discord interaction logs", () => {
+  assert.match(botHandlerSrc, /\[discord\] interaction received/);
+  assert.match(botHandlerSrc, /\[discord\] deferReply ok/);
+  assert.match(botHandlerSrc, /\[discord\] editReply sent/);
+  assert.match(botHandlerSrc, /\[discord\] command failed/);
+});
+
+test("startup logs guild and registered command options", () => {
+  assert.match(botHandlerSrc, /\[discord\] guild id=/);
+  assert.match(botHandlerSrc, /formatRegisteredCommandsDetail/);
+  assert.match(botHandlerSrc, /formatAuditCommentsSlashCommandsForLog/);
+});
+
+test("slash commands replaced log lists only audit and comments commands", () => {
+  assert.equal(
+    formatAuditCommentsSlashCommandsForLog(),
+    "/audit_full, /audit_limit, /comments_full, /comments_limit",
+  );
 });

@@ -1,8 +1,32 @@
-# Discord: настройка проектов (board → channel)
+# Discord: настройка проектов и slash-команды
 
 Связку **AppTask board → Discord channel** можно задать slash-командами бота, без web UI и без БД. Данные хранятся в `config/projects.json`.
 
-Команда `/audit` не меняется. Weekly / scheduled (`npm run audit:scheduled`) использует сохранённые проекты; если их нет — старый fallback из `.env`.
+Scheduled-аудит (`npm run audit:scheduled`) использует сохранённые проекты; если их нет — fallback из `.env`.
+
+## Команды аудита карточек
+
+| Команда | Описание |
+|---------|----------|
+| `/audit_full` | Полная проверка всех карточек на доске по правилам |
+| `/audit_limit` | Проверка N карточек (`limit` — обязательный параметр) |
+
+Опционально: `board_url` (иначе `APPTASK_BOARD_URL` из `.env`).
+
+Ответ **ephemeral** (виден только вызвавшему). Публикация в канал из mapping выполняется только при scheduled-прогоне.
+
+> **Устарело:** `/audit` — не используйте. Бот ответит подсказкой перейти на `/audit_full` или `/audit_limit`. После обновления бота перезапустите Discord (Ctrl+R), если старая команда ещё видна в списке.
+
+## Команды проверки комментариев
+
+| Команда | Описание |
+|---------|----------|
+| `/comments_full` | Полная проверка комментариев на доске |
+| `/comments_limit` | Проверка комментариев у N задач (`limit` — обязательный) |
+
+Опционально: `board_url` (иначе `APPTASK_COMMENTS_BOARD_URL` из `.env`).
+
+> **Устарело:** `/comments` — используйте `/comments_full` или `/comments_limit`.
 
 ## `/project_add`
 
@@ -67,14 +91,6 @@ board=...
 channel=...
 ```
 
-## `/audit`
-
-Без изменений:
-
-- можно передать `board_url`;
-- если нет — используется `APPTASK_BOARD_URL` из `.env`;
-- ответ по-прежнему ephemeral, публикация в канал из mapping **не** выполняется (только scheduled).
-
 ## Ручное редактирование
 
 Файл: `config/projects.json`. Пример: `samples/projects.example.json`.
@@ -84,6 +100,10 @@ channel=...
 ## Примеры
 
 ```
+/audit_limit limit:5
+
+/comments_limit limit:10
+
 /project_add name:AppFox board_url:https://apptask.ru/c/7/board/445 channel:#audit-reports
 
 /project_list
@@ -91,25 +111,28 @@ channel=...
 /project_remove name:AppFox
 ```
 
-После добавления команд перезапустите бота (`npm run discord:bot`), чтобы slash-команды зарегистрировались на сервере.
+После обновления кода перезапустите бота (`start-bot.bat` или `npm run discord:bot`), чтобы slash-команды зарегистрировались на сервере. В логе:
+
+```
+[discord] slash commands replaced: /audit_full, /audit_limit, /comments_full, /comments_limit
+```
 
 ## Доступ для других пользователей
 
-Если у владельца `/audit` работает, а у других — ошибка в Discord:
-
 1. **Роль пользователя** на сервере: включить **Использовать слэш-команды** (Use Application Commands).
-2. **Роль бота** в канале, где вызывают команду: View Channel, Send Messages, Attach Files, Embed Links, Use Application Commands.
-3. **Один процесс бота** — только `start-bot.bat` или ярлык автозапуска. Второй запуск (в т.ч. `npm run discord:bot` в Cursor) завершится сразу: `logs/bot.pid` + сообщение `Already running`. Не запускайте бота в терминале IDE, пока работает автозапуск.
-4. Долгий аудит без `limit` (>15 мин): Discord обнуляет interaction — бот пришлёт итог и **файлы отчёта в ЛС**, если канальный ответ истёк (нужны открытые DM от участников сервера).
+2. **Роль бота** в канале: View Channel, Send Messages, Attach Files, Embed Links, Use Application Commands.
+3. **Один процесс бота** — только `start-bot.bat` или ярлык автозапуска. Второй запуск завершится: `logs/bot.pid` + `Already running`.
+4. Долгий аудит без `limit` (>15 мин): Discord обнуляет interaction — бот пришлёт итог и **файлы в ЛС**, если канальный ответ истёк (нужны открытые DM).
 
-В `logs/bot.log` при каждом вызове:
+В `logs/bot.log` при вызове:
 
 ```
-[audit]
-user=...
-guild=...
-channel=...
-command=/audit
+[discord] interaction received command=/audit_limit user=...
+[discord] deferReply ok command=/audit_limit
 ```
 
-и блоки `[audit-perms]`, `[audit-user-perms]`.
+При устаревшей `/audit` из кэша Discord:
+
+```
+[discord] stale legacy command=/audit — use /audit_full, /audit_limit, ...
+```

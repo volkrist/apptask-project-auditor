@@ -117,6 +117,53 @@ export const slashCommands = [
 export const AUDIT_SLASH_COMMANDS = ["audit_full", "audit_limit"] as const;
 export const COMMENTS_SLASH_COMMANDS = ["comments_full", "comments_limit"] as const;
 
+/** Устаревшие имена, которые Discord может показывать до синхронизации slash-команд. */
+export const LEGACY_AUDIT_COMMANDS = ["audit"] as const;
+export const LEGACY_COMMENTS_COMMANDS = ["comments"] as const;
+
+/** Активные long-running команды (без legacy — те только deprecation-ответ). */
+export const LONG_RUNNING_SLASH_COMMANDS = [
+  ...AUDIT_SLASH_COMMANDS,
+  ...COMMENTS_SLASH_COMMANDS,
+] as const;
+
+export const LEGACY_AUDIT_DEPRECATION_MESSAGE = [
+  "Команда /audit устарела. Используйте:",
+  "• /audit_full — полная проверка карточек",
+  "• /audit_limit — проверка карточек с лимитом",
+].join("\n");
+
+export const LEGACY_COMMENTS_DEPRECATION_MESSAGE = [
+  "Команда /comments устарела. Используйте:",
+  "• /comments_full — полная проверка комментариев",
+  "• /comments_limit — проверка комментариев с лимитом",
+].join("\n");
+
+export const UNKNOWN_COMMAND_MESSAGE =
+  "Команда не поддерживается. Доступные команды: /audit_full, /audit_limit, /comments_full, /comments_limit";
+
+const PROJECT_SLASH_COMMANDS = [
+  "project_add",
+  "project_list",
+  "project_remove",
+] as const;
+
+export function isProjectSlashCommand(name: string): boolean {
+  return (PROJECT_SLASH_COMMANDS as readonly string[]).includes(name);
+}
+
+export function isLongRunningSlashCommand(name: string): boolean {
+  return (LONG_RUNNING_SLASH_COMMANDS as readonly string[]).includes(name);
+}
+
+export function isLegacyAuditSlashCommand(name: string): boolean {
+  return (LEGACY_AUDIT_COMMANDS as readonly string[]).includes(name);
+}
+
+export function isLegacyCommentsSlashCommand(name: string): boolean {
+  return (LEGACY_COMMENTS_COMMANDS as readonly string[]).includes(name);
+}
+
 export function getCommandOptionNames(commandName: string): string[] {
   const cmd = slashCommands.find((c) => c.name === commandName);
   if (!cmd || !("options" in cmd) || !cmd.options) return [];
@@ -125,4 +172,18 @@ export function getCommandOptionNames(commandName: string): string[] {
 
 export function formatSlashCommandsForLog(): string {
   return slashCommands.map((c) => `/${c.name}`).join(", ");
+}
+
+/** Лог при замене guild-команд: только аудит и комментарии (без project_*). */
+export function formatAuditCommentsSlashCommandsForLog(): string {
+  return [...AUDIT_SLASH_COMMANDS, ...COMMENTS_SLASH_COMMANDS]
+    .map((name) => `/${name}`)
+    .join(", ");
+}
+
+export function formatRegisteredCommandsDetail(): string[] {
+  return slashCommands.map((c) => {
+    const opts = getCommandOptionNames(c.name);
+    return `command=/${c.name} options=${opts.length > 0 ? opts.join(",") : "(none)"}`;
+  });
 }

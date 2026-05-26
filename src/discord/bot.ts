@@ -23,10 +23,16 @@ import {
   resolveCommentsBoard,
 } from "./resolve-board-url.js";
 import {
-  AUDIT_SLASH_COMMANDS,
-  COMMENTS_SLASH_COMMANDS,
-  formatSlashCommandsForLog,
+  formatAuditCommentsSlashCommandsForLog,
+  formatRegisteredCommandsDetail,
+  isLegacyAuditSlashCommand,
+  isLegacyCommentsSlashCommand,
+  isLongRunningSlashCommand,
+  isProjectSlashCommand,
+  LEGACY_AUDIT_DEPRECATION_MESSAGE,
+  LEGACY_COMMENTS_DEPRECATION_MESSAGE,
   slashCommands,
+  UNKNOWN_COMMAND_MESSAGE,
 } from "./slash-commands.js";
 import {
   addProject,
@@ -59,6 +65,50 @@ const client = new Client({
 const INTERACTION_DEDUP_TTL_MS = 60 * 60 * 1000;
 const seenInteractionIds = new Map<string, number>();
 let auditInProgress = false;
+
+const AUDIT_BUSY_MSG =
+  "⏳ **Аудит уже выполняется, дождитесь завершения.**";
+const EPHEMERAL = MessageFlags.Ephemeral;
+
+function isAuditBusy(): boolean {
+  return auditInProgress || isAuditLocked();
+}
+
+function logDiscord(line: string): void {
+  console.log(line);
+}
+
+function logInteractionReceived(
+  interaction: ChatInputCommandInteraction,
+): void {
+  logDiscord(
+    `[discord] interaction received command=/${interaction.commandName} user=${interaction.user.id}`,
+  );
+}
+
+function logDeferOk(commandName: string): void {
+  logDiscord(`[discord] deferReply ok command=/${commandName}`);
+}
+
+function logAuditLockBusy(commandName: string): void {
+  logDiscord(`[discord] audit lock busy command=/${commandName}`);
+}
+
+function logCommandFailed(commandName: string, err: unknown): void {
+  logDiscord(
+    `[discord] command failed command=/${commandName} error=${formatDiscordError(err)}`,
+  );
+}
+
+function logEditReplySent(commandName: string): void {
+  logDiscord(`[discord] editReply sent command=/${commandName}`);
+}
+
+function logStaleLegacyCommand(commandName: string): void {
+  logDiscord(
+    `[discord] stale legacy command=/${commandName} — use /audit_full, /audit_limit, /comments_full or /comments_limit`,
+  );
+}
 
 function isDiscordApiError(
   err: unknown,
@@ -172,13 +222,115 @@ async function logBotChannelPermissions(
 async function safeEditReply(
   interaction: ChatInputCommandInteraction,
   content: string,
+  commandName?: string,
 ): Promise<boolean> {
   try {
     await interaction.editReply({ content });
+    if (commandName) logEditReplySent(commandName);
     return true;
   } catch (err) {
-    logInteractionError("audit", interaction, err);
+    logInteractionError(commandName ?? "discord", interaction, err);
     return false;
+  }
+}
+
+async function safeRespondError(
+  interaction: ChatInputCommandInteraction,
+  commandName: string,
+  message: string,
+): Promise<void> {
+  const text = message.length > 2000 ? `${message.slice(0, 1980)}…` : message;
+  try {
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply({ content: text });
+      logEditReplySent(commandName);
+      return;
+    }
+    await interaction.reply({ content: text, flags: EPHEMERAL });
+    logEditReplySent(commandName);
+  } catch (err) {
+    logCommandFailed(commandName, err);
+  }
+}
+
+async function deferLongRunningReply(
+  interaction: ChatInputCommandInteraction,
+  commandName: string,
+): Promise<boolean> {
+  try {
+    await interaction.deferReply({ flags: EPHEMERAL });
+    logDeferOk(commandName);
+    return true;
+  } catch (err) {
+    logCommandFailed(commandName, err);
+    await safeRespondError(
+      interaction,
+      commandName,
+      `❌ Не удалось принять команду: \`${formatDiscordError(err)}\``,
+    );
+    return false;
+  }
+}
+
+function resolveAuditMaxCards(
+  interaction: ChatInputCommandInteraction,
+  commandName: string,
+): number | undefined {
+  if (commandName === "audit_full") {
+    return undefined;
+  }
+  if (commandName === "audit_limit") {
+    return Math.min(500, interaction.options.getInteger("limit", true));
+  }
+  const limit = interaction.options.getInteger("limit");
+  if (limit != null && limit > 0) {
+    return Math.min(500, limit);
+  }
+  return undefined;
+}
+
+function resolveCommentsLimit(
+  interaction: ChatInputCommandInteraction,
+  commandName: string,
+): number | undefined {
+  if (commandName === "comments_full") {
+    return undefined;
+  }
+  if (commandName === "comments_limit") {
+    return Math.min(500, interaction.options.getInteger("limit", true));
+  }
+  const limit = interaction.options.getInteger("limit");
+  if (limit != null && limit > 0) {
+    return Math.min(500, limit);
+  }
+  return undefined;
+}
+
+async function runLongRunningCommand(
+  interaction: ChatInputCommandInteraction,
+  commandName: string,
+  work: () => Promise<void>,
+): Promise<void> {
+  if (isAuditBusy()) {
+    logAuditLockBusy(commandName);
+    await safeEditReply(interaction, AUDIT_BUSY_MSG, commandName);
+    return;
+  }
+
+  auditInProgress = true;
+  try {
+    void logUserSlashPermission(interaction);
+    void logBotChannelPermissions(interaction);
+    await work();
+  } catch (err) {
+    logCommandFailed(commandName, err);
+    await safeEditReply(
+      interaction,
+      `❌ **Ошибка:** \`${formatDiscordError(err)}\``,
+      commandName,
+    );
+  } finally {
+    auditInProgress = false;
   }
 }
 
@@ -273,11 +425,12 @@ async function deliverEphemeralReport(
 async function replyWithAuditResult(
   interaction: ChatInputCommandInteraction,
   out: RunAuditResult,
+  commandName: string,
 ): Promise<void> {
   const brief = formatBriefSummary(out);
   const summary = `✅ **Audit completed.**\n\n${brief}`;
 
-  const replied = await safeEditReply(interaction, summary);
+  const replied = await safeEditReply(interaction, summary, commandName);
   if (!replied) {
     await deliverFullReportViaDm(interaction, out, summary);
     return;
@@ -301,19 +454,9 @@ function resolveAuditBoardFromInteraction(
 
 async function handleCommentsSlash(
   interaction: ChatInputCommandInteraction,
-  options: { logTag: string; limit: number | undefined },
+  options: { logTag: string; commandName: string; limit: number | undefined },
 ): Promise<void> {
   logInteraction(options.logTag, interaction);
-  logUserSlashPermission(interaction);
-  await logBotChannelPermissions(interaction);
-
-  if (auditInProgress || isAuditLocked()) {
-    await safeEditReply(
-      interaction,
-      "⏳ **Операция уже выполняется**, дождитесь завершения.",
-    );
-    return;
-  }
 
   const boardUrlRaw = interaction.options.getString("board_url") ?? undefined;
   const resolved = resolveCommentsBoard(boardUrlRaw);
@@ -324,6 +467,7 @@ async function handleCommentsSlash(
       invalidExplicit
         ? "Укажите корректный `board_url`, например: `https://apptask.ru/c/7/board/54`"
         : "Не указан board_url и не задан APPTASK_COMMENTS_BOARD_URL",
+      options.commandName,
     );
     return;
   }
@@ -348,64 +492,48 @@ async function handleCommentsSlash(
   await safeEditReply(
     interaction,
     `⏳ **Проверка комментариев…**\n📋 Доска: \`${boardUrl}\`${limitOpt != null ? `\n🔢 limit: ${limitOpt}` : "\n🔢 режим: full"}`,
+    options.commandName,
   );
 
-  auditInProgress = true;
-  try {
-    logInteraction(options.logTag, interaction, {
-      board: boardUrl,
-      board_source: boardSource,
-      board_url_raw: boardUrlRaw?.slice(0, 120) ?? "(env)",
-      limit: limitOpt != null ? String(limitOpt) : "full",
-    });
-    const out = await runCommentsCheck(boardUrl, { limit: limitOpt });
-    logInteraction(options.logTag, interaction, {
-      status: "done",
-      checked: String(out.checkedTasks),
-      withComments: String(out.tasksWithComments),
-      markers: String(out.markerHits.length),
-    });
-    const summary = formatCommentsCheckReply(out);
-    const replied = await safeEditReply(interaction, summary);
-    if (!replied) return;
+  logInteraction(options.logTag, interaction, {
+    board: boardUrl,
+    board_source: boardSource,
+    board_url_raw: boardUrlRaw?.slice(0, 120) ?? "(env)",
+    limit: limitOpt != null ? String(limitOpt) : "full",
+  });
+  const out = await runCommentsCheck(boardUrl, { limit: limitOpt });
+  logInteraction(options.logTag, interaction, {
+    status: "done",
+    checked: String(out.checkedTasks),
+    withComments: String(out.tasksWithComments),
+    markers: String(out.markerHits.length),
+  });
+  const summary = formatCommentsCheckReply(out);
+  const replied = await safeEditReply(interaction, summary, options.commandName);
+  if (!replied) return;
 
-    const files = buildCommentsReportAttachments(out);
-    if (files.length === 0) {
-      console.warn("[comments-report] no files to attach");
-      return;
-    }
-    await interaction.followUp({
-      content: "📎 Report files",
-      files,
-      flags: MessageFlags.Ephemeral,
-    });
-    logCommentsReportSent(files);
-  } catch (err) {
-    logInteractionError(options.logTag, interaction, err);
-    await safeEditReply(
-      interaction,
-      `❌ **Проверка комментариев не удалась.**\n\`${formatDiscordError(err)}\``,
-    );
-  } finally {
-    auditInProgress = false;
+  const files = buildCommentsReportAttachments(out);
+  if (files.length === 0) {
+    console.warn("[comments-report] no files to attach");
+    return;
   }
+  await interaction.followUp({
+    content: "📎 Report files",
+    files,
+    flags: EPHEMERAL,
+  });
+  logCommentsReportSent(files);
 }
 
 async function handleAuditSlash(
   interaction: ChatInputCommandInteraction,
-  options: { logTag: string; maxCards: number | undefined },
+  options: {
+    logTag: string;
+    commandName: string;
+    maxCards: number | undefined;
+  },
 ): Promise<void> {
   logInteraction(options.logTag, interaction);
-  logUserSlashPermission(interaction);
-  await logBotChannelPermissions(interaction);
-
-  if (auditInProgress || isAuditLocked()) {
-    await safeEditReply(
-      interaction,
-      "⏳ **Аудит уже выполняется, дождитесь завершения.**",
-    );
-    return;
-  }
 
   const boardUrlRaw = interaction.options.getString("board_url") ?? undefined;
   const resolved = resolveAuditBoardFromInteraction(interaction);
@@ -413,6 +541,7 @@ async function handleAuditSlash(
     await safeEditReply(
       interaction,
       "Укажите доску: `board_url` (https://apptask.ru/c/7/board/445) или `APPTASK_BOARD_URL` в .env.",
+      options.commandName,
     );
     return;
   }
@@ -434,41 +563,27 @@ async function handleAuditSlash(
   await safeEditReply(
     interaction,
     `⏳ **Audit started.**\n📋 Доска: \`${boardUrl}\`${boardHint}${maxCards != null ? `\n🔢 limit: ${maxCards}` : "\n🔢 режим: full"}\nСбор карточек и проверка правил…`,
+    options.commandName,
   );
 
-  auditInProgress = true;
-  try {
-    logInteraction(options.logTag, interaction, {
-      board: boardUrl,
-      board_source: boardSource,
-      board_url_raw: boardUrlRaw?.slice(0, 120) ?? "(env)",
-      limit: maxCards != null ? String(maxCards) : "full",
-      comments: "off",
-    });
-    const out = await runAudit(boardUrl, null, {
-      maxCards,
-      commentsAuditMode: "off",
-    });
-    logInteraction(options.logTag, interaction, {
-      status: "done",
-      cards: String(out.result.meta.cardsChecked),
-      fail: String(out.result.meta.failCount),
-      warn: String(out.result.meta.warnCount),
-    });
-    await replyWithAuditResult(interaction, out);
-  } catch (err) {
-    logInteractionError(options.logTag, interaction, err);
-    const failMsg = "❌ **Audit failed.** Check bot console logs.";
-    const replied = await safeEditReply(interaction, failMsg);
-    if (!replied) {
-      await notifyUserDm(
-        interaction,
-        `${failMsg}\n\nОшибка: \`${formatDiscordError(err)}\``,
-      );
-    }
-  } finally {
-    auditInProgress = false;
-  }
+  logInteraction(options.logTag, interaction, {
+    board: boardUrl,
+    board_source: boardSource,
+    board_url_raw: boardUrlRaw?.slice(0, 120) ?? "(env)",
+    limit: maxCards != null ? String(maxCards) : "full",
+    comments: "off",
+  });
+  const out = await runAudit(boardUrl, null, {
+    maxCards,
+    commentsAuditMode: "off",
+  });
+  logInteraction(options.logTag, interaction, {
+    status: "done",
+    cards: String(out.result.meta.cardsChecked),
+    fail: String(out.result.meta.failCount),
+    warn: String(out.result.meta.warnCount),
+  });
+  await replyWithAuditResult(interaction, out, options.commandName);
 }
 
 async function handleProjectAdd(
@@ -564,13 +679,20 @@ client.once("clientReady", async (readyClient) => {
   const rest = new REST().setToken(token);
   const guildId = process.env.DISCORD_GUILD_ID?.trim();
 
-  async function registerGuildCommands(targetGuildId: string, label: string): Promise<void> {
+  async function registerGuildCommands(
+    targetGuildId: string,
+    label: string,
+  ): Promise<void> {
     await rest.put(
       Routes.applicationGuildCommands(readyClient.user.id, targetGuildId),
       { body: [...slashCommands] },
     );
-    console.log(
-      `[discord] slash commands replaced: ${formatSlashCommandsForLog()}`,
+    logDiscord(`[discord] guild id=${targetGuildId} (${label})`);
+    for (const line of formatRegisteredCommandsDetail()) {
+      logDiscord(`[discord] registered ${line}`);
+    }
+    logDiscord(
+      `[discord] slash commands replaced: ${formatAuditCommentsSlashCommandsForLog()}`,
     );
   }
 
@@ -591,89 +713,113 @@ client.once("clientReady", async (readyClient) => {
   }
 });
 
+async function replyLegacyDeprecated(
+  interaction: ChatInputCommandInteraction,
+  commandName: string,
+  message: string,
+): Promise<void> {
+  logStaleLegacyCommand(commandName);
+  if (!(await deferLongRunningReply(interaction, commandName))) return;
+  await safeEditReply(interaction, message, commandName);
+}
+
+async function dispatchLongRunningSlash(
+  interaction: ChatInputCommandInteraction,
+): Promise<void> {
+  const cmd = interaction.commandName;
+
+  const isComments = cmd === "comments_full" || cmd === "comments_limit";
+
+  if (isComments) {
+    const limit = resolveCommentsLimit(interaction, cmd);
+    const logTag =
+      limit != null ? "comments-limit-command" : "comments-full-command";
+    await runLongRunningCommand(interaction, cmd, () =>
+      handleCommentsSlash(interaction, {
+        logTag,
+        commandName: cmd,
+        limit,
+      }),
+    );
+    return;
+  }
+
+  const maxCards = resolveAuditMaxCards(interaction, cmd);
+  const logTag = maxCards != null ? "audit-limit-command" : "audit-full-command";
+  await runLongRunningCommand(interaction, cmd, () =>
+    handleAuditSlash(interaction, {
+      logTag,
+      commandName: cmd,
+      maxCards,
+    }),
+  );
+}
+
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (!rememberInteractionOnce(interaction.id)) {
-    console.log(
+    logDiscord(
       `[discord] duplicate interaction ignored: ${interaction.id} command=/${interaction.commandName}`,
     );
     return;
   }
 
-  const ephemeral = MessageFlags.Ephemeral;
+  const cmd = interaction.commandName;
+  logInteractionReceived(interaction);
 
-  if (
-    interaction.commandName === "project_add" ||
-    interaction.commandName === "project_list" ||
-    interaction.commandName === "project_remove"
-  ) {
-    logInteraction(interaction.commandName, interaction);
+  if (isProjectSlashCommand(cmd)) {
+    if (!(await deferLongRunningReply(interaction, cmd))) return;
     try {
-      await interaction.deferReply({ flags: ephemeral });
-    } catch (err) {
-      logInteractionError(interaction.commandName, interaction, err);
-      return;
-    }
-
-    try {
-      if (interaction.commandName === "project_add") {
+      logInteraction(cmd, interaction);
+      if (cmd === "project_add") {
         await handleProjectAdd(interaction);
-      } else if (interaction.commandName === "project_list") {
+      } else if (cmd === "project_list") {
         await handleProjectList(interaction);
       } else {
         await handleProjectRemove(interaction);
       }
+      logEditReplySent(cmd);
     } catch (err) {
-      logInteractionError(interaction.commandName, interaction, err);
-      try {
-        await interaction.editReply("❌ Ошибка. См. логи бота в консоли.");
-      } catch {
-        // ignore
-      }
+      logCommandFailed(cmd, err);
+      await safeRespondError(
+        interaction,
+        cmd,
+        `❌ Ошибка: \`${formatDiscordError(err)}\``,
+      );
     }
     return;
   }
 
-  const cmd = interaction.commandName;
-  const isAudit = (AUDIT_SLASH_COMMANDS as readonly string[]).includes(cmd);
-  const isComments = (COMMENTS_SLASH_COMMANDS as readonly string[]).includes(cmd);
-  if (!isAudit && !isComments) return;
-
-  try {
-    await interaction.deferReply({ flags: ephemeral });
-  } catch (err) {
-    logInteractionError(cmd, interaction, err);
+  if (isLegacyAuditSlashCommand(cmd)) {
+    await replyLegacyDeprecated(
+      interaction,
+      cmd,
+      LEGACY_AUDIT_DEPRECATION_MESSAGE,
+    );
     return;
   }
 
-  if (cmd === "comments_full") {
-    await handleCommentsSlash(interaction, {
-      logTag: "comments-full-command",
-      limit: undefined,
-    });
+  if (isLegacyCommentsSlashCommand(cmd)) {
+    await replyLegacyDeprecated(
+      interaction,
+      cmd,
+      LEGACY_COMMENTS_DEPRECATION_MESSAGE,
+    );
     return;
   }
-  if (cmd === "comments_limit") {
-    await handleCommentsSlash(interaction, {
-      logTag: "comments-limit-command",
-      limit: interaction.options.getInteger("limit", true),
-    });
+
+  if (isLongRunningSlashCommand(cmd)) {
+    if (!(await deferLongRunningReply(interaction, cmd))) return;
+    await dispatchLongRunningSlash(interaction);
     return;
   }
-  if (cmd === "audit_full") {
-    await handleAuditSlash(interaction, {
-      logTag: "audit-full-command",
-      maxCards: undefined,
-    });
-    return;
-  }
-  if (cmd === "audit_limit") {
-    await handleAuditSlash(interaction, {
-      logTag: "audit-limit-command",
-      maxCards: Math.min(500, interaction.options.getInteger("limit", true)),
-    });
-  }
+
+  logDiscord(
+    `[discord] unknown command=/${cmd} user=${interaction.user.id} (stale or unregistered slash)`,
+  );
+  if (!(await deferLongRunningReply(interaction, cmd))) return;
+  await safeEditReply(interaction, UNKNOWN_COMMAND_MESSAGE, cmd);
 });
 
 await client.login(token);
