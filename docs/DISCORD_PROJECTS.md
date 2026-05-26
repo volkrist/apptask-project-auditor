@@ -1,36 +1,30 @@
-# Discord: настройка проектов и slash-команды
+# Discord: команды бота
 
-Связку **AppTask board → Discord channel** можно задать slash-командами бота, без web UI и без БД. Данные хранятся в `config/projects.json`.
-
-Scheduled-аудит (`npm run audit:scheduled`) использует сохранённые проекты; если их нет — fallback из `.env`.
-
-## Команды аудита карточек
+## Проверка карточек (аудит правил)
 
 | Команда | Описание |
 |---------|----------|
-| `/audit_full` | Полная проверка всех карточек на доске по правилам |
-| `/audit_limit` | Проверка N карточек (`limit` — обязательный параметр) |
+| `/audit_full` | Полная проверка карточек по правилам (без комментариев). Опция `board_url` — необязательна; иначе `APPTASK_BOARD_URL` из `.env`. |
+| `/audit_limit` | Проверка **N** карточек. Обязательный параметр `limit` (1–500). Опция `board_url` — необязательна. |
 
-Опционально: `board_url` (иначе `APPTASK_BOARD_URL` из `.env`).
+Отчёт публикуется в канал, где вызвана команда (виден всем). Прогресс и итог — в ответе на команду.
 
-Ответ **ephemeral** (виден только вызвавшему). Публикация в канал из mapping выполняется только при scheduled-прогоне.
+Команды `/audit` и `/comments` **удалены** из регистрации. Если Discord ещё показывает их из кэша, бот ответит подсказкой с новыми именами команд (без запуска проверки).
 
-> **Устарело:** `/audit` — не используйте. Бот ответит подсказкой перейти на `/audit_full` или `/audit_limit`. После обновления бота перезапустите Discord (Ctrl+R), если старая команда ещё видна в списке.
-
-## Команды проверки комментариев
+## Проверка комментариев
 
 | Команда | Описание |
 |---------|----------|
-| `/comments_full` | Полная проверка комментариев на доске |
-| `/comments_limit` | Проверка комментариев у N задач (`limit` — обязательный) |
+| `/comments_full` | Полная проверка комментариев на доске (без аудита карточек). Опция `board_url` — необязательна; иначе `APPTASK_COMMENTS_BOARD_URL`. |
+| `/comments_limit` | Проверка комментариев у **N** задач. Обязательный `limit`. Опция `board_url` — необязательна. |
 
-Опционально: `board_url` (иначе `APPTASK_COMMENTS_BOARD_URL` из `.env`).
+Не используется `APPTASK_BOARD_URL` — только `APPTASK_COMMENTS_BOARD_URL` или явный `board_url`.
 
-> **Устарело:** `/comments` — используйте `/comments_full` или `/comments_limit`.
+## Настройка проектов (board → channel)
 
-## `/project_add`
+Связку **AppTask board → Discord channel** можно задать slash-командами, без web UI. Данные в `config/projects.json`.
 
-Сохраняет или обновляет проект (по `id`, сгенерированному из `name`).
+### `/project_add`
 
 | Параметр | Тип | Описание |
 |----------|-----|----------|
@@ -38,58 +32,24 @@ Scheduled-аудит (`npm run audit:scheduled`) использует сохра
 | `board_url` | string | URL доски AppTask (`https://…`) |
 | `channel` | channel | Discord-канал для отчётов |
 
-Ответ (только вам, ephemeral):
+Ответ только вам (ephemeral).
 
-```
-Проект сохранён:
-AppFox
-https://apptask.ru/c/7/board/445
-1505507007040323676
-```
+### `/project_list`
 
-Если проект с таким `id` уже есть — запись **обновляется**.
+Список записей в `config/projects.json` (name, boardUrl, channelId, enabled).
 
-## `/project_list`
-
-Список всех записей в `config/projects.json`:
-
-- name  
-- boardUrl  
-- channelId (`discordChannelId`)  
-- enabled  
-
-Если файл пустой:
-
-```
-Проекты пока не настроены.
-```
-
-## `/project_remove`
+### `/project_remove`
 
 | Параметр | Описание |
 |----------|----------|
 | `name` | Имя проекта **или** `id` (например `appfox`) |
 
-Удаляет запись из `config/projects.json`.
-
-## Weekly / scheduled
+## Scheduled / daily audit
 
 `run-scheduled-audit.ts` вызывает `getEnabledProjects()`:
 
 1. Есть `enabled: true` в `config/projects.json` → для каждого: аудит доски → отчёт в `discordChannelId`.
-2. Нет enabled-проектов → один прогон из `.env`:
-   - `APPTASK_BOARD_URL`
-   - `AUDIT_DISCORD_CHANNEL_ID`
-   - `APPTASK_PROJECT_NAME` (опционально)
-
-Логи:
-
-```
-[audit]
-project=AppFox
-board=...
-channel=...
-```
+2. Нет enabled-проектов → один прогон из `.env` (`APPTASK_BOARD_URL`, `AUDIT_DISCORD_CHANNEL_ID`).
 
 ## Ручное редактирование
 
@@ -111,28 +71,18 @@ channel=...
 /project_remove name:AppFox
 ```
 
-После обновления кода перезапустите бота (`start-bot.bat` или `npm run discord:bot`), чтобы slash-команды зарегистрировались на сервере. В логе:
-
-```
-[discord] slash commands replaced: /audit_full, /audit_limit, /comments_full, /comments_limit
-```
+После обновления бота перезапустите процесс (`start-bot.bat`) и обновите список команд в Discord (**Ctrl+R** в клиенте).
 
 ## Доступ для других пользователей
 
-1. **Роль пользователя** на сервере: включить **Использовать слэш-команды** (Use Application Commands).
-2. **Роль бота** в канале: View Channel, Send Messages, Attach Files, Embed Links, Use Application Commands.
-3. **Один процесс бота** — только `start-bot.bat` или ярлык автозапуска. Второй запуск завершится: `logs/bot.pid` + `Already running`.
-4. Долгий аудит без `limit` (>15 мин): Discord обнуляет interaction — бот пришлёт итог и **файлы в ЛС**, если канальный ответ истёк (нужны открытые DM).
+1. Роль пользователя: **Использовать слэш-команды** (Use Application Commands).
+2. Роль бота в канале: View Channel, Send Messages, Attach Files, Embed Links, Use Application Commands.
+3. **Один процесс бота** — `start-bot.bat` или ярлык автозапуска. Второй запуск завершится: `logs/bot.pid`.
+4. Долгий аудит без `limit` (>15 мин): Discord может истечь interaction — бот пришлёт итог в ЛС.
 
-В `logs/bot.log` при вызове:
+В `logs/bot.log` при вызовах:
 
 ```
 [discord] interaction received command=/audit_limit user=...
 [discord] deferReply ok command=/audit_limit
-```
-
-При устаревшей `/audit` из кэша Discord:
-
-```
-[discord] stale legacy command=/audit — use /audit_full, /audit_limit, ...
 ```
