@@ -14,8 +14,14 @@ import {
 } from "./audit-lock.js";
 import {
   attachCommentsApiDiscovery,
+  getCommentsReplayHeaders,
   loadTaskComments,
+  mergeCommentsReplayHeaders,
 } from "../comments/app-task-comments.js";
+import {
+  attachApiBaseDiscovery,
+} from "../collectors/app-task-api-client.js";
+import { attachBoardApiSniffer } from "../collectors/board-api-sniffer.js";
 import {
   findMarkerHitsInComments,
   type CommentMarkerHit,
@@ -101,8 +107,22 @@ async function runCommentsCheckOnPage(
     `[comments-command] boardUrl=${boardUrl} limit=${limitOpt ?? "full"}`,
   );
 
-  const stopDiscovery = attachCommentsApiDiscovery(page);
+  const stopApiDiscovery = attachApiBaseDiscovery(page);
+  const sniffer = attachBoardApiSniffer(page);
+  const stopCommentsDiscovery = attachCommentsApiDiscovery(page);
   await openBoardWithReadiness(page, boardUrl);
+  stopCommentsDiscovery();
+  const replayHeaders = mergeCommentsReplayHeaders(
+    sniffer.apiRequestHeaders,
+    getCommentsReplayHeaders(),
+  );
+  if (Object.keys(replayHeaders).length === 0) {
+    log.info("[comments-command] warning: no replay headers from board API sniffer");
+  } else {
+    log.info(
+      `[comments-command] replay headers: ${Object.keys(replayHeaders).join(", ")}`,
+    );
+  }
   const refs = await collectTaskRefsFromBoard(page);
   log.info(`[comments-command] collected task refs=${refs.length}`);
 
@@ -125,11 +145,9 @@ async function runCommentsCheckOnPage(
   const concurrency = Number(process.env.COMMENTS_AUDIT_CONCURRENCY ?? DEFAULT_CONCURRENCY);
 
   await runPool(targets, concurrency, async (task) => {
-    const comments = await loadTaskComments(
-      page,
-      task.id,
-      board.boardIdNum,
-    );
+    const comments = await loadTaskComments(page, task.id, board.boardIdNum, {
+      replayHeaders,
+    });
     const count = comments.length;
     if (count > 0) tasksWithComments++;
     totalComments += count;
@@ -149,7 +167,8 @@ async function runCommentsCheckOnPage(
     );
   });
 
-  stopDiscovery();
+  stopApiDiscovery();
+  sniffer.stop();
 
   const durationMs = Date.now() - started;
   const durationSec = Math.max(0, Math.round(durationMs / 1000));

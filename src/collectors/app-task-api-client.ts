@@ -96,24 +96,34 @@ function apiUrl(path: string): string {
   return `${base}${p}`;
 }
 
-function buildApiHeaders(
+/** Cookies + replay headers для POST на hostNNN.apptask.ru (сессия с apptask.ru). */
+export async function buildApptaskApiHeaders(
   page: Page,
   requestUrl: string,
   extra?: Record<string, string>,
 ): Promise<Record<string, string>> {
-  return (async () => {
-    const origin = new URL(requestUrl).origin;
-    const cookies = await page.context().cookies(origin);
-    const cookie = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...(extra ?? {}),
-    };
-    if (cookie) headers.cookie = cookie;
-    delete headers.host;
-    delete headers["content-length"];
-    return headers;
-  })();
+  const origins = new Set<string>([
+    new URL(requestUrl).origin,
+    "https://apptask.ru",
+  ]);
+  const cookieByName = new Map<string, string>();
+  for (const origin of origins) {
+    for (const c of await page.context().cookies(origin)) {
+      cookieByName.set(c.name, c.value);
+    }
+  }
+  const cookie = [...cookieByName.entries()]
+    .map(([name, value]) => `${name}=${value}`)
+    .join("; ");
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(extra ?? {}),
+  };
+  if (cookie) headers.cookie = cookie;
+  delete headers.host;
+  delete headers["content-length"];
+  return headers;
 }
 
 export async function postAppTaskApi<T = unknown>(
@@ -124,7 +134,7 @@ export async function postAppTaskApi<T = unknown>(
 ): Promise<T | null> {
   const url = apiUrl(path);
   try {
-    const headers = await buildApiHeaders(page, url, replayHeaders);
+    const headers = await buildApptaskApiHeaders(page, url, replayHeaders);
 
     const response = await page.request.post(url, {
       data: body,

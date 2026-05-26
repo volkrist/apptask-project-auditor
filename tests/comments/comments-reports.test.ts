@@ -120,7 +120,7 @@ test("Discord handler attaches 3 report files", () => {
   assert.match(publishCommentsSrc, /comments-summary\.md/);
   assert.match(publishCommentsSrc, /comments-detailed\.md/);
   assert.match(publishCommentsSrc, /comments\.json/);
-  assert.match(botHandlerSrc, /buildCommentsReportAttachments/);
+  assert.match(botHandlerSrc, /publishFullCommentsReportToChannel/);
   assert.match(botHandlerSrc, /Report files/);
   assert.ok(!publishCommentsSrc.includes("path.resolve(out.outputDir)"));
 });

@@ -1,7 +1,12 @@
 import type { Page } from "@playwright/test";
 import type { RawTask } from "../adapters/apptask/types.js";
 import { createLogger } from "../adapters/apptask/logger.js";
-import { appTaskCommentsToTaskComments, loadTaskComments } from "./app-task-comments.js";
+import {
+  appTaskCommentsToTaskComments,
+  getCommentsReplayHeaders,
+  loadTaskComments,
+  mergeCommentsReplayHeaders,
+} from "./app-task-comments.js";
 import {
   type CommentsAuditConfig,
   filterTasksForCommentsLoad,
@@ -53,6 +58,7 @@ export async function enrichTasksWithComments(
   tasks: RawTask[],
   config: CommentsAuditConfig,
   board: CommentsBoardContext,
+  options: { replayHeaders?: Record<string, string> } = {},
 ): Promise<EnrichCommentsResult> {
   const started = Date.now();
   const limitLabel =
@@ -102,13 +108,16 @@ export async function enrichTasksWithComments(
 
   let withComments = 0;
 
+  const replayHeaders = mergeCommentsReplayHeaders(
+    options.replayHeaders,
+    getCommentsReplayHeaders(),
+  );
+
   await runPool(targets, config.concurrency, async (task) => {
     const taskId = task.id!;
-    const apiComments = await loadTaskComments(
-      page,
-      taskId,
-      board.boardIdNum,
-    );
+    const apiComments = await loadTaskComments(page, taskId, board.boardIdNum, {
+      replayHeaders,
+    });
     const mapped = appTaskCommentsToTaskComments(apiComments);
     task.comments = mapped;
     if (mapped.length > 0) withComments++;

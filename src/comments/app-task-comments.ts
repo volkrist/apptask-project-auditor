@@ -1,7 +1,11 @@
 import type { Page } from "@playwright/test";
 import type { TaskComment } from "../adapters/apptask/types.js";
 import { createLogger } from "../adapters/apptask/logger.js";
-import { getAppTaskApiBase } from "../collectors/app-task-api-client.js";
+import {
+  buildApptaskApiHeaders,
+  getAppTaskApiBase,
+  postAppTaskApi,
+} from "../collectors/app-task-api-client.js";
 
 const log = createLogger("comments:api");
 
@@ -21,6 +25,16 @@ type GetTaskCommentsPayload = {
   data?: { id?: number; commentList?: unknown[] };
 };
 
+type CommentsApiData = {
+  id?: number;
+  commentList?: unknown[];
+};
+
+export type LoadTaskCommentsOptions = {
+  /** Заголовки из перехвата board API (attachBoardApiSniffer) + get_task_comments. */
+  replayHeaders?: Record<string, string>;
+};
+
 let resolvedApiUrl: string | null = null;
 const commentsReplayHeaders: Record<string, string> = {};
 
@@ -32,6 +46,19 @@ function rememberCommentsRequestHeaders(headers: Record<string, string>): void {
 
 export function getCommentsReplayHeaders(): Record<string, string> {
   return { ...commentsReplayHeaders };
+}
+
+export function mergeCommentsReplayHeaders(
+  ...sources: Array<Record<string, string> | undefined>
+): Record<string, string> {
+  const merged: Record<string, string> = {};
+  for (const src of sources) {
+    if (!src) continue;
+    for (const [key, value] of Object.entries(src)) {
+      if (value) merged[key.toLowerCase()] = value;
+    }
+  }
+  return merged;
 }
 
 export function getTaskCommentsApiUrl(): string {
@@ -135,14 +162,22 @@ async function loadTaskCommentsViaBrowser(
   page: Page,
   url: string,
   body: Record<string, unknown>,
+  replayHeaders?: Record<string, string>,
 ): Promise<AppTaskComment[] | null> {
+  const extraHeaders = { ...(replayHeaders ?? {}) };
+  delete extraHeaders.host;
+  delete extraHeaders["content-length"];
+
   const result = await page
     .evaluate(
-      async ({ requestUrl, requestBody }) => {
+      async ({ requestUrl, requestBody, extraHeaders: hdrs }) => {
         const res = await fetch(requestUrl, {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...hdrs,
+          },
           body: JSON.stringify(requestBody),
         });
         if (!res.ok) {
@@ -150,7 +185,7 @@ async function loadTaskCommentsViaBrowser(
         }
         return { ok: true as const, status: res.status, json: await res.json() };
       },
-      { requestUrl: url, requestBody: body },
+      { requestUrl: url, requestBody: body, extraHeaders },
     )
     .catch(() => null);
 
@@ -158,28 +193,49 @@ async function loadTaskCommentsViaBrowser(
   return parseCommentList(result.json);
 }
 
+async function loadTaskCommentsViaPostAppTaskApi(
+  page: Page,
+  body: Record<string, unknown>,
+  replayHeaders?: Record<string, string>,
+): Promise<AppTaskComment[] | null> {
+  const data = await postAppTaskApi<CommentsApiData>(
+    page,
+    GET_TASK_COMMENTS_PATH,
+    body,
+    replayHeaders,
+  );
+  if (!data) return null;
+  return parseCommentList({ data });
+}
+
+/**
+ * POST /board/get_task_comments без открытия модалки карточки.
+ * replayHeaders — из attachBoardApiSniffer после openBoard (как у API collector).
+ */
 export async function loadTaskComments(
   page: Page,
   taskId: number | string,
   boardId?: number,
+  options: LoadTaskCommentsOptions = {},
 ): Promise<AppTaskComment[]> {
   const id = typeof taskId === "string" ? Number(taskId) : taskId;
   if (!Number.isFinite(id)) return [];
 
   const url = getTaskCommentsApiUrl();
   const body = buildRequestBody(id, boardId);
-  try {
-    const origin = new URL(url).origin;
-    const cookies = await page.context().cookies(origin);
-    const cookie = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...getCommentsReplayHeaders(),
-    };
-    delete headers.host;
-    delete headers["content-length"];
-    if (cookie) headers.cookie = cookie;
+  const replayHeaders = options.replayHeaders;
 
+  try {
+    const viaSharedApi = await loadTaskCommentsViaPostAppTaskApi(
+      page,
+      body,
+      replayHeaders,
+    );
+    if (viaSharedApi !== null) {
+      return viaSharedApi;
+    }
+
+    const headers = await buildApptaskApiHeaders(page, url, replayHeaders);
     const response = await page.request.post(url, {
       data: body,
       headers,
@@ -188,17 +244,28 @@ export async function loadTaskComments(
       const json = await response.json().catch(() => null);
       const parsed = parseCommentList(json);
       if (parsed.length > 0) return parsed;
+      const payload = json as GetTaskCommentsPayload;
+      if (payload?.result === 1 && Array.isArray(payload?.data?.commentList)) {
+        return parsed;
+      }
     } else {
       log.info(
         `get_task_comments task=${id} boardId=${boardId ?? "?"} HTTP ${response.status()}, retry via browser fetch`,
       );
     }
 
-    const viaBrowser = await loadTaskCommentsViaBrowser(page, url, body);
+    const viaBrowser = await loadTaskCommentsViaBrowser(
+      page,
+      url,
+      body,
+      headers,
+    );
     if (viaBrowser != null) {
-      log.info(
-        `get_task_comments task=${id} boardId=${boardId ?? "?"} via browser: ${viaBrowser.length} comments`,
-      );
+      if (viaBrowser.length > 0 || response.ok()) {
+        log.info(
+          `get_task_comments task=${id} boardId=${boardId ?? "?"} via browser: ${viaBrowser.length} comments`,
+        );
+      }
       return viaBrowser;
     }
 
@@ -213,9 +280,13 @@ export async function loadTaskComments(
     log.info(
       `get_task_comments task=${id} boardId=${boardId ?? "?"} error: ${message}`,
     );
-    const viaBrowser = await loadTaskCommentsViaBrowser(page, url, body).catch(
-      () => null,
-    );
+    const headers = await buildApptaskApiHeaders(page, url, replayHeaders);
+    const viaBrowser = await loadTaskCommentsViaBrowser(
+      page,
+      url,
+      body,
+      headers,
+    ).catch(() => null);
     return viaBrowser ?? [];
   }
 }

@@ -46,8 +46,13 @@ export function buildCommentsReportAttachment(
   return buildCommentsReportAttachments(out);
 }
 
-export function logCommentsReportSent(files: AttachmentBuilder[]): void {
-  const names = files.map((f) => f.name).filter(Boolean).join(", ");
+export function logCommentsReportSent(
+  files: AttachmentBuilder[] | string[],
+): void {
+  const names = files
+    .map((f) => (typeof f === "string" ? f : f.name))
+    .filter(Boolean)
+    .join(", ");
   console.log(`[comments-report] sent files ${names}`);
 }
 

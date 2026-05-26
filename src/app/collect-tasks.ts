@@ -20,7 +20,12 @@ import { TASK_MODAL_SELECTORS } from "../adapters/apptask/selectors.js";
 import { createLogger } from "../adapters/apptask/logger.js";
 import type { RawTask } from "../adapters/apptask/types.js";
 import { parseBoardId } from "../adapters/apptask/urls.js";
-import { attachCommentsApiDiscovery } from "../comments/app-task-comments.js";
+import {
+  attachCommentsApiDiscovery,
+  getCommentsReplayHeaders,
+  mergeCommentsReplayHeaders,
+} from "../comments/app-task-comments.js";
+import { attachBoardApiSniffer } from "../collectors/board-api-sniffer.js";
 import {
   loadCommentsAuditConfig,
   type CommentsAuditMode,
@@ -103,7 +108,8 @@ async function collectTasksPlaywrightOnPage(
       ? { commentsLimit: options.commentsAuditLimit }
       : {}),
   });
-  const stopApiDiscovery =
+  const sniffer = attachBoardApiSniffer(page);
+  const stopCommentsDiscovery =
     commentsConfig.mode !== "off"
       ? attachCommentsApiDiscovery(page)
       : () => undefined;
@@ -177,7 +183,11 @@ async function collectTasksPlaywrightOnPage(
     }
   }
 
-  stopApiDiscovery();
+  stopCommentsDiscovery();
+  const commentsReplayHeaders = mergeCommentsReplayHeaders(
+    sniffer.apiRequestHeaders,
+    getCommentsReplayHeaders(),
+  );
   if (!page.url().includes(`/board/${boardId}`) || /\/board\/\d+\/\d+/.test(page.url())) {
     await page.goto(boardUrl, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(
       () => undefined,
@@ -208,10 +218,12 @@ async function collectTasksPlaywrightOnPage(
         tasksForComments,
         commentsConfig,
         commentsBoard,
+        { replayHeaders: commentsReplayHeaders },
       );
     }
   }
 
+  sniffer.stop();
   return { tasks, totalOnBoard, appTaskUsers, commentsAudit };
 }
 
