@@ -46,6 +46,7 @@ import {
 } from "../users/app-task-users.js";
 import { loadCollectorConfig } from "../collectors/collector-config.js";
 import { collectTasksViaApi } from "../collectors/api-collector.js";
+import { filterTaskRefsByIgnored } from "../audit-ignore/ignored-tasks.js";
 
 const log = createLogger("audit:collect");
 
@@ -93,6 +94,8 @@ export type CollectTasksResult = {
   totalOnBoard: number;
   appTaskUsers: AppTaskUser[];
   commentsAudit?: EnrichCommentsResult;
+  ignoredCount: number;
+  ignoredUrls: string[];
 };
 
 async function collectTasksPlaywrightOnPage(
@@ -131,6 +134,8 @@ async function collectTasksPlaywrightOnPage(
       (r) => r.taskId && taskIdFilter.includes(r.taskId),
     );
   }
+  const ignored = filterTaskRefsByIgnored(refsToProcess, boardUrl);
+  refsToProcess = ignored.refs;
   if (options.maxCards && options.maxCards > 0) {
     refsToProcess = refsToProcess.slice(0, options.maxCards);
   }
@@ -224,7 +229,14 @@ async function collectTasksPlaywrightOnPage(
   }
 
   sniffer.stop();
-  return { tasks, totalOnBoard, appTaskUsers, commentsAudit };
+  return {
+    tasks,
+    totalOnBoard,
+    appTaskUsers,
+    commentsAudit,
+    ignoredCount: ignored.skippedCount,
+    ignoredUrls: ignored.skippedUrls,
+  };
 }
 
 async function collectTasksPlaywright(

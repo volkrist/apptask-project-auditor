@@ -9,6 +9,7 @@ import {
 } from "discord.js";
 import type { RunAuditResult } from "../app/run-audit.js";
 import type { EnrichCommentsResult } from "../comments/enrich-tasks-comments.js";
+import { buildAuditReportEmbed } from "./report-embeds.js";
 
 export function formatCommentsAuditBlock(
   summary: EnrichCommentsResult | undefined,
@@ -46,7 +47,6 @@ export function formatBriefSummary(out: RunAuditResult): string {
   return [
     `${cardsLine} | FAIL: **${meta.failCount}** | WARN: **${meta.warnCount}**`,
     `Доска: ${meta.boardUrl}`,
-    `Отчёт: \`${path.resolve(out.output.dir)}\``,
   ].join("\n");
 }
 
@@ -60,7 +60,6 @@ export function formatAuditReply(out: RunAuditResult): string {
     `📋 **Аудит AppTask — ${meta.projectName}**`,
     `${cardsLine} | FAIL: **${meta.failCount}** | WARN: **${meta.warnCount}**`,
     `Доска: ${meta.boardUrl}`,
-    `Отчёт: \`${path.resolve(out.output.dir)}\``,
   ];
 
   try {
@@ -99,12 +98,11 @@ export function buildReportAttachments(
     logReportFile("summaryPath", out.output.summaryPath);
     logReportFile("markdownPath", out.output.markdownPath);
     logReportFile("jsonPath", out.output.jsonPath);
+    logReportFile("reportPath", out.output.reportPath);
   }
 
   const candidates = [
-    { path: out.output.summaryPath, name: "audit-summary.md" },
-    { path: out.output.markdownPath, name: "audit-detailed.md" },
-    { path: out.output.jsonPath, name: "audit.json" },
+    { path: out.output.reportPath, name: "audit-report.md" },
   ];
 
   const files: AttachmentBuilder[] = [];
@@ -188,10 +186,12 @@ export async function publishFullReportToChannel(
   out: RunAuditResult,
   channelId: string,
 ): Promise<string[]> {
-  const content = formatAuditReply(out);
+  const embed = buildAuditReportEmbed(out);
   const files = buildReportAttachments(out, { verbose: true });
-
-  await channel.send({ content });
+  await channel.send({
+    content: "Готово. Отчёт сформирован.",
+    embeds: [embed],
+  });
 
   const sentNames = files.map((f) => f.name).filter((n): n is string => !!n);
 
@@ -200,7 +200,10 @@ export async function publishFullReportToChannel(
     return sentNames;
   }
 
-  await channel.send({ content: "📎 Report files", files });
+  await channel.send({
+    content: "Подробные файлы отчёта прикреплены ниже.",
+    files,
+  });
   console.log(
     `[audit-channel] posted summary + ${files.length} file(s) to channel ${channelId}`,
   );

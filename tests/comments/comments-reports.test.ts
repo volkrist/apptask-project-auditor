@@ -117,11 +117,13 @@ test("detailed with markers lists task and comment fields", () => {
 });
 
 test("Discord handler attaches 3 report files", () => {
-  assert.match(publishCommentsSrc, /comments-summary\.md/);
-  assert.match(publishCommentsSrc, /comments-detailed\.md/);
-  assert.match(publishCommentsSrc, /comments\.json/);
+  assert.match(publishCommentsSrc, /comments-report\.md/);
+  assert.doesNotMatch(publishCommentsSrc, /comments-summary\.md/);
+  assert.doesNotMatch(publishCommentsSrc, /comments-detailed\.md/);
+  assert.doesNotMatch(publishCommentsSrc, /comments\.json/);
+  assert.match(publishCommentsSrc, /buildCommentsReportEmbed/);
   assert.match(botHandlerSrc, /publishFullCommentsReportToChannel/);
-  assert.match(botHandlerSrc, /Report files/);
+  assert.match(publishCommentsSrc, /Подробные файлы отчёта прикреплены ниже\./);
   assert.ok(!publishCommentsSrc.includes("path.resolve(out.outputDir)"));
 });
 

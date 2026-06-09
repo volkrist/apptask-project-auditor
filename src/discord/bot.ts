@@ -1,13 +1,17 @@
 import "dotenv/config";
 import { acquireBotInstanceLock } from "./bot-lock.js";
-import path from "node:path";
 
 acquireBotInstanceLock();
 import {
-  type AttachmentBuilder,
+  ActionRowBuilder,
+  AttachmentBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   ChannelType,
   Client,
+  EmbedBuilder,
   GatewayIntentBits,
+  type InteractionEditReplyOptions,
   MessageFlags,
   PermissionFlagsBits,
   REST,
@@ -39,17 +43,29 @@ import {
   removeProject,
 } from "../config/projects.js";
 import {
-  formatCommentsCheckReply,
+  addIgnoredTask,
+  listIgnoredTasks,
+  normalizeBoardUrl,
+  removeIgnoredTask,
+  resolveTaskUrl,
+} from "../audit-ignore/ignored-tasks.js";
+import {
+  buildCommentsReportAttachments,
   logCommentsReportSent,
   publishFullCommentsReportToChannel,
 } from "./publish-comments.js";
 import {
   buildReportAttachments,
-  formatAuditReply,
   formatBriefSummary,
   publishFullReportToChannel,
   resolveAuditChannel,
 } from "./publish-report.js";
+import {
+  buildAuditReportEmbed,
+  buildCommentsReportEmbed,
+  humanizeRuleLabel,
+  recommendationForRule,
+} from "./report-embeds.js";
 import type { RunCommentsCheckResult } from "../app/run-comments-check.js";
 import type { SendableChannels } from "discord.js";
 
@@ -68,9 +84,19 @@ const client = new Client({
 const INTERACTION_DEDUP_TTL_MS = 60 * 60 * 1000;
 const seenInteractionIds = new Map<string, number>();
 let auditInProgress = false;
+const reportPageState = new Map<string, PagedReportState>();
 
 const AUDIT_BUSY_MESSAGE =
   "⏳ **Аудит уже выполняется, дождитесь завершения.**";
+
+type ReportKind = "audit" | "comments";
+type ReportFileRef = { path: string; name: string };
+type PagedReportState = {
+  kind: ReportKind;
+  pages: EmbedBuilder[];
+  currentPage: number;
+  files: ReportFileRef[];
+};
 
 function logDiscord(message: string): void {
   console.log(message);
@@ -211,6 +237,107 @@ function logInteractionError(
   logInteraction(tag, interaction, { error: formatDiscordError(err) });
 }
 
+function getAuditStatusText(failCount: number, warnCount: number): string {
+  if (failCount > 0) return "Требует доработки";
+  if (warnCount > 0) return "Есть предупреждения";
+  return "Проблем не найдено";
+}
+
+function buildPagerButtons(page: number, total: number): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId("report_prev")
+      .setLabel("◀ Назад")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(page <= 0),
+    new ButtonBuilder()
+      .setCustomId("report_next")
+      .setLabel("▶ Далее")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(page >= total - 1),
+    new ButtonBuilder()
+      .setCustomId("report_download")
+      .setLabel("⬇ Скачать отчёт")
+      .setStyle(ButtonStyle.Primary),
+  );
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+function buildAuditDetailPages(out: RunAuditResult): EmbedBuilder[] {
+  const problematic = out.result.cards.filter((card) =>
+    card.results.some((r) => r.status !== "PASS"),
+  );
+  const chunks = chunk(problematic, 2);
+  const pages: EmbedBuilder[] = [];
+
+  for (const group of chunks) {
+    const embed = new EmbedBuilder()
+      .setTitle(`✅ Аудит ${out.result.meta.projectName} завершён`)
+      .setColor(0x5865f2)
+      .setDescription("Детализация по карточкам");
+
+    for (const card of group) {
+      const issues = card.results
+        .filter((r) => r.status !== "PASS")
+        .map((r) => `- ${humanizeRuleLabel(r.ruleId, r.reason)}`)
+        .slice(0, 8);
+      const fixes = card.results
+        .map((r) => recommendationForRule(r.ruleId))
+        .filter((x): x is string => !!x);
+      const uniqueFixes = [...new Set(fixes)].slice(0, 6).map((x) => `- ${x}`);
+      const fail = card.results.filter((r) => r.status === "FAIL").length;
+      const warn = card.results.filter((r) => r.status === "WARN").length;
+      const status = getAuditStatusText(fail, warn);
+      const title = card.task.title ?? "(без названия)";
+      const cardHeader = `### №${card.task.id ?? "?"} — ${title}`;
+      const value = [
+        cardHeader,
+        `Ссылка: ${card.task.url ?? "—"}`,
+        `Статус: ${status}`,
+        "",
+        "Проблемы:",
+        ...(issues.length > 0 ? issues : ["- Нарушений не найдено"]),
+        "",
+        "Что исправить:",
+        ...(uniqueFixes.length > 0 ? uniqueFixes : ["- Проверить карточку вручную"]),
+      ].join("\n");
+      embed.addFields({ name: "\u200b", value: value.slice(0, 1024), inline: false });
+    }
+    pages.push(embed);
+  }
+  return pages;
+}
+
+function buildCommentsDetailPages(out: RunCommentsCheckResult): EmbedBuilder[] {
+  if (out.markerHits.length === 0) return [];
+  const groups = chunk(out.markerHits, 3);
+  return groups.map((group) => {
+    const embed = new EmbedBuilder()
+      .setTitle("✅ Проверка комментариев завершена")
+      .setColor(0x5865f2)
+      .setDescription("Детализация по маркерам");
+    for (const hit of group) {
+      embed.addFields({
+        name: `№${hit.taskId} — ${hit.taskTitle ?? "(без названия)"}`,
+        value: [
+          `Ссылка: ${hit.taskUrl}`,
+          `Маркер: ${hit.marker}`,
+          `Комментарий: ${hit.commentPlain}`,
+        ]
+          .join("\n")
+          .slice(0, 1024),
+        inline: false,
+      });
+    }
+    return embed;
+  });
+}
+
 function rememberInteractionOnce(interactionId: string): boolean {
   const now = Date.now();
   for (const [id, seenAt] of seenInteractionIds) {
@@ -277,19 +404,30 @@ async function logBotChannelPermissions(
   }
 }
 
-async function safeEditReply(
+async function safeEditReplyPayload(
   interaction: ChatInputCommandInteraction,
-  content: string,
+  payload: string | InteractionEditReplyOptions,
 ): Promise<boolean> {
   const cmd = interaction.commandName;
   try {
-    await interaction.editReply({ content });
+    if (typeof payload === "string") {
+      await interaction.editReply({ content: payload });
+    } else {
+      await interaction.editReply(payload);
+    }
     logDiscord(`[discord] editReply sent command=/${cmd}`);
     return true;
   } catch (err) {
     logInteractionError("audit", interaction, err);
     return false;
   }
+}
+
+async function safeEditReply(
+  interaction: ChatInputCommandInteraction,
+  content: string,
+): Promise<boolean> {
+  return safeEditReplyPayload(interaction, content);
 }
 
 async function notifyUserDm(
@@ -302,7 +440,10 @@ async function notifyUserDm(
   try {
     if (files && files.length > 0) {
       await interaction.user.send({ content: text });
-      await interaction.user.send({ content: "📎 Report files", files });
+      await interaction.user.send({
+        content: "Подробные файлы отчёта прикреплены ниже.",
+        files,
+      });
       logInteraction("audit", interaction, {
         fallback: "dm_sent",
         files: String(files.length),
@@ -322,9 +463,8 @@ async function deliverFullReportViaDm(
   out: RunAuditResult,
   preamble?: string,
 ): Promise<void> {
-  const detail = formatAuditReply(out);
+  const detail = formatBriefSummary(out);
   const files = buildReportAttachments(out);
-  const outputDir = path.resolve(out.output.dir);
   const body = preamble ? `${preamble}\n\n${detail}` : detail;
   const note =
     "\n\n_(Ответ в канале недоступен: Discord interaction истёк, обычно после 15 мин.)_";
@@ -333,10 +473,7 @@ async function deliverFullReportViaDm(
 
   if (files.length === 0) {
     console.warn("No report files found for DM attachments");
-    await notifyUserDm(
-      interaction,
-      `Файлы отчёта не найдены. Локальный путь: \`${outputDir}\``,
-    );
+    await notifyUserDm(interaction, "Файлы отчёта не найдены.");
   }
 }
 
@@ -359,24 +496,48 @@ async function deliverPublicAuditReport(
 ): Promise<void> {
   const channel = await resolveReportChannel(interaction);
   if (!channel) {
-    console.warn("[audit-channel] no channel for public report, sending DM");
-    await deliverFullReportViaDm(interaction, out);
+    console.warn("[audit-channel] no channel for public report");
+    await safeEditReply(
+      interaction,
+      "Не удалось найти канал для публикации отчёта.",
+    );
     return;
   }
 
   const channelId = channel.id;
   try {
-    const sent = await publishFullReportToChannel(channel, out, channelId);
+    const summary = buildAuditReportEmbed(out).addFields({
+      name: "Детали",
+      value: "Отчёт доступен ниже. Используйте кнопки для просмотра деталей.",
+      inline: false,
+    });
+    const detailPages = buildAuditDetailPages(out);
+    const pages = [summary, ...detailPages];
+    for (let i = 0; i < pages.length; i++) {
+      pages[i] = EmbedBuilder.from(pages[i]).setFooter({
+        text: `Страница ${i + 1} из ${pages.length}`,
+      });
+    }
+    const sent = await channel.send({
+      content: "Готово. Отчёт сформирован.",
+      embeds: [pages[0]!],
+      components: [buildPagerButtons(0, pages.length)],
+    });
+    reportPageState.set(sent.id, {
+      kind: "audit",
+      pages,
+      currentPage: 0,
+      files: [
+        { path: out.output.reportPath, name: "audit-report.md" },
+        { path: out.output.jsonPath, name: "audit.json" },
+      ],
+    });
     console.log(
-      `[attachments] public audit report → channel ${channelId} (${sent.length} files)`,
+      `[attachments] public audit report → channel ${channelId} (paged message ${sent.id})`,
     );
   } catch (err) {
     logInteractionError("audit", interaction, err);
-    await deliverFullReportViaDm(
-      interaction,
-      out,
-      `Не удалось опубликовать отчёт в канал. Локальный путь: \`${path.resolve(out.output.dir)}\``,
-    );
+    await safeEditReply(interaction, "Не удалось опубликовать отчёт в канал.");
   }
 }
 
@@ -392,10 +553,35 @@ async function deliverPublicCommentsReport(
 
   const channelId = channel.id;
   try {
-    const sent = await publishFullCommentsReportToChannel(channel, out, channelId);
-    logCommentsReportSent(sent);
+    const summary = buildCommentsReportEmbed(out).addFields({
+      name: "Детали",
+      value: "Отчёт доступен ниже. Используйте кнопки для просмотра деталей.",
+      inline: false,
+    });
+    const detailPages = buildCommentsDetailPages(out);
+    const pages = [summary, ...detailPages];
+    for (let i = 0; i < pages.length; i++) {
+      pages[i] = EmbedBuilder.from(pages[i]).setFooter({
+        text: `Страница ${i + 1} из ${pages.length}`,
+      });
+    }
+    const sent = await channel.send({
+      content: "Готово. Отчёт сформирован.",
+      embeds: [pages[0]!],
+      components: [buildPagerButtons(0, pages.length)],
+    });
+    reportPageState.set(sent.id, {
+      kind: "comments",
+      pages,
+      currentPage: 0,
+      files: [
+        { path: out.output.reportPath, name: "comments-report.md" },
+        { path: out.output.jsonPath, name: "comments.json" },
+      ],
+    });
+    logCommentsReportSent([out.output.reportPath]);
     console.log(
-      `[comments-report] public report → channel ${channelId} (${sent.length} files)`,
+      `[comments-report] public report → channel ${channelId} (paged message ${sent.id})`,
     );
   } catch (err) {
     logInteractionError("comments", interaction, err);
@@ -406,15 +592,11 @@ async function replyWithAuditResult(
   interaction: ChatInputCommandInteraction,
   out: RunAuditResult,
 ): Promise<void> {
-  const brief = formatBriefSummary(out);
-  const summary = `✅ **Audit completed.**\n\n${brief}\n\n_Полный отчёт опубликован в канале ниже._`;
-
+  const summary = "Готово. Отчёт сформирован.";
   const replied = await safeEditReply(interaction, summary);
   if (!replied) {
-    await deliverFullReportViaDm(interaction, out, summary);
     return;
   }
-
   await deliverPublicAuditReport(interaction, out);
 }
 
@@ -488,10 +670,9 @@ async function handleCommentsSlash(
       withComments: String(out.tasksWithComments),
       markers: String(out.markerHits.length),
     });
-    const summary = `${formatCommentsCheckReply(out)}\n\n_Полный отчёт опубликован в канале ниже._`;
+    const summary = "Готово. Отчёт сформирован.";
     const replied = await safeEditReply(interaction, summary);
     if (!replied) return;
-
     await deliverPublicCommentsReport(interaction, out);
   } catch (err) {
     logInteractionError(options.logTag, interaction, err);
@@ -653,6 +834,70 @@ async function handleProjectRemove(
   );
 }
 
+async function handleAuditIgnore(
+  interaction: ChatInputCommandInteraction,
+): Promise<void> {
+  const url = interaction.options.getString("url", true);
+  const reason = interaction.options.getString("reason") ?? undefined;
+  const parsed = resolveTaskUrl(url);
+  if (!parsed) {
+    await interaction.editReply(
+      "Укажите корректный URL карточки, например: https://apptask.ru/c/7/board/445/343",
+    );
+    return;
+  }
+  const result = addIgnoredTask({
+    url: parsed.url,
+    reason,
+    createdBy: interaction.user.id,
+  });
+  if (!result.added) {
+    await interaction.editReply(
+      result.message ?? "Карточка уже есть в исключениях.",
+    );
+    return;
+  }
+  await interaction.editReply(
+    "Карточка добавлена в исключения и не будет проверяться при следующих аудитах.",
+  );
+}
+
+async function handleAuditUnignore(
+  interaction: ChatInputCommandInteraction,
+): Promise<void> {
+  const url = interaction.options.getString("url", true);
+  const parsed = resolveTaskUrl(url);
+  if (!parsed) {
+    await interaction.editReply(
+      "Укажите корректный URL карточки, например: https://apptask.ru/c/7/board/445/343",
+    );
+    return;
+  }
+  const result = removeIgnoredTask(parsed.url);
+  await interaction.editReply(
+    result.removed
+      ? "Карточка удалена из исключений."
+      : "Карточка не найдена в исключениях.",
+  );
+}
+
+async function handleAuditIgnoredList(
+  interaction: ChatInputCommandInteraction,
+): Promise<void> {
+  const boardUrlRaw = interaction.options.getString("board_url") ?? undefined;
+  const boardUrl = boardUrlRaw ? normalizeBoardUrl(boardUrlRaw) : undefined;
+  const list = listIgnoredTasks(boardUrl);
+  if (list.length === 0) {
+    await interaction.editReply("Исключённых карточек нет.");
+    return;
+  }
+  const lines = list.slice(0, 50).map((item) => {
+    const reason = item.reason ? ` — ${item.reason}` : "";
+    return `• ${item.url}${reason}`;
+  });
+  await interaction.editReply(lines.join("\n"));
+}
+
 client.once("clientReady", async (readyClient) => {
   console.log(`Discord bot logged in as ${readyClient.user.tag}`);
   if (auditChannelId) {
@@ -699,6 +944,54 @@ client.once("clientReady", async (readyClient) => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+  if (interaction.isButton()) {
+    const state = reportPageState.get(interaction.message.id);
+    if (!state) {
+      await interaction.reply({
+        content: "Отчёт больше недоступен. Запустите команду снова.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (interaction.customId === "report_prev") {
+      state.currentPage = Math.max(0, state.currentPage - 1);
+      await interaction.update({
+        embeds: [state.pages[state.currentPage]!],
+        components: [buildPagerButtons(state.currentPage, state.pages.length)],
+      });
+      return;
+    }
+
+    if (interaction.customId === "report_next") {
+      state.currentPage = Math.min(state.pages.length - 1, state.currentPage + 1);
+      await interaction.update({
+        embeds: [state.pages[state.currentPage]!],
+        components: [buildPagerButtons(state.currentPage, state.pages.length)],
+      });
+      return;
+    }
+
+    if (interaction.customId === "report_download") {
+      const files = state.files
+        .filter((f) => !!f.path)
+        .map((f) => new AttachmentBuilder(f.path, { name: f.name }));
+      if (files.length === 0) {
+        await interaction.reply({
+          content: "Файл отчёта не найден.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+      await interaction.reply({
+        content: "Файл отчёта для скачивания.",
+        files,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const cmd = interaction.commandName;
@@ -723,7 +1016,10 @@ client.on("interactionCreate", async (interaction) => {
   if (
     cmd === "project_add" ||
     cmd === "project_list" ||
-    cmd === "project_remove"
+    cmd === "project_remove" ||
+    cmd === "audit_ignore" ||
+    cmd === "audit_unignore" ||
+    cmd === "audit_ignored_list"
   ) {
     if (!(await deferSlashCommand(interaction, { ephemeral: true }))) return;
     try {
@@ -731,6 +1027,12 @@ client.on("interactionCreate", async (interaction) => {
         await handleProjectAdd(interaction);
       } else if (cmd === "project_list") {
         await handleProjectList(interaction);
+      } else if (cmd === "audit_ignore") {
+        await handleAuditIgnore(interaction);
+      } else if (cmd === "audit_unignore") {
+        await handleAuditUnignore(interaction);
+      } else if (cmd === "audit_ignored_list") {
+        await handleAuditIgnoredList(interaction);
       } else {
         await handleProjectRemove(interaction);
       }
@@ -761,7 +1063,9 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
-  if (!(await deferSlashCommand(interaction, { ephemeral: false }))) return;
+  if (!(await deferSlashCommand(interaction, { ephemeral: true }))) {
+    return;
+  }
 
   if (auditInProgress || isAuditLocked()) {
     logDiscord(`[discord] audit lock busy command=/${cmd}`);

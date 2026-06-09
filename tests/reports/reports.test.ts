@@ -70,8 +70,12 @@ test("writeAuditReports создаёт json и markdown", async () => {
   assert.ok(fs.existsSync(paths.jsonPath));
   assert.ok(fs.existsSync(paths.markdownPath));
   assert.ok(fs.existsSync(paths.summaryPath));
+  assert.ok(fs.existsSync(paths.reportPath));
   const md = fs.readFileSync(paths.markdownPath, "utf8");
+  const human = fs.readFileSync(paths.reportPath, "utf8");
   assert.match(md, /Детальный отчёт/);
+  assert.match(human, /# Отчёт аудита AppTask/);
+  assert.match(human, /## 3\. Что исправить в первую очередь/);
   const summary = buildSummaryMarkdown(result);
   assert.match(summary, /Аудит/);
   assert.match(buildDetailMarkdown(result), /Карточки/);

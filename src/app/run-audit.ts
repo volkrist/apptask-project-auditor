@@ -39,6 +39,8 @@ export type RunAuditResult = {
   discordError?: string;
   totalOnBoard: number;
   commentsAudit?: EnrichCommentsResult;
+  ignoredCount: number;
+  ignoredUrls: string[];
 };
 
 /**
@@ -74,7 +76,7 @@ async function runAuditInner(
   log.info(
     `[audit-command] boardUrl=${boardUrl} limit=${options.maxCards ?? "full"} comments=${options.commentsAuditMode ?? "off"}`,
   );
-  const { tasks, totalOnBoard, appTaskUsers, commentsAudit } =
+  const { tasks, totalOnBoard, appTaskUsers, commentsAudit, ignoredCount, ignoredUrls } =
     await collectTasksFromBoard(boardUrl, {
       maxCards: options.maxCards,
       commentsAuditMode: options.commentsAuditMode ?? "off",
@@ -105,7 +107,10 @@ async function runAuditInner(
   );
 
   log.info(`save reports (FAIL=${result.meta.failCount}, WARN=${result.meta.warnCount})`);
-  const output = writeAuditReports(result);
+  const output = writeAuditReports(result, undefined, {
+    ignoredCount,
+    ignoredUrls,
+  });
 
   let discordPublished = false;
   let discordError: string | undefined;
@@ -148,6 +153,8 @@ async function runAuditInner(
     discordError,
     totalOnBoard,
     commentsAudit,
+    ignoredCount,
+    ignoredUrls,
   };
 }
 

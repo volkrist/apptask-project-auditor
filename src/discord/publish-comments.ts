@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { AttachmentBuilder, type SendableChannels } from "discord.js";
 import type { RunCommentsCheckResult } from "../app/run-comments-check.js";
+import { buildCommentsReportEmbed } from "./report-embeds.js";
 
 export function formatBriefCommentsSummary(out: RunCommentsCheckResult): string {
   const cardsLine =
@@ -22,9 +23,7 @@ export function buildCommentsReportAttachments(
   out: RunCommentsCheckResult,
 ): AttachmentBuilder[] {
   const candidates = [
-    { path: out.output.summaryPath, name: "comments-summary.md" },
-    { path: out.output.detailedPath, name: "comments-detailed.md" },
-    { path: out.output.jsonPath, name: "comments.json" },
+    { path: out.output.reportPath, name: "comments-report.md" },
   ];
 
   const files: AttachmentBuilder[] = [];
@@ -62,10 +61,13 @@ export async function publishFullCommentsReportToChannel(
   out: RunCommentsCheckResult,
   channelId: string,
 ): Promise<string[]> {
-  const content = formatCommentsCheckReply(out);
+  const embed = buildCommentsReportEmbed(out);
   const files = buildCommentsReportAttachments(out);
 
-  await channel.send({ content });
+  await channel.send({
+    content: "Готово. Отчёт сформирован.",
+    embeds: [embed],
+  });
 
   const sentNames = files.map((f) => f.name).filter((n): n is string => !!n);
   if (files.length === 0) {
@@ -73,7 +75,10 @@ export async function publishFullCommentsReportToChannel(
     return sentNames;
   }
 
-  await channel.send({ content: "📎 Report files", files });
+  await channel.send({
+    content: "Подробные файлы отчёта прикреплены ниже.",
+    files,
+  });
   console.log(
     `[comments-channel] posted summary + ${files.length} file(s) to channel ${channelId}`,
   );

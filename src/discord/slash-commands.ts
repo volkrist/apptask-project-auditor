@@ -101,6 +101,48 @@ export const slashCommands = [
     description: "List saved board → channel mappings",
   },
   {
+    name: "audit_ignore",
+    description: "Exclude task card from future audits",
+    options: [
+      {
+        name: "url",
+        description: "Task URL like https://apptask.ru/c/7/board/445/343",
+        type: ApplicationCommandOptionType.String,
+        required: true,
+      },
+      {
+        name: "reason",
+        description: "Optional ignore reason",
+        type: ApplicationCommandOptionType.String,
+        required: false,
+      },
+    ],
+  },
+  {
+    name: "audit_unignore",
+    description: "Remove task card from ignored list",
+    options: [
+      {
+        name: "url",
+        description: "Task URL like https://apptask.ru/c/7/board/445/343",
+        type: ApplicationCommandOptionType.String,
+        required: true,
+      },
+    ],
+  },
+  {
+    name: "audit_ignored_list",
+    description: "List ignored task cards",
+    options: [
+      {
+        name: "board_url",
+        description: "Optional board URL filter",
+        type: ApplicationCommandOptionType.String,
+        required: false,
+      },
+    ],
+  },
+  {
     name: "project_remove",
     description: "Remove a saved project mapping",
     options: [

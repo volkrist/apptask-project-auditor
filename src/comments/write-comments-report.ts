@@ -32,6 +32,7 @@ export type CommentsOutputPaths = {
   summaryPath: string;
   detailedPath: string;
   jsonPath: string;
+  reportPath: string;
 };
 
 function formatDirName(date = new Date()): string {
@@ -161,6 +162,55 @@ export function buildCommentsDetailedMarkdown(input: CommentsReportInput): strin
   return lines.join("\n").trimEnd() + "\n";
 }
 
+export function buildCommentsHumanReportMarkdown(
+  input: CommentsReportInput,
+): string {
+  const checkedAt = input.checkedAt ?? new Date();
+  const status =
+    input.markerHits.length > 0
+      ? "Есть вопросы для проверки"
+      : "Маркеры не найдены";
+  const lines = [
+    "# Отчёт проверки комментариев AppTask",
+    "",
+    "## 1. Общая сводка",
+    `- Доска: ${input.boardUrl}`,
+    `- Дата проверки: ${formatCheckedAt(checkedAt)}`,
+    `- Проверено карточек: ${checkedOfTotal(input)}`,
+    `- Карточек с комментариями: ${input.tasksWithComments}`,
+    `- Всего комментариев: ${input.totalComments}`,
+    `- Маркеров незакрытых вопросов: ${input.markerHits.length}`,
+    `- Общий статус: ${status}`,
+    "",
+    "## 2. Что проверить в первую очередь",
+  ];
+
+  if (input.markerHits.length === 0) {
+    lines.push("- Маркеры не обнаружены");
+  } else {
+    const byTask = new Map<string, CommentMarkerHit[]>();
+    for (const hit of input.markerHits) {
+      const list = byTask.get(hit.taskId) ?? [];
+      list.push(hit);
+      byTask.set(hit.taskId, list);
+    }
+
+    let shown = 0;
+    for (const [taskId, hits] of byTask) {
+      const first = hits[0]!;
+      lines.push(
+        `- Задача №${taskId} (${first.taskUrl}) — маркеры: ${[
+          ...new Set(hits.map((h) => h.marker)),
+        ].join(", ")}`,
+      );
+      shown++;
+      if (shown >= 5) break;
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
 function taskIdForJson(taskId: string): number | string {
   return /^\d+$/.test(taskId) ? Number(taskId) : taskId;
 }
@@ -215,6 +265,7 @@ export function writeCommentsReport(
   const summaryPath = path.join(dir, "comments-summary.md");
   const detailedPath = path.join(dir, "comments-detailed.md");
   const jsonPath = path.join(dir, "comments.json");
+  const reportPath = path.join(dir, "comments-report.md");
 
   const fullInput = {
     ...input,
@@ -225,8 +276,9 @@ export function writeCommentsReport(
   fs.writeFileSync(summaryPath, buildCommentsSummaryMarkdown(fullInput), "utf8");
   fs.writeFileSync(detailedPath, buildCommentsDetailedMarkdown(fullInput), "utf8");
   fs.writeFileSync(jsonPath, buildCommentsJson(fullInput), "utf8");
+  fs.writeFileSync(reportPath, buildCommentsHumanReportMarkdown(fullInput), "utf8");
 
   console.log(`[comments-report] saved ${dir.replace(/\\/g, "/")}`);
 
-  return { dir, summaryPath, detailedPath, jsonPath };
+  return { dir, summaryPath, detailedPath, jsonPath, reportPath };
 }

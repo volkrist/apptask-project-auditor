@@ -38,6 +38,7 @@ import {
   resolveCommentsBoardUrl,
 } from "../comments/comments-board-context.js";
 import { loadCollectorConfig } from "./collector-config.js";
+import { filterTasksByIgnored } from "../audit-ignore/ignored-tasks.js";
 import { filterTasksForDetailsLoad } from "./api-details-config.js";
 import {
   buildBlocksMap,
@@ -275,6 +276,8 @@ export async function collectTasksViaApiOnPage(
   if (taskIdFilter?.length) {
     tasks = tasks.filter((t) => t.id && taskIdFilter.includes(t.id));
   }
+  const ignored = filterTasksByIgnored(tasks, boardUrl);
+  tasks = ignored.tasks;
 
   const totalOnBoard = tasks.length;
 
@@ -362,7 +365,15 @@ export async function collectTasksViaApiOnPage(
     for (const w of warnings) log.info(`[api-collector] warning: ${w}`);
   }
 
-  return { tasks, totalOnBoard, appTaskUsers, commentsAudit, stats };
+  return {
+    tasks,
+    totalOnBoard,
+    appTaskUsers,
+    commentsAudit,
+    ignoredCount: ignored.skippedCount,
+    ignoredUrls: ignored.skippedUrls,
+    stats,
+  };
 }
 
 /** API-first сбор задач: Playwright только для сессии, данные через внутренние API. */
@@ -388,6 +399,8 @@ export async function collectTasksViaApi(
       totalOnBoard: result.totalOnBoard,
       appTaskUsers: result.appTaskUsers,
       commentsAudit: result.commentsAudit,
+      ignoredCount: result.ignoredCount ?? 0,
+      ignoredUrls: result.ignoredUrls ?? [],
     };
   } finally {
     await context.close();

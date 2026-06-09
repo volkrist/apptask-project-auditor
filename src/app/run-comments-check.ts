@@ -53,6 +53,7 @@ export type RunCommentsCheckResult = {
     summaryPath: string;
     detailedPath: string;
     jsonPath: string;
+    reportPath: string;
   };
 };
 

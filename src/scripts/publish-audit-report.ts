@@ -34,7 +34,8 @@ async function main(): Promise<void> {
   const jsonPath = path.join(auditDir, "audit.json");
   const markdownPath = path.join(auditDir, "audit.md");
   const summaryPath = path.join(auditDir, "summary.md");
-  for (const p of [jsonPath, markdownPath, summaryPath]) {
+  const reportPath = path.join(auditDir, "audit-report.md");
+  for (const p of [jsonPath, markdownPath, summaryPath, reportPath]) {
     if (!fs.existsSync(p)) {
       console.error(`Missing file: ${p}`);
       process.exit(1);
@@ -47,6 +48,7 @@ async function main(): Promise<void> {
     jsonPath,
     markdownPath,
     summaryPath,
+    reportPath,
   };
 
   const out: RunAuditResult = {
@@ -54,6 +56,8 @@ async function main(): Promise<void> {
     output,
     discordPublished: false,
     totalOnBoard: result.meta.cardsChecked,
+    ignoredCount: 0,
+    ignoredUrls: [],
   };
 
   const channelId = requireEnv("AUDIT_DISCORD_CHANNEL_ID");
