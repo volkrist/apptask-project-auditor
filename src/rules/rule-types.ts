@@ -5,6 +5,7 @@ import type {
   BoardAuditMetrics,
   ScrumAuditContext,
 } from "../scrum/scrum-estimate-config.js";
+import type { TrackingAuditContext } from "../tracking/load-tracking-context.js";
 
 export type RuleStatus = "PASS" | "FAIL" | "WARN";
 
@@ -19,6 +20,7 @@ export type RuleContext = {
   allTasks: RawTask[];
   appTaskUsers?: AppTaskUser[];
   scrum?: ScrumAuditContext | null;
+  tracking?: TrackingAuditContext | null;
   boardMetrics?: BoardAuditMetrics;
   /** boardId:stateId → status name (DB collector). */
   stateNameByKey?: Record<string, string>;
@@ -79,7 +81,19 @@ export type AuditResult = {
       scrumNameMismatch: number;
       pvMissing: number;
       decompositionMissing: number;
+      doneWithoutTracking: number;
+      inProgressWithoutRecentTracking: number;
+      actualHoursExceededEstimate: number;
+      estimateExceededWithoutComment: number;
+      trackingOnNonWorkStatus: number;
     };
+    trackingLoaded?: boolean;
+    trackingLoadError?: string;
+    trackingRowCount?: number;
+    trackingByTaskKey?: Record<
+      string,
+      import("../tracking/tracking-hours-reader.js").TaskTrackingHours
+    >;
     boardMetrics?: BoardAuditMetrics;
     /** boardId:stateId → status name when collected from DB. */
     stateNameByKey?: Record<string, string>;

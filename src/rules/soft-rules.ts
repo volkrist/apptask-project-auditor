@@ -5,6 +5,7 @@ import { stageMatchesColumnRule } from "./soft/stage-matches-column.js";
 import { tagsRequiredRule } from "./soft/tags-required.js";
 import { scrumBoardRules } from "./soft/scrum-board-rules.js";
 import { statusCommentRules } from "./soft/status-comment-rules.js";
+import { trackingHoursRules } from "./soft/tracking-hours-rules.js";
 import type { Rule } from "./rule-types.js";
 
 export const softRules: Rule[] = [
@@ -15,4 +16,5 @@ export const softRules: Rule[] = [
   notDuplicateRule,
   ...statusCommentRules,
   ...scrumBoardRules,
+  ...trackingHoursRules,
 ];

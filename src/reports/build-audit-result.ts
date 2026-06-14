@@ -7,6 +7,7 @@ import { loadScrumAuditContext } from "../scrum/load-scrum-context.js";
 import { computeScrumMatchStats } from "../scrum/estimate-matcher.js";
 import { isScrumAuditBoard } from "../scrum/scrum-estimate-config.js";
 import { buildBoardAuditMetrics } from "./board-metrics.js";
+import { loadTrackingAuditContext } from "../tracking/load-tracking-context.js";
 import { computeIssueCounts } from "./structured-findings.js";
 import { evaluateProject } from "../rules/evaluate.js";
 import type { AuditResult, RuleStatus } from "../rules/rule-types.js";
@@ -71,9 +72,18 @@ export async function buildAuditResult(
   options: BuildAuditOptions = {},
 ): Promise<AuditResult> {
   const scrum = await loadScrumAuditContext();
+  const boardIds = [
+    ...new Set(
+      tasks
+        .map((t) => Number(t.boardId))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+  const tracking = await loadTrackingAuditContext(boardIds);
   const boardMetrics = buildBoardAuditMetrics(tasks);
   const project = await evaluateProject(tasks, config, appTaskUsers, {
     scrum,
+    tracking,
     boardMetrics,
     stateNameByKey: options.stateNameByKey,
   });
@@ -127,6 +137,10 @@ export async function buildAuditResult(
       scrumSources: scrum?.sources,
       scrumLoadStats: scrum?.loadStats,
       scrumMatchStats,
+      trackingLoaded: tracking.loaded,
+      trackingLoadError: tracking.loaded ? undefined : tracking.loadError,
+      trackingRowCount: tracking.rowCount,
+      trackingByTaskKey: tracking.byTaskKey,
     },
     topIssues: [],
     cards: project.cards,

@@ -3,8 +3,28 @@ import {
   ChannelType,
 } from "discord.js";
 
-/** Guild slash commands — PUT полностью заменяет команды гильдии (старые /audit, /comments исчезнут). */
+/** Guild slash commands — PUT полностью заменяет команды гильдии (старые /comments исчезнут). */
 export const slashCommands = [
+  {
+    name: "audit",
+    description: "Запустить аудит карточек (настройки из .env)",
+    options: [
+      {
+        name: "board_url",
+        description: "URL доски AppTask (необязательно; иначе APPTASK_BOARD_URL / multi)",
+        type: ApplicationCommandOptionType.String,
+        required: false,
+      },
+      {
+        name: "limit",
+        description: "Лимит карточек (необязательно; без limit — полный аудит)",
+        type: ApplicationCommandOptionType.Integer,
+        required: false,
+        min_value: 1,
+        max_value: 500,
+      },
+    ],
+  },
   {
     name: "audit_full",
     description: "Полная проверка карточек по правилам (без комментариев)",
@@ -156,7 +176,7 @@ export const slashCommands = [
   },
 ] as const;
 
-export const AUDIT_SLASH_COMMANDS = ["audit_full", "audit_limit"] as const;
+export const AUDIT_SLASH_COMMANDS = ["audit", "audit_full", "audit_limit"] as const;
 export const COMMENTS_SLASH_COMMANDS = ["comments_full", "comments_limit"] as const;
 
 export const MAIN_SLASH_COMMANDS = [
@@ -170,9 +190,7 @@ export function formatMainSlashCommandsForLog(): string {
   return MAIN_SLASH_COMMANDS.map((name) => `/${name}`).join(", ");
 }
 
-export const LEGACY_AUDIT_DEPRECATION_MESSAGE = `Команда /audit устарела. Используйте:
-• /audit_full — полная проверка карточек
-• /audit_limit — проверка карточек с лимитом`;
+export const LEGACY_AUDIT_DEPRECATION_MESSAGE = `Команда /audit устарела. Используйте /audit или /audit_full.`;
 
 export const LEGACY_COMMENTS_DEPRECATION_MESSAGE = `Команда /comments устарела. Используйте:
 • /comments_full — полная проверка комментариев

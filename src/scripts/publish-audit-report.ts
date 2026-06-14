@@ -15,6 +15,7 @@ import {
   publishFullReportToChannel,
   resolveAuditChannel,
   resolveAuditDmUser,
+  isAuditDiscordDmOnly,
 } from "../discord/publish-report.js";
 
 function requireEnv(name: string): string {
@@ -28,8 +29,7 @@ function requireEnv(name: string): string {
 
 function isDmOnlyFlag(argv: string[]): boolean {
   if (argv.includes("--dm")) return true;
-  const v = process.env.AUDIT_DISCORD_DM_ONLY?.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes";
+  return isAuditDiscordDmOnly();
 }
 
 async function main(): Promise<void> {

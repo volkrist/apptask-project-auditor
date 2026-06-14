@@ -70,6 +70,11 @@ test("markdown sections render structured headings", () => {
         scrumNameMismatch: 0,
         pvMissing: 0,
         decompositionMissing: 0,
+        doneWithoutTracking: 0,
+        inProgressWithoutRecentTracking: 0,
+        actualHoursExceededEstimate: 0,
+        estimateExceededWithoutComment: 0,
+        trackingOnNonWorkStatus: 0,
       },
       boardMetrics: {
         reviewQueueCount: 11,

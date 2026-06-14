@@ -3,7 +3,9 @@ import path from "node:path";
 import {
   AttachmentBuilder,
   ChannelType,
-  type Client,
+  Client,
+  GatewayIntentBits,
+  type Client as DiscordClient,
   PermissionFlagsBits,
   type SendableChannels,
   type User,
@@ -11,6 +13,43 @@ import {
 import type { RunAuditResult } from "../app/run-audit.js";
 import type { EnrichCommentsResult } from "../comments/enrich-tasks-comments.js";
 import { buildAuditReportEmbed } from "./report-embeds.js";
+
+export function isAuditDiscordDmOnly(): boolean {
+  const v = process.env.AUDIT_DISCORD_DM_ONLY?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
+async function waitForDiscordClient(client: DiscordClient): Promise<void> {
+  if (client.isReady()) return;
+  await new Promise<void>((resolve, reject) => {
+    client.once("clientReady", () => resolve());
+    client.once("error", reject);
+  });
+}
+
+/** Публикует отчёт в AUDIT_DISCORD_CHANNEL_ID через бота (без webhook). */
+export async function publishAuditToConfiguredChannel(
+  out: RunAuditResult,
+): Promise<string[]> {
+  const token = process.env.DISCORD_BOT_TOKEN?.trim();
+  const channelId = process.env.AUDIT_DISCORD_CHANNEL_ID?.trim();
+  if (!token || !channelId) {
+    throw new Error("DISCORD_BOT_TOKEN or AUDIT_DISCORD_CHANNEL_ID is not set");
+  }
+
+  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  try {
+    await client.login(token);
+    await waitForDiscordClient(client);
+    const channel = await resolveAuditChannel(client, channelId);
+    if (!channel) {
+      throw new Error(`Cannot publish to channel ${channelId}`);
+    }
+    return await publishFullReportToChannel(channel, out, channelId);
+  } finally {
+    await client.destroy();
+  }
+}
 
 export function formatCommentsAuditBlock(
   summary: EnrichCommentsResult | undefined,
@@ -130,7 +169,7 @@ export function buildReportAttachments(
 }
 
 export async function resolveAuditChannel(
-  client: Client,
+  client: DiscordClient,
   channelId: string,
 ): Promise<SendableChannels | null> {
   try {
@@ -183,7 +222,7 @@ export async function resolveAuditChannel(
 
 /** DM recipient for CLI publish (--dm): explicit user id or guild owner of audit channel. */
 export async function resolveAuditDmUser(
-  client: Client,
+  client: DiscordClient,
   options: { userId?: string | null; channelId?: string | null } = {},
 ): Promise<User | null> {
   const explicit = options.userId?.trim();

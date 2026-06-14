@@ -11,6 +11,10 @@ import type { AuditResult } from "../rules/rule-types.js";
 import { buildAuditResult } from "../reports/build-audit-result.js";
 import { buildDiscordSummary } from "../reports/discord-summary.js";
 import { writeAuditReports, type AuditOutputPaths } from "../reports/output.js";
+import {
+  isAuditDiscordDmOnly,
+  publishAuditToConfiguredChannel,
+} from "../discord/publish-report.js";
 import type { CommentsAuditMode } from "../comments/comments-audit-config.js";
 import type { EnrichCommentsResult } from "../comments/enrich-tasks-comments.js";
 import { collectTasksFromBoard } from "./collect-tasks.js";
@@ -141,6 +145,16 @@ async function runAuditInner(
     ignoredUrls,
   });
 
+  const auditOut: RunAuditResult = {
+    result,
+    output,
+    discordPublished: false,
+    totalOnBoard,
+    commentsAudit,
+    ignoredCount,
+    ignoredUrls,
+  };
+
   let discordPublished = false;
   let discordError: string | undefined;
 
@@ -171,19 +185,33 @@ async function runAuditInner(
             : String(err);
       log.info(`discord: failed — ${discordError}`);
     }
+  } else if (isAuditDiscordDmOnly()) {
+    log.info(
+      "discord: skipped (AUDIT_DISCORD_DM_ONLY — use publish:audit --dm or npm run discord:bot)",
+    );
+  } else if (
+    process.env.DISCORD_BOT_TOKEN?.trim() &&
+    process.env.AUDIT_DISCORD_CHANNEL_ID?.trim()
+  ) {
+    try {
+      await publishAuditToConfiguredChannel(auditOut);
+      discordPublished = true;
+      log.info(
+        `discord: published to channel ${process.env.AUDIT_DISCORD_CHANNEL_ID?.trim()}`,
+      );
+    } catch (err) {
+      discordError =
+        err instanceof Error ? err.message : String(err);
+      log.info(`discord: failed — ${discordError}`);
+    }
   } else {
-    log.info("discord: skipped (no webhook URL)");
+    log.info("discord: skipped (no webhook URL or bot channel config)");
   }
 
   return {
-    result,
-    output,
+    ...auditOut,
     discordPublished,
     discordError,
-    totalOnBoard,
-    commentsAudit,
-    ignoredCount,
-    ignoredUrls,
   };
 }
 

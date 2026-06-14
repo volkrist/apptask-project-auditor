@@ -5,6 +5,7 @@ import type {
   BoardAuditMetrics,
   ScrumAuditContext,
 } from "../scrum/scrum-estimate-config.js";
+import type { TrackingAuditContext } from "../tracking/load-tracking-context.js";
 import { allRules } from "./registry.js";
 import type {
   AuditResult,
@@ -16,6 +17,7 @@ import type {
 
 export type EvaluateExtras = {
   scrum?: ScrumAuditContext | null;
+  tracking?: TrackingAuditContext | null;
   boardMetrics?: BoardAuditMetrics;
   stateNameByKey?: Record<string, string>;
 };
@@ -31,6 +33,7 @@ function buildContext(
     allTasks,
     appTaskUsers,
     scrum: extras?.scrum ?? null,
+    tracking: extras?.tracking ?? null,
     boardMetrics: extras?.boardMetrics,
     stateNameByKey: extras?.stateNameByKey,
   };

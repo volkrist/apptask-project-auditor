@@ -8,7 +8,6 @@ import {
   COMMENTS_SLASH_COMMANDS,
   formatMainSlashCommandsForLog,
   getCommandOptionNames,
-  LEGACY_AUDIT_DEPRECATION_MESSAGE,
   LEGACY_COMMENTS_DEPRECATION_MESSAGE,
   UNSUPPORTED_COMMAND_MESSAGE,
   slashCommands,
@@ -33,17 +32,22 @@ const REMOVED_OPTIONS = [
   "comments_board_url",
 ];
 
-const LEGACY_COMMANDS = ["audit", "comments"];
+const LEGACY_COMMANDS = ["comments"];
 
-test("slash commands are exactly audit_full, audit_limit, comments_full, comments_limit (+ projects)", () => {
+test("slash commands include /audit and legacy aliases", () => {
   const names = slashCommands.map((c) => c.name);
   for (const cmd of LEGACY_COMMANDS) {
     assert.ok(!names.includes(cmd), `legacy /${cmd} must be removed`);
   }
+  assert.ok(names.includes("audit"));
   assert.ok(names.includes("audit_full"));
   assert.ok(names.includes("audit_limit"));
   assert.ok(names.includes("comments_full"));
   assert.ok(names.includes("comments_limit"));
+});
+
+test("/audit: board_url and limit optional", () => {
+  assert.deepEqual(getCommandOptionNames("audit"), ["board_url", "limit"]);
 });
 
 test("/audit_full: only board_url optional", () => {
@@ -200,20 +204,16 @@ test("comments: error when no board_url and no APPTASK_COMMENTS_BOARD_URL", () =
 });
 
 test("AUDIT_SLASH_COMMANDS and COMMENTS_SLASH_COMMANDS constants", () => {
-  assert.deepEqual(AUDIT_SLASH_COMMANDS, ["audit_full", "audit_limit"]);
+  assert.deepEqual(AUDIT_SLASH_COMMANDS, ["audit", "audit_full", "audit_limit"]);
   assert.deepEqual(COMMENTS_SLASH_COMMANDS, [
     "comments_full",
     "comments_limit",
   ]);
 });
 
-test("legacy /audit deprecation message", () => {
-  assert.match(LEGACY_AUDIT_DEPRECATION_MESSAGE, /\/audit устарела/);
-  assert.match(LEGACY_AUDIT_DEPRECATION_MESSAGE, /\/audit_full/);
-  assert.match(LEGACY_AUDIT_DEPRECATION_MESSAGE, /\/audit_limit/);
-  assert.match(botHandlerSrc, /cmd === "audit"/);
-  assert.match(botHandlerSrc, /LEGACY_AUDIT_DEPRECATION_MESSAGE/);
-  assert.match(botHandlerSrc, /replyEphemeralHelp/);
+test("/audit runs full audit when limit omitted", () => {
+  assert.match(botHandlerSrc, /audit-command/);
+  assert.match(botHandlerSrc, /getInteger\("limit"\)/);
 });
 
 test("legacy /comments deprecation message", () => {
@@ -239,13 +239,11 @@ test("legacy and unknown handlers do not start audit or comments check", () => {
     botHandlerSrc.indexOf('client.on("interactionCreate"'),
     botHandlerSrc.indexOf("await client.login(token)"),
   );
-  const legacyAuditIdx = handlerBlock.indexOf('cmd === "audit"');
   const legacyCommentsIdx = handlerBlock.indexOf('cmd === "comments"');
   const unknownIdx = handlerBlock.indexOf("UNSUPPORTED_COMMAND_MESSAGE");
-  const auditFullIdx = handlerBlock.indexOf('cmd === "audit_full"');
-  assert.ok(legacyAuditIdx >= 0 && legacyCommentsIdx >= 0 && unknownIdx >= 0);
-  assert.ok(auditFullIdx > unknownIdx);
-  const beforeAuditFull = handlerBlock.slice(0, auditFullIdx);
-  assert.ok(!beforeAuditFull.includes("runAudit("));
-  assert.ok(!beforeAuditFull.includes("runCommentsCheck("));
+  const auditCmdIdx = handlerBlock.indexOf('cmd === "audit"');
+  assert.ok(legacyCommentsIdx >= 0 && unknownIdx >= 0 && auditCmdIdx >= 0);
+  const beforeAuditCmd = handlerBlock.slice(0, auditCmdIdx);
+  assert.ok(!beforeAuditCmd.includes("runAudit("));
+  assert.ok(!beforeAuditCmd.includes("runCommentsCheck("));
 });

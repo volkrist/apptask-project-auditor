@@ -38,6 +38,9 @@
     "probe:scrum:estimate": "tsx scripts/probe-scrum-estimate.ts",
     "probe:google:sheets": "tsx scripts/probe-google-sheets-access.ts",
     "probe:tracking:db": "tsx scripts/probe-tracking-db.ts",
+    "probe:tracking:hours": "tsx scripts/probe-tracking-hours.ts",
+    "probe:tracking:task": "tsx scripts/probe-tracking-task.ts",
+    "probe:tracking:ui-verify": "tsx scripts/probe-tracking-ui-verify.ts",
     "test:scrum": "node --import tsx --test tests/scrum/*.test.ts"
   },
   "devDependencies": {

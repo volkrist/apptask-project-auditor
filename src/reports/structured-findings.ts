@@ -19,6 +19,7 @@ import {
 import { makeStateNameResolver } from "../collectors/state-map.js";
 import { ruleLabel } from "./rule-labels.js";
 import { computeScrumIssueCounts } from "./scrum-findings.js";
+import { computeTrackingIssueCounts } from "./tracking-findings.js";
 
 export type IssueCounts = {
   deadlineIssues: number;
@@ -31,6 +32,11 @@ export type IssueCounts = {
   scrumNameMismatch: number;
   pvMissing: number;
   decompositionMissing: number;
+  doneWithoutTracking: number;
+  inProgressWithoutRecentTracking: number;
+  actualHoursExceededEstimate: number;
+  estimateExceededWithoutComment: number;
+  trackingOnNonWorkStatus: number;
 };
 
 const DEADLINE_RULE_IDS = new Set(["deadline_less_than_one_day"]);
@@ -61,6 +67,7 @@ export function computeIssueCounts(
 
   const commentRuleIds = COMMENT_STATUS_RULE_IDS;
   const scrumCounts = computeScrumIssueCounts(cards);
+  const trackingCounts = computeTrackingIssueCounts(cards);
   return {
     deadlineIssues: countCards(cards, DEADLINE_RULE_IDS),
     staleInProgressIssues: countCards(
@@ -81,6 +88,7 @@ export function computeIssueCounts(
     ),
     commentIssues: countCards(cards, commentRuleIds),
     ...scrumCounts,
+    ...trackingCounts,
   };
 }
 

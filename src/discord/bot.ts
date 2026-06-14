@@ -18,7 +18,8 @@ import {
   Routes,
   type ChatInputCommandInteraction,
 } from "discord.js";
-import { isAuditLocked } from "../app/audit-lock.js";
+import { loadAuditScope } from "../config/audit-scope.js";
+import { parseBoardIds } from "../collectors/db-config.js";
 import { runCommentsCheck } from "../app/run-comments-check.js";
 import { runAudit, type RunAuditResult } from "../app/run-audit.js";
 import {
@@ -32,7 +33,6 @@ import {
   formatMainSlashCommandsForLog,
   formatSlashCommandsDetailForLog,
   formatSlashCommandsForLog,
-  LEGACY_AUDIT_DEPRECATION_MESSAGE,
   LEGACY_COMMENTS_DEPRECATION_MESSAGE,
   UNSUPPORTED_COMMAND_MESSAGE,
   slashCommands,
@@ -57,6 +57,7 @@ import {
 import {
   buildReportAttachments,
   formatBriefSummary,
+  isAuditDiscordDmOnly,
   publishFullReportToChannel,
   resolveAuditChannel,
 } from "./publish-report.js";
@@ -76,11 +77,6 @@ if (!token) {
 }
 
 const auditChannelId = process.env.AUDIT_DISCORD_CHANNEL_ID?.trim() || null;
-
-function isAuditDiscordDmOnly(): boolean {
-  const v = process.env.AUDIT_DISCORD_DM_ONLY?.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes";
-}
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -482,14 +478,15 @@ async function deliverFullReportViaDm(
   }
 }
 
-/** Канал для публичного отчёта: канал команды или AUDIT_DISCORD_CHANNEL_ID. */
+/** Канал для публичного отчёта: AUDIT_DISCORD_CHANNEL_ID или канал команды. */
 async function resolveReportChannel(
   interaction: ChatInputCommandInteraction,
 ): Promise<SendableChannels | null> {
   const channelId =
-    interaction.channel?.isTextBased() && interaction.channel.isSendable()
+    auditChannelId ??
+    (interaction.channel?.isTextBased() && interaction.channel.isSendable()
       ? interaction.channelId
-      : auditChannelId;
+      : null);
   if (!channelId) return null;
   return resolveAuditChannel(client, channelId);
 }
@@ -775,6 +772,13 @@ async function handleAuditSlash(
   const boardHint =
     boardSource === "env" ? "\n_(доска из .env)_" : "";
 
+  const auditScope = loadAuditScope();
+  const configuredBoardIds = parseBoardIds(process.env.APPTASK_DB_BOARD_IDS);
+  const scopeHint =
+    auditScope === "multi" && configuredBoardIds.length > 1
+      ? `\n📦 multi: доски ${configuredBoardIds.join(", ")}`
+      : "";
+
   if (maxCards != null) {
     console.log(
       `[${options.logTag}] boardUrl=${boardUrl} limit=${maxCards} comments=off`,
@@ -785,7 +789,7 @@ async function handleAuditSlash(
 
   await safeEditReply(
     interaction,
-    `⏳ **Audit started.**\n📋 Доска: \`${boardUrl}\`${boardHint}${maxCards != null ? `\n🔢 limit: ${maxCards}` : "\n🔢 режим: full"}\nСбор карточек и проверка правил…`,
+    `⏳ **Audit started.**\n📋 Доска: \`${boardUrl}\`${boardHint}${scopeHint}${maxCards != null ? `\n🔢 limit: ${maxCards}` : "\n🔢 режим: full"}\nСбор карточек и проверка правил…`,
   );
 
   try {
@@ -1114,12 +1118,6 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
-  if (cmd === "audit") {
-    logDiscord(`[discord] legacy command=/${cmd} user=${interaction.user.id}`);
-    await replyEphemeralHelp(interaction, LEGACY_AUDIT_DEPRECATION_MESSAGE);
-    return;
-  }
-
   if (cmd === "comments") {
     logDiscord(`[discord] legacy command=/${cmd} user=${interaction.user.id}`);
     await replyEphemeralHelp(interaction, LEGACY_COMMENTS_DEPRECATION_MESSAGE);
@@ -1158,6 +1156,14 @@ client.on("interactionCreate", async (interaction) => {
       await handleCommentsSlash(interaction, {
         logTag: "comments-limit-command",
         limit: interaction.options.getInteger("limit", true),
+      });
+      return;
+    }
+    if (cmd === "audit") {
+      const limit = interaction.options.getInteger("limit");
+      await handleAuditSlash(interaction, {
+        logTag: "audit-command",
+        maxCards: limit != null ? Math.min(500, limit) : undefined,
       });
       return;
     }

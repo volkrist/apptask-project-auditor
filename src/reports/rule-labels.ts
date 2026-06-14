@@ -38,6 +38,11 @@ export const RULE_LABELS: Record<string, string> = {
   vague_done_comment: "Комментарий «готово» без деталей",
   high_priority_stale: "Высокий приоритет без движения",
   rework_without_reason: "Возврат на доработку без причины",
+  done_task_without_tracking: "Завершена без фактического времени",
+  in_progress_without_recent_tracking: "В работе без трекинга за раб. день",
+  actual_hours_exceeds_estimate: "Факт > ПВ (+порог)",
+  estimate_exceeded_without_comment: "Перерасход ПВ без комментария",
+  tracking_on_non_work_status: "Трекинг вне рабочего статуса",
 };
 
 export function ruleLabel(ruleId: string): string {
