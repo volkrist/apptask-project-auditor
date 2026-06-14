@@ -10,7 +10,10 @@ import { runCommentsCheck } from "../app/run-comments-check.js";
 import { getEnabledProjects } from "../config/projects.js";
 import { resolveCommentsBoardUrl } from "../discord/resolve-board-url.js";
 import { publishFullCommentsReportToChannel } from "../discord/publish-comments.js";
-import { resolveAuditChannel } from "../discord/publish-report.js";
+import {
+  getAuditPublishChannelId,
+  resolveAuditChannel,
+} from "../discord/publish-report.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -39,9 +42,7 @@ async function main(): Promise<void> {
   }
 
   const projects = getEnabledProjects();
-  const publishChannelId =
-    process.env.AUDIT_DISCORD_CHANNEL_ID?.trim() ||
-    projects[0]?.discordChannelId;
+  const publishChannelId = getAuditPublishChannelId(projects[0]?.discordChannelId);
   if (!publishChannelId) {
     console.error(
       "Set AUDIT_DISCORD_CHANNEL_ID in .env or add a project with discordChannelId",

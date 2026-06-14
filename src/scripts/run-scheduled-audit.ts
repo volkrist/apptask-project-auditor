@@ -7,6 +7,7 @@ import { getEnabledProjects } from "../config/projects.js";
 import { resolveCommentsBoardUrl } from "../discord/resolve-board-url.js";
 import { publishFullCommentsReportToChannel } from "../discord/publish-comments.js";
 import {
+  getAuditPublishChannelId,
   publishFullReportToChannel,
   resolveAuditChannel,
 } from "../discord/publish-report.js";
@@ -49,9 +50,13 @@ async function main(): Promise<void> {
   }
 
   const token = requireEnv("DISCORD_BOT_TOKEN");
-  const publishChannelId =
-    process.env.AUDIT_DISCORD_CHANNEL_ID?.trim() ||
-    projects[0]!.discordChannelId;
+  const publishChannelId = getAuditPublishChannelId(projects[0]?.discordChannelId);
+  if (!publishChannelId) {
+    console.error(
+      "Set AUDIT_DISCORD_CHANNEL_ID in .env (канал «Атаев Маркет») or add a project with discordChannelId",
+    );
+    process.exit(1);
+  }
   const maxCards = Number(process.env.APPTASK_AUDIT_MAX_CARDS ?? "0");
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -65,7 +70,7 @@ async function main(): Promise<void> {
       console.log("[scheduled-cards]");
       console.log(`project=${project.name}`);
       console.log(`board=${project.boardUrl}`);
-      console.log(`channel=${project.discordChannelId}`);
+      console.log(`channel=${publishChannelId}`);
 
       try {
         const out = await runAudit(project.boardUrl, null, {
@@ -79,20 +84,17 @@ async function main(): Promise<void> {
           `audit stats: cards=${out.result.meta.cardsChecked} FAIL=${out.result.meta.failCount} WARN=${out.result.meta.warnCount}`,
         );
 
-        const channel = await resolveAuditChannel(
-          client,
-          project.discordChannelId,
-        );
+        const channel = await resolveAuditChannel(client, publishChannelId);
         if (!channel) {
           throw new Error(
-            `Cannot publish to audit channel ${project.discordChannelId}`,
+            `Cannot publish to audit channel ${publishChannelId}`,
           );
         }
 
         const sentFiles = await publishFullReportToChannel(
           channel,
           out,
-          project.discordChannelId,
+          publishChannelId,
         );
         console.log(
           sentFiles.length > 0

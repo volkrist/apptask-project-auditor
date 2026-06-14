@@ -8,7 +8,7 @@
 | `/audit_full` | То же, что `/audit` без limit (алиас). |
 | `/audit_limit` | Проверка **N** карточек. Обязательный `limit` (1–500). |
 
-Отчёт публикуется в `AUDIT_DISCORD_CHANNEL_ID` (если задан), иначе в канал, где вызвана команда. Прогресс — ephemeral-ответ на команду.
+Отчёт публикуется в **`AUDIT_DISCORD_CHANNEL_ID`** (канал на сервере «Атаев Маркет», напр. `#основной`) — для `/audit`, scheduled audit, `npm run audit` и comments. Если env не задан, fallback — канал slash-команды или `discordChannelId` проекта. Прогресс — ephemeral-ответ на команду.
 
 Команда `/comments` **удалена** из регистрации (бот подскажет `/comments_full` / `/comments_limit`).
 
@@ -49,7 +49,7 @@
 
 `run-scheduled-audit.ts` вызывает `getEnabledProjects()`:
 
-1. Есть `enabled: true` в `config/projects.json` → для каждого: аудит доски → отчёт в `discordChannelId`.
+1. Есть `enabled: true` в `config/projects.json` → для каждого: аудит доски → отчёт в **`AUDIT_DISCORD_CHANNEL_ID`** (если задан в `.env`), иначе в `discordChannelId` проекта.
 2. Нет enabled-проектов → один прогон из `.env` (`APPTASK_BOARD_URL`, `AUDIT_DISCORD_CHANNEL_ID`).
 
 ## Ручное редактирование

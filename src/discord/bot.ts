@@ -57,6 +57,7 @@ import {
 import {
   buildReportAttachments,
   formatBriefSummary,
+  getAuditPublishChannelId,
   isAuditDiscordDmOnly,
   publishFullReportToChannel,
   resolveAuditChannel,
@@ -76,7 +77,7 @@ if (!token) {
   process.exit(1);
 }
 
-const auditChannelId = process.env.AUDIT_DISCORD_CHANNEL_ID?.trim() || null;
+const auditChannelId = getAuditPublishChannelId();
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -478,15 +479,15 @@ async function deliverFullReportViaDm(
   }
 }
 
-/** Канал для публичного отчёта: AUDIT_DISCORD_CHANNEL_ID или канал команды. */
+/** Канал для публичного отчёта: AUDIT_DISCORD_CHANNEL_ID (Атаев Маркет), иначе канал команды. */
 async function resolveReportChannel(
   interaction: ChatInputCommandInteraction,
 ): Promise<SendableChannels | null> {
-  const channelId =
-    auditChannelId ??
-    (interaction.channel?.isTextBased() && interaction.channel.isSendable()
+  const fallback =
+    interaction.channel?.isTextBased() && interaction.channel.isSendable()
       ? interaction.channelId
-      : null);
+      : null;
+  const channelId = getAuditPublishChannelId(fallback);
   if (!channelId) return null;
   return resolveAuditChannel(client, channelId);
 }
@@ -978,7 +979,7 @@ client.once("clientReady", async (readyClient) => {
     );
   } else if (auditChannelId) {
     console.log(
-      `[audit-channel] configured for scheduled runs only: ${auditChannelId}`,
+      `[audit-channel] all reports → ${auditChannelId} (AUDIT_DISCORD_CHANNEL_ID, Атаев Маркет)`,
     );
   }
 

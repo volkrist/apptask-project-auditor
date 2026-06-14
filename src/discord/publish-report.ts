@@ -19,6 +19,14 @@ export function isAuditDiscordDmOnly(): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
+/** Единый канал публикации: AUDIT_DISCORD_CHANNEL_ID (Атаев Маркет), иначе fallback. */
+export function getAuditPublishChannelId(fallback?: string | null): string | null {
+  const configured = process.env.AUDIT_DISCORD_CHANNEL_ID?.trim();
+  if (configured) return configured;
+  const fb = fallback?.trim();
+  return fb || null;
+}
+
 async function waitForDiscordClient(client: DiscordClient): Promise<void> {
   if (client.isReady()) return;
   await new Promise<void>((resolve, reject) => {
@@ -32,7 +40,7 @@ export async function publishAuditToConfiguredChannel(
   out: RunAuditResult,
 ): Promise<string[]> {
   const token = process.env.DISCORD_BOT_TOKEN?.trim();
-  const channelId = process.env.AUDIT_DISCORD_CHANNEL_ID?.trim();
+  const channelId = getAuditPublishChannelId();
   if (!token || !channelId) {
     throw new Error("DISCORD_BOT_TOKEN or AUDIT_DISCORD_CHANNEL_ID is not set");
   }
