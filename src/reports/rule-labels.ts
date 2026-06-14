@@ -23,9 +23,21 @@ export const RULE_LABELS: Record<string, string> = {
   links_reachable: "Проблемы со ссылками",
   not_duplicate: "Возможный дубликат",
   unresolved_question_keywords_in_card:
-    "В карточке нет признаков незакрытого вопроса",
+    "Есть признак незакрытого вопроса",
   review_stage_requires_assignee:
     "На этапе проверки назначен тестировщик",
+  scrum_task_in_estimate: "Задача не найдена в утверждённой смете",
+  scrum_title_matches_estimate: "Название не совпадает со сметой",
+  scrum_planned_hours_present: "ПВ из сметы не указано в Scrum-портале",
+  scrum_decomposition_over_20h: "Задача >20 ч без декомпозиции",
+  deadline_less_than_one_day: "До дедлайна меньше суток",
+  blocked_task_reason: "Блокировка без причины",
+  review_queue_over_limit: "Очередь на тестирование > лимита",
+  in_progress_stale: "В процессе без обновлений",
+  review_stale: "На проверке без движения",
+  vague_done_comment: "Комментарий «готово» без деталей",
+  high_priority_stale: "Высокий приоритет без движения",
+  rework_without_reason: "Возврат на доработку без причины",
 };
 
 export function ruleLabel(ruleId: string): string {

@@ -1,6 +1,11 @@
 import type { AuditConfig } from "../config/audit-config.js";
+import type { AuditScope } from "../config/audit-scope.js";
+import { buildBoardSummaries } from "../config/audit-scope.js";
 import type { RawTask } from "../adapters/apptask/types.js";
 import type { AppTaskUser } from "../users/app-task-users.js";
+import { loadScrumAuditContext } from "../scrum/load-scrum-context.js";
+import { buildBoardAuditMetrics } from "./board-metrics.js";
+import { computeIssueCounts } from "./structured-findings.js";
 import { evaluateProject } from "../rules/evaluate.js";
 import type { AuditResult, RuleStatus } from "../rules/rule-types.js";
 import { ruleLabel } from "./rule-labels.js";
@@ -45,22 +50,67 @@ export function buildTopIssues(
   }));
 }
 
+export type BuildAuditOptions = {
+  collectorSource?: string;
+  boardsChecked?: number;
+  auditScope?: AuditScope;
+  maxCardsScope?: "total";
+  availableByBoard?: Record<string, number>;
+  appTaskBaseUrl?: string;
+  stateNameByKey?: Record<string, string>;
+};
+
 /** Сборка AuditResult из сырых карточек и конфига правил. */
 export async function buildAuditResult(
   tasks: RawTask[],
   config: AuditConfig,
   meta: AuditMetaInput,
   appTaskUsers?: AppTaskUser[],
+  options: BuildAuditOptions = {},
 ): Promise<AuditResult> {
-  const project = await evaluateProject(tasks, config, appTaskUsers);
+  const scrum = await loadScrumAuditContext();
+  const boardMetrics = buildBoardAuditMetrics(tasks);
+  const project = await evaluateProject(tasks, config, appTaskUsers, {
+    scrum,
+    boardMetrics,
+    stateNameByKey: options.stateNameByKey,
+  });
+
+  const boardSummaries =
+    options.availableByBoard && options.appTaskBaseUrl
+      ? buildBoardSummaries(
+          project.cards,
+          options.availableByBoard,
+          options.appTaskBaseUrl,
+        )
+      : undefined;
+
+  const displayBoardUrl =
+    options.auditScope === "multi" && boardSummaries && boardSummaries.length > 0
+      ? boardSummaries.map((s) => s.boardUrl).join(", ")
+      : meta.boardUrl;
+
+  const issueCounts = computeIssueCounts(project.cards, boardMetrics);
+
   const base: AuditResult = {
     meta: {
       projectName: meta.projectName,
-      boardUrl: meta.boardUrl,
+      boardUrl: displayBoardUrl,
       auditedAt: meta.auditedAt ?? new Date().toISOString(),
       cardsChecked: tasks.length,
       failCount: project.failCount,
       warnCount: project.warnCount,
+      collectorSource: options.collectorSource,
+      boardsChecked: options.boardsChecked,
+      auditScope: options.auditScope,
+      maxCardsScope: options.maxCardsScope,
+      boardSummaries,
+      issueCounts,
+      boardMetrics,
+      stateNameByKey: options.stateNameByKey,
+      scrumMatchDisclaimer: scrum?.loaded
+        ? scrum.config.matchDisclaimer
+        : undefined,
     },
     topIssues: [],
     cards: project.cards,

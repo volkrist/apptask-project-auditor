@@ -1,7 +1,8 @@
 /**
- * Повторная публикация готового отчёта в Discord-канал (без повторного аудита).
+ * Повторная публикация готового отчёта в Discord (без повторного аудита).
  *
  * npm run publish:audit -- output/audit-2026-05-26-16-16-02
+ * npm run publish:audit -- --dm output/audit-2026-05-26-16-16-02
  */
 import "dotenv/config";
 import fs from "node:fs";
@@ -13,6 +14,7 @@ import type { AuditResult } from "../rules/rule-types.js";
 import {
   publishFullReportToChannel,
   resolveAuditChannel,
+  resolveAuditDmUser,
 } from "../discord/publish-report.js";
 
 function requireEnv(name: string): string {
@@ -24,10 +26,21 @@ function requireEnv(name: string): string {
   return value;
 }
 
+function isDmOnlyFlag(argv: string[]): boolean {
+  if (argv.includes("--dm")) return true;
+  const v = process.env.AUDIT_DISCORD_DM_ONLY?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
 async function main(): Promise<void> {
-  const auditDir = path.resolve(process.argv[2] ?? "");
+  const argv = process.argv.slice(2);
+  const dmOnly = isDmOnlyFlag(argv);
+  const auditDirArg = argv.find((a) => !a.startsWith("--"));
+  const auditDir = path.resolve(auditDirArg ?? "");
   if (!auditDir || !fs.existsSync(auditDir)) {
-    console.error("Usage: npm run publish:audit -- <output/audit-YYYY-MM-DD-HH-MM-SS>");
+    console.error(
+      "Usage: npm run publish:audit -- [--dm] <output/audit-YYYY-MM-DD-HH-MM-SS>",
+    );
     process.exit(1);
   }
 
@@ -60,7 +73,6 @@ async function main(): Promise<void> {
     ignoredUrls: [],
   };
 
-  const channelId = requireEnv("AUDIT_DISCORD_CHANNEL_ID");
   const token = requireEnv("DISCORD_BOT_TOKEN");
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -73,12 +85,6 @@ async function main(): Promise<void> {
     }
   });
 
-  const channel = await resolveAuditChannel(client, channelId);
-  if (!channel) {
-    console.error(`Cannot publish to channel ${channelId}`);
-    process.exit(1);
-  }
-
   const header = [
     "📢 **Повторная публикация отчёта аудита**",
     `Проверено **${result.meta.cardsChecked}** карточек | FAIL: **${result.meta.failCount}** | WARN: **${result.meta.warnCount}**`,
@@ -86,10 +92,28 @@ async function main(): Promise<void> {
     "",
   ].join("\n");
 
-  await channel.send({ content: header });
-
-  const sent = await publishFullReportToChannel(channel, out, channelId);
-  console.log(`Published to channel ${channelId}: ${sent.join(", ")}`);
+  if (dmOnly) {
+    const userId = requireEnv("AUDIT_DISCORD_DM_USER_ID");
+    const user = await resolveAuditDmUser(client, { userId });
+    if (!user) {
+      console.error("Cannot resolve DM recipient");
+      process.exit(1);
+    }
+    const dm = await user.createDM();
+    await dm.send({ content: header });
+    const sent = await publishFullReportToChannel(dm, out, user.id);
+    console.log(`Published to DM user ${user.tag} (${user.id}): ${sent.join(", ")}`);
+  } else {
+    const channelId = requireEnv("AUDIT_DISCORD_CHANNEL_ID");
+    const channel = await resolveAuditChannel(client, channelId);
+    if (!channel) {
+      console.error(`Cannot publish to channel ${channelId}`);
+      process.exit(1);
+    }
+    await channel.send({ content: header });
+    const sent = await publishFullReportToChannel(channel, out, channelId);
+    console.log(`Published to channel ${channelId}: ${sent.join(", ")}`);
+  }
 
   await client.destroy();
   process.exit(0);

@@ -1,6 +1,10 @@
 import type { AuditConfig } from "../config/audit-config.js";
 import type { RawTask } from "../adapters/apptask/types.js";
 import type { AppTaskUser } from "../users/app-task-users.js";
+import type {
+  BoardAuditMetrics,
+  ScrumAuditContext,
+} from "../scrum/scrum-estimate-config.js";
 import { allRules } from "./registry.js";
 import type {
   AuditResult,
@@ -10,12 +14,26 @@ import type {
   RuleResult,
 } from "./rule-types.js";
 
+export type EvaluateExtras = {
+  scrum?: ScrumAuditContext | null;
+  boardMetrics?: BoardAuditMetrics;
+  stateNameByKey?: Record<string, string>;
+};
+
 function buildContext(
   config: AuditConfig,
   allTasks: RawTask[],
   appTaskUsers?: AppTaskUser[],
+  extras?: EvaluateExtras,
 ): RuleContext {
-  return { config, allTasks, appTaskUsers };
+  return {
+    config,
+    allTasks,
+    appTaskUsers,
+    scrum: extras?.scrum ?? null,
+    boardMetrics: extras?.boardMetrics,
+    stateNameByKey: extras?.stateNameByKey,
+  };
 }
 
 async function runRule(
@@ -59,8 +77,9 @@ export async function evaluateProject(
   tasks: RawTask[],
   config: AuditConfig,
   appTaskUsers?: AppTaskUser[],
+  extras?: EvaluateExtras,
 ): Promise<ProjectEvaluation> {
-  const ctx = buildContext(config, tasks, appTaskUsers);
+  const ctx = buildContext(config, tasks, appTaskUsers, extras);
   const cards: CardAudit[] = await Promise.all(
     tasks.map(async (task) => ({
       task,

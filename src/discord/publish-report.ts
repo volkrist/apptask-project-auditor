@@ -6,6 +6,7 @@ import {
   type Client,
   PermissionFlagsBits,
   type SendableChannels,
+  type User,
 } from "discord.js";
 import type { RunAuditResult } from "../app/run-audit.js";
 import type { EnrichCommentsResult } from "../comments/enrich-tasks-comments.js";
@@ -176,6 +177,48 @@ export async function resolveAuditChannel(
     return channel;
   } catch (err) {
     console.error(`[audit-channel] fetch failed for ${channelId}:`, err);
+    return null;
+  }
+}
+
+/** DM recipient for CLI publish (--dm): explicit user id or guild owner of audit channel. */
+export async function resolveAuditDmUser(
+  client: Client,
+  options: { userId?: string | null; channelId?: string | null } = {},
+): Promise<User | null> {
+  const explicit = options.userId?.trim();
+  if (explicit) {
+    try {
+      const user = await client.users.fetch(explicit);
+      console.log(`[audit-dm] resolved user id=${user.id} tag=${user.tag}`);
+      return user;
+    } catch (err) {
+      console.error(`[audit-dm] cannot fetch user ${explicit}:`, err);
+      return null;
+    }
+  }
+
+  const channelId = options.channelId?.trim();
+  if (!channelId) {
+    console.error(
+      "[audit-dm] set AUDIT_DISCORD_DM_USER_ID or AUDIT_DISCORD_CHANNEL_ID",
+    );
+    return null;
+  }
+
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (!channel || !("guild" in channel) || !channel.guild) {
+      console.error(`[audit-dm] channel ${channelId} has no guild`);
+      return null;
+    }
+    const owner = await channel.guild.fetchOwner();
+    console.log(
+      `[audit-dm] using guild owner id=${owner.id} tag=${owner.user.tag}`,
+    );
+    return owner.user;
+  } catch (err) {
+    console.error(`[audit-dm] resolve owner via channel ${channelId}:`, err);
     return null;
   }
 }

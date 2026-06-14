@@ -46,6 +46,7 @@ import {
 } from "../users/app-task-users.js";
 import { loadCollectorConfig } from "../collectors/collector-config.js";
 import { collectTasksViaApi } from "../collectors/api-collector.js";
+import { collectTasksViaDb, type DbCollectorStats } from "../collectors/db-collector.js";
 import { filterTaskRefsByIgnored } from "../audit-ignore/ignored-tasks.js";
 
 const log = createLogger("audit:collect");
@@ -96,6 +97,8 @@ export type CollectTasksResult = {
   commentsAudit?: EnrichCommentsResult;
   ignoredCount: number;
   ignoredUrls: string[];
+  /** Заполняется DB collector — scope, лимиты, разбивка по доскам. */
+  dbStats?: DbCollectorStats;
 };
 
 async function collectTasksPlaywrightOnPage(
@@ -266,12 +269,29 @@ async function collectTasksPlaywright(
   }
 }
 
-/** Сбор карточек: APPTASK_COLLECTOR=api|playwright (по умолчанию playwright). */
+/** Сбор карточек: APPTASK_COLLECTOR=playwright|api|db (по умолчанию playwright). */
 export async function collectTasksFromBoard(
   boardUrl: string,
   options: CollectTasksOptions = {},
 ): Promise<CollectTasksResult> {
   const collectorCfg = loadCollectorConfig();
+
+  if (collectorCfg.collector === "db") {
+    log.info("collector mode: db");
+    try {
+      const { stats, ...rest } = await collectTasksViaDb(boardUrl, options);
+      return { ...rest, dbStats: stats };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.info(`DB collector critical error: ${message}`);
+      if (!collectorCfg.dbFallbackToPlaywright) {
+        throw new Error(`DB collector failed: ${message}`);
+      }
+      log.info("fallback to playwright collector");
+      return collectTasksPlaywright(boardUrl, options);
+    }
+  }
+
   if (collectorCfg.collector !== "api") {
     return collectTasksPlaywright(boardUrl, options);
   }

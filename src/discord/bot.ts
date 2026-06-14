@@ -77,6 +77,11 @@ if (!token) {
 
 const auditChannelId = process.env.AUDIT_DISCORD_CHANNEL_ID?.trim() || null;
 
+function isAuditDiscordDmOnly(): boolean {
+  const v = process.env.AUDIT_DISCORD_DM_ONLY?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
@@ -489,6 +494,63 @@ async function resolveReportChannel(
   return resolveAuditChannel(client, channelId);
 }
 
+async function deliverPagedAuditReport(
+  channel: SendableChannels,
+  out: RunAuditResult,
+  logLabel: string,
+): Promise<void> {
+  const summary = buildAuditReportEmbed(out).addFields({
+    name: "Детали",
+    value: "Отчёт доступен ниже. Используйте кнопки для просмотра деталей.",
+    inline: false,
+  });
+  const detailPages = buildAuditDetailPages(out);
+  const pages = [summary, ...detailPages];
+  for (let i = 0; i < pages.length; i++) {
+    pages[i] = EmbedBuilder.from(pages[i]).setFooter({
+      text: `Страница ${i + 1} из ${pages.length}`,
+    });
+  }
+  const sent = await channel.send({
+    content: "Готово. Отчёт сформирован.",
+    embeds: [pages[0]!],
+    components: [buildPagerButtons(0, pages.length)],
+  });
+  reportPageState.set(sent.id, {
+    kind: "audit",
+    pages,
+    currentPage: 0,
+    files: [
+      { path: out.output.reportPath, name: "audit-report.md" },
+      { path: out.output.jsonPath, name: "audit.json" },
+    ],
+  });
+  console.log(
+    `[attachments] audit report → ${logLabel} (paged message ${sent.id})`,
+  );
+}
+
+/** Полный отчёт в ЛС пользователю (AUDIT_DISCORD_DM_ONLY). */
+async function deliverDmAuditReport(
+  interaction: ChatInputCommandInteraction,
+  out: RunAuditResult,
+): Promise<void> {
+  try {
+    const dm = await interaction.user.createDM();
+    await deliverPagedAuditReport(
+      dm,
+      out,
+      `DM user ${interaction.user.id} (${interaction.user.tag})`,
+    );
+  } catch (err) {
+    logInteractionError("audit", interaction, err);
+    await safeEditReply(
+      interaction,
+      "Не удалось отправить отчёт в личные сообщения. Разрешите ЛС от участников сервера.",
+    );
+  }
+}
+
 /** Полный отчёт в канал — виден всем участникам канала. */
 async function deliverPublicAuditReport(
   interaction: ChatInputCommandInteraction,
@@ -504,41 +566,49 @@ async function deliverPublicAuditReport(
     return;
   }
 
-  const channelId = channel.id;
   try {
-    const summary = buildAuditReportEmbed(out).addFields({
-      name: "Детали",
-      value: "Отчёт доступен ниже. Используйте кнопки для просмотра деталей.",
-      inline: false,
-    });
-    const detailPages = buildAuditDetailPages(out);
-    const pages = [summary, ...detailPages];
-    for (let i = 0; i < pages.length; i++) {
-      pages[i] = EmbedBuilder.from(pages[i]).setFooter({
-        text: `Страница ${i + 1} из ${pages.length}`,
-      });
-    }
-    const sent = await channel.send({
-      content: "Готово. Отчёт сформирован.",
-      embeds: [pages[0]!],
-      components: [buildPagerButtons(0, pages.length)],
-    });
-    reportPageState.set(sent.id, {
-      kind: "audit",
-      pages,
-      currentPage: 0,
-      files: [
-        { path: out.output.reportPath, name: "audit-report.md" },
-        { path: out.output.jsonPath, name: "audit.json" },
-      ],
-    });
-    console.log(
-      `[attachments] public audit report → channel ${channelId} (paged message ${sent.id})`,
-    );
+    await deliverPagedAuditReport(channel, out, `channel ${channel.id}`);
   } catch (err) {
     logInteractionError("audit", interaction, err);
     await safeEditReply(interaction, "Не удалось опубликовать отчёт в канал.");
   }
+}
+
+async function deliverPagedCommentsReport(
+  channel: SendableChannels,
+  out: RunCommentsCheckResult,
+  logLabel: string,
+): Promise<void> {
+  const summary = buildCommentsReportEmbed(out).addFields({
+    name: "Детали",
+    value: "Отчёт доступен ниже. Используйте кнопки для просмотра деталей.",
+    inline: false,
+  });
+  const detailPages = buildCommentsDetailPages(out);
+  const pages = [summary, ...detailPages];
+  for (let i = 0; i < pages.length; i++) {
+    pages[i] = EmbedBuilder.from(pages[i]).setFooter({
+      text: `Страница ${i + 1} из ${pages.length}`,
+    });
+  }
+  const sent = await channel.send({
+    content: "Готово. Отчёт сформирован.",
+    embeds: [pages[0]!],
+    components: [buildPagerButtons(0, pages.length)],
+  });
+  reportPageState.set(sent.id, {
+    kind: "comments",
+    pages,
+    currentPage: 0,
+    files: [
+      { path: out.output.reportPath, name: "comments-report.md" },
+      { path: out.output.jsonPath, name: "comments.json" },
+    ],
+  });
+  logCommentsReportSent([out.output.reportPath]);
+  console.log(
+    `[comments-report] report → ${logLabel} (paged message ${sent.id})`,
+  );
 }
 
 async function deliverPublicCommentsReport(
@@ -551,40 +621,30 @@ async function deliverPublicCommentsReport(
     return;
   }
 
-  const channelId = channel.id;
   try {
-    const summary = buildCommentsReportEmbed(out).addFields({
-      name: "Детали",
-      value: "Отчёт доступен ниже. Используйте кнопки для просмотра деталей.",
-      inline: false,
-    });
-    const detailPages = buildCommentsDetailPages(out);
-    const pages = [summary, ...detailPages];
-    for (let i = 0; i < pages.length; i++) {
-      pages[i] = EmbedBuilder.from(pages[i]).setFooter({
-        text: `Страница ${i + 1} из ${pages.length}`,
-      });
-    }
-    const sent = await channel.send({
-      content: "Готово. Отчёт сформирован.",
-      embeds: [pages[0]!],
-      components: [buildPagerButtons(0, pages.length)],
-    });
-    reportPageState.set(sent.id, {
-      kind: "comments",
-      pages,
-      currentPage: 0,
-      files: [
-        { path: out.output.reportPath, name: "comments-report.md" },
-        { path: out.output.jsonPath, name: "comments.json" },
-      ],
-    });
-    logCommentsReportSent([out.output.reportPath]);
-    console.log(
-      `[comments-report] public report → channel ${channelId} (paged message ${sent.id})`,
+    await deliverPagedCommentsReport(channel, out, `channel ${channel.id}`);
+  } catch (err) {
+    logInteractionError("comments", interaction, err);
+  }
+}
+
+async function deliverDmCommentsReport(
+  interaction: ChatInputCommandInteraction,
+  out: RunCommentsCheckResult,
+): Promise<void> {
+  try {
+    const dm = await interaction.user.createDM();
+    await deliverPagedCommentsReport(
+      dm,
+      out,
+      `DM user ${interaction.user.id} (${interaction.user.tag})`,
     );
   } catch (err) {
     logInteractionError("comments", interaction, err);
+    await safeEditReply(
+      interaction,
+      "Не удалось отправить отчёт в личные сообщения. Разрешите ЛС от участников сервера.",
+    );
   }
 }
 
@@ -597,7 +657,11 @@ async function replyWithAuditResult(
   if (!replied) {
     return;
   }
-  await deliverPublicAuditReport(interaction, out);
+  if (isAuditDiscordDmOnly()) {
+    await deliverDmAuditReport(interaction, out);
+  } else {
+    await deliverPublicAuditReport(interaction, out);
+  }
 }
 
 function resolveAuditBoardFromInteraction(
@@ -673,7 +737,11 @@ async function handleCommentsSlash(
     const summary = "Готово. Отчёт сформирован.";
     const replied = await safeEditReply(interaction, summary);
     if (!replied) return;
-    await deliverPublicCommentsReport(interaction, out);
+    if (isAuditDiscordDmOnly()) {
+      await deliverDmCommentsReport(interaction, out);
+    } else {
+      await deliverPublicCommentsReport(interaction, out);
+    }
   } catch (err) {
     logInteractionError(options.logTag, interaction, err);
     await safeEditReply(
@@ -900,7 +968,11 @@ async function handleAuditIgnoredList(
 
 client.once("clientReady", async (readyClient) => {
   console.log(`Discord bot logged in as ${readyClient.user.tag}`);
-  if (auditChannelId) {
+  if (isAuditDiscordDmOnly()) {
+    console.log(
+      "[audit-dm] AUDIT_DISCORD_DM_ONLY=true — reports go to user DM, not public channel",
+    );
+  } else if (auditChannelId) {
     console.log(
       `[audit-channel] configured for scheduled runs only: ${auditChannelId}`,
     );

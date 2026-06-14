@@ -1,4 +1,4 @@
-export type CollectorMode = "playwright" | "api";
+export type CollectorMode = "playwright" | "api" | "db";
 export type ApiDetailsMode = "off" | "candidates" | "all";
 
 export type CollectorConfig = {
@@ -6,10 +6,14 @@ export type CollectorConfig = {
   apiConcurrency: number;
   detailsMode: ApiDetailsMode;
   apiFallbackToPlaywright: boolean;
+  dbFallbackToPlaywright: boolean;
 };
 
 function parseCollector(raw: string | undefined): CollectorMode {
-  return raw?.trim().toLowerCase() === "api" ? "api" : "playwright";
+  const v = raw?.trim().toLowerCase();
+  if (v === "api") return "api";
+  if (v === "db") return "db";
+  return "playwright";
 }
 
 function parseDetailsMode(raw: string | undefined): ApiDetailsMode {
@@ -38,5 +42,7 @@ export function loadCollectorConfig(
     ),
     apiFallbackToPlaywright:
       process.env.APPTASK_API_FALLBACK?.trim().toLowerCase() !== "false",
+    dbFallbackToPlaywright:
+      process.env.APPTASK_DB_FALLBACK?.trim().toLowerCase() !== "false",
   };
 }

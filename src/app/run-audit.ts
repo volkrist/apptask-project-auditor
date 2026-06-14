@@ -1,8 +1,10 @@
+import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import { WebhookPublisher, DiscordPublishError } from "../adapters/discord/webhook.js";
 import type { ReportArtifact } from "../adapters/discord/publisher.js";
 import { loadAuditConfig } from "../config/audit-config.js";
+import { loadAuditScope } from "../config/audit-scope.js";
 import { loadEnv } from "../config/env.js";
 import { createLogger } from "../adapters/apptask/logger.js";
 import type { AuditResult } from "../rules/rule-types.js";
@@ -12,6 +14,7 @@ import { writeAuditReports, type AuditOutputPaths } from "../reports/output.js";
 import type { CommentsAuditMode } from "../comments/comments-audit-config.js";
 import type { EnrichCommentsResult } from "../comments/enrich-tasks-comments.js";
 import { collectTasksFromBoard } from "./collect-tasks.js";
+import { loadDbConfig } from "../collectors/db-config.js";
 import {
   isAuditLocked,
   releaseAuditLock,
@@ -73,22 +76,37 @@ async function runAuditInner(
   const env = loadEnv();
   const projectName = options.projectName ?? env.projectName;
 
+  const auditScope = loadAuditScope();
   log.info(
-    `[audit-command] boardUrl=${boardUrl} limit=${options.maxCards ?? "full"} comments=${options.commentsAuditMode ?? "off"}`,
+    `[audit-command] boardUrl=${boardUrl} scope=${auditScope} limit=${options.maxCards ?? "full"} comments=${options.commentsAuditMode ?? "off"}`,
   );
-  const { tasks, totalOnBoard, appTaskUsers, commentsAudit, ignoredCount, ignoredUrls } =
-    await collectTasksFromBoard(boardUrl, {
-      maxCards: options.maxCards,
-      commentsAuditMode: options.commentsAuditMode ?? "off",
-      commentsAuditLimit: options.commentsAuditLimit,
-      commentsBoardUrl: options.commentsBoardUrl,
-      onProgress: (cur, total, title) => {
-        log.info(`progress ${cur}/${total}: ${title ?? "?"}`);
-      },
-    });
+  const collectResult = await collectTasksFromBoard(boardUrl, {
+    maxCards: options.maxCards,
+    commentsAuditMode: options.commentsAuditMode ?? "off",
+    commentsAuditLimit: options.commentsAuditLimit,
+    commentsBoardUrl: options.commentsBoardUrl,
+    onProgress: (cur, total, title) => {
+      log.info(`progress ${cur}/${total}: ${title ?? "?"}`);
+    },
+  });
+  const {
+    tasks,
+    totalOnBoard,
+    appTaskUsers,
+    commentsAudit,
+    ignoredCount,
+    ignoredUrls,
+    dbStats,
+  } = collectResult;
+
+  if (dbStats) {
+    log.info(
+      `collectorSource=db auditScope=${dbStats.auditScope} maxCardsScope=${dbStats.maxCardsScope} boardsChecked=${Object.keys(dbStats.auditedByBoard).length}`,
+    );
+  }
 
   log.info(
-    `evaluate ${tasks.length} tasks (${totalOnBoard} on board), users=${appTaskUsers.length}`,
+    `evaluate ${tasks.length} tasks (${totalOnBoard} available), users=${appTaskUsers.length}`,
   );
   if (commentsAudit && commentsAudit.mode !== "off") {
     log.info(
@@ -96,6 +114,8 @@ async function runAuditInner(
     );
   }
   const config = loadAuditConfig();
+  const collectorMode =
+    process.env.APPTASK_COLLECTOR?.trim().toLowerCase() || "playwright";
   const result = await buildAuditResult(
     tasks,
     config,
@@ -104,6 +124,15 @@ async function runAuditInner(
       boardUrl,
     },
     appTaskUsers,
+    {
+      collectorSource: collectorMode,
+      boardsChecked: new Set(tasks.map((t) => t.boardId).filter(Boolean)).size || 1,
+      auditScope: dbStats?.auditScope ?? auditScope,
+      maxCardsScope: dbStats?.maxCardsScope,
+      availableByBoard: dbStats?.availableByBoard,
+      appTaskBaseUrl: dbStats ? loadDbConfig().appTaskBaseUrl : undefined,
+      stateNameByKey: dbStats?.stateNameByKey,
+    },
   );
 
   log.info(`save reports (FAIL=${result.meta.failCount}, WARN=${result.meta.warnCount})`);

@@ -1,5 +1,10 @@
 import type { AuditResult, CardAudit } from "../rules/rule-types.js";
 import { ruleLabel } from "./rule-labels.js";
+import { buildCommentIssuesMarkdown } from "./comment-issues.js";
+import {
+  buildStatusDeadlineMarkdown,
+  buildTestingQueueMarkdown,
+} from "./structured-findings.js";
 
 const RULE_LABELS: Record<string, string> = {
   deadline_present: "Нет дедлайна",
@@ -11,7 +16,7 @@ const RULE_LABELS: Record<string, string> = {
   description_present: "Нет или короткое описание",
   priority_present: "Нет приоритета",
   stage_matches_column: "Этап не соответствует статусу",
-  unresolved_question_keywords_in_card: "Есть признаки незакрытого вопроса",
+  unresolved_question_keywords_in_card: "Есть признак незакрытого вопроса",
   blocked_assignee_not_allowed: "Назначен неактивный/заблокированный сотрудник",
 };
 
@@ -93,14 +98,55 @@ export function buildHumanAuditMarkdown(
     "## 1. Общая сводка",
     `- Проект: ${result.meta.projectName}`,
     `- Доска: ${result.meta.boardUrl}`,
+  ];
+
+  if (result.meta.auditScope) {
+    lines.push(`- Режим аудита: ${result.meta.auditScope}`);
+  }
+  if (result.meta.maxCardsScope) {
+    lines.push(
+      `- Лимит карточек: ${result.meta.maxCardsScope === "total" ? "суммарно по всем доскам (round-robin)" : result.meta.maxCardsScope}`,
+    );
+  }
+  if (result.meta.boardsChecked != null && result.meta.boardsChecked > 0) {
+    lines.push(`- Проверено досок: ${result.meta.boardsChecked}`);
+  }
+
+  lines.push(
     `- Дата проверки: ${result.meta.auditedAt}`,
     `- Проверено карточек: ${result.meta.cardsChecked}`,
     `- Критичных проблем: ${result.meta.failCount}`,
     `- Предупреждений: ${result.meta.warnCount}`,
     `- Общий статус: ${status}`,
+  );
+
+  if (result.meta.issueCounts) {
+    const c = result.meta.issueCounts;
+    lines.push(
+      "",
+      "### Сводка по новым проверкам",
+      `- Сроки/дедлайны: ${c.deadlineIssues}`,
+      `- В работе без обновлений: ${c.staleInProgressIssues}`,
+      `- На проверке без движения: ${c.staleReviewIssues}`,
+      `- Очередь тестирования (доски): ${c.testingQueueIssues}`,
+      `- Critical/high без движения: ${c.criticalNoMovementIssues}`,
+      `- Проблемы по комментариям: ${c.commentIssues}`,
+    );
+  }
+
+  if (result.meta.boardSummaries && result.meta.boardSummaries.length > 0) {
+    lines.push("", "## 1.1. Сводка по доскам");
+    for (const board of result.meta.boardSummaries) {
+      lines.push(
+        `- **Доска ${board.boardId}** (${board.boardUrl}): проверено **${board.tasksChecked}** из ${board.tasksAvailable} | FAIL: ${board.failCount} | WARN: ${board.warnCount}`,
+      );
+    }
+  }
+
+  lines.push(
     "",
     "## 2. Главные проблемы",
-  ];
+  );
 
   if (topIssues.length === 0) {
     lines.push("- Проблем не найдено");
@@ -116,6 +162,10 @@ export function buildHumanAuditMarkdown(
   } else {
     lines.push(...recommendations);
   }
+
+  lines.push(...buildStatusDeadlineMarkdown(result));
+  lines.push(...buildTestingQueueMarkdown(result, result.meta.boardMetrics));
+  lines.push(...buildCommentIssuesMarkdown(result));
 
   lines.push("", "## Исключённые карточки");
   lines.push(`- Исключено карточек: ${extras.ignoredCount ?? 0}`);
@@ -134,18 +184,45 @@ export function buildHumanAuditMarkdown(
     return `${lines.join("\n")}\n`;
   }
 
+  const groupByBoard =
+    result.meta.auditScope === "multi" &&
+    new Set(problematicCards.map((c) => c.task.boardId ?? "?")).size > 1;
+
+  if (groupByBoard) {
+    const byBoard = new Map<string, CardAudit[]>();
+    for (const card of problematicCards) {
+      const bid = card.task.boardId ?? "?";
+      const list = byBoard.get(bid) ?? [];
+      list.push(card);
+      byBoard.set(bid, list);
+    }
+    for (const boardId of [...byBoard.keys()].sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true }),
+    )) {
+      lines.push("", `### Доска ${boardId}`);
+      for (const card of byBoard.get(boardId)!) {
+        appendCardSection(lines, card);
+      }
+    }
+    return `${lines.join("\n")}\n`;
+  }
+
   for (const card of problematicCards) {
-    const id = card.task.id ? `№${card.task.id}` : "Без номера";
-    const title = card.task.title ?? "(без названия)";
-    lines.push("", `### ${id} — ${title}`);
-    lines.push(`Ссылка: ${card.task.url ?? "—"}`);
-    lines.push(`Статус: ${cardStatus(card)}`);
-    lines.push("", "Проблемы:");
-    lines.push(...cardIssueLines(card));
-    lines.push("", "Что исправить:");
-    const fixes = cardFixLines(card);
-    lines.push(...(fixes.length > 0 ? fixes : ["- Проверить карточку вручную"]));
+    appendCardSection(lines, card);
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+function appendCardSection(lines: string[], card: CardAudit): void {
+  const id = card.task.id ? `№${card.task.id}` : "Без номера";
+  const title = card.task.title ?? "(без названия)";
+  lines.push("", `### ${id} — ${title}`);
+  lines.push(`Ссылка: ${card.task.url ?? "—"}`);
+  lines.push(`Статус: ${cardStatus(card)}`);
+  lines.push("", "Проблемы:");
+  lines.push(...cardIssueLines(card));
+  lines.push("", "Что исправить:");
+  const fixes = cardFixLines(card);
+  lines.push(...(fixes.length > 0 ? fixes : ["- Проверить карточку вручную"]));
 }
