@@ -35,6 +35,7 @@
     "probe:db:comments": "tsx scripts/probe-db-comments.ts",
     "probe:db:history": "tsx scripts/probe-db-history.ts",
     "probe:rules:status-comments": "tsx scripts/probe-rules-status-comments.ts",
+    "probe:scrum:estimate": "tsx scripts/probe-scrum-estimate.ts",
     "probe:tracking:db": "tsx scripts/probe-tracking-db.ts",
     "test:scrum": "node --import tsx --test tests/scrum/*.test.ts"
   },

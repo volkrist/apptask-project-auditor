@@ -7,13 +7,32 @@ import {
 import { matchTaskToEstimate } from "../../scrum/estimate-matcher.js";
 import { pass, warn, fail } from "../helpers.js";
 
-function scrumNotLoaded(ruleId: string): RuleResult {
-  return pass(ruleId, "Scrum-смета не загружена (SKIP)");
+export const SCRUM_ESTIMATE_MISSING_RULE = "scrum_task_in_estimate";
+export const SCRUM_NAME_MISMATCH_RULE = "scrum_title_matches_estimate";
+export const SCRUM_PV_MISSING_RULE = "scrum_planned_hours_present";
+export const SCRUM_DECOMPOSITION_RULE = "scrum_decomposition_over_20h";
+
+export const SCRUM_RULE_IDS = new Set([
+  SCRUM_ESTIMATE_MISSING_RULE,
+  SCRUM_NAME_MISMATCH_RULE,
+  SCRUM_PV_MISSING_RULE,
+  SCRUM_DECOMPOSITION_RULE,
+]);
+
+function scrumSkip(ruleId: string, ctx: RuleContext): RuleResult {
+  if (!ctx.scrum) {
+    return pass(
+      ruleId,
+      "Google Sheets не настроен — правило пропущено (SKIP)",
+    );
+  }
+  const reason = ctx.scrum.loadError ?? "смета не загружена";
+  return pass(ruleId, `Google Sheets недоступен: ${reason} (SKIP)`);
 }
 
 function requireScrum(ctx: RuleContext, ruleId: string): RuleResult | null {
   if (!ctx.scrum?.loaded) {
-    return scrumNotLoaded(ruleId);
+    return scrumSkip(ruleId, ctx);
   }
   return null;
 }
@@ -21,96 +40,92 @@ function requireScrum(ctx: RuleContext, ruleId: string): RuleResult | null {
 const inWorkStatuses = (status: string | null): boolean =>
   isInProgressStatus(status) || isReviewStatus(status);
 
+const NOT_IN_ESTIMATE_MSG =
+  "Задача не найдена в утверждённой смете по текущей логике сопоставления";
+
 export const taskInApprovedEstimateRule: Rule = {
-  id: "scrum_task_in_estimate",
+  id: SCRUM_ESTIMATE_MISSING_RULE,
   severity: "soft",
   evaluate(task, ctx) {
-    const skip = requireScrum(ctx, "scrum_task_in_estimate");
+    const skip = requireScrum(ctx, SCRUM_ESTIMATE_MISSING_RULE);
     if (skip) return skip;
     if (!inWorkStatuses(task.status) && !isCompletedStatus(task.status)) {
-      return pass("scrum_task_in_estimate", "Задача не в активной работе");
+      return pass(SCRUM_ESTIMATE_MISSING_RULE, "Задача не в активной работе");
     }
     const match = matchTaskToEstimate(task, ctx.scrum!.rows);
     if (match.kind === "ok") {
-      return pass("scrum_task_in_estimate", "Найдена в смете");
+      return pass(SCRUM_ESTIMATE_MISSING_RULE, "Найдена в утверждённой смете");
     }
-    const disclaimer = ctx.scrum!.config.matchDisclaimer;
-    if (match.kind === "code_title_mismatch") {
-      return warn(
-        "scrum_task_in_estimate",
-        `Код совпал, название отличается от сметы. ${disclaimer}`,
+    if (match.kind === "title_mismatch") {
+      return pass(
+        SCRUM_ESTIMATE_MISSING_RULE,
+        "Найдена по названию (есть расхождение — см. scrum_title_matches_estimate)",
       );
     }
-    if (match.kind === "similar_title") {
-      return warn(
-        "scrum_task_in_estimate",
-        `Похожая строка в смете, нужна ручная проверка. ${disclaimer}`,
-      );
-    }
-    return fail(
-      "scrum_task_in_estimate",
-      `Задача не найдена в смете по текущей логике сопоставления. ${disclaimer}`,
-    );
+    return fail(SCRUM_ESTIMATE_MISSING_RULE, NOT_IN_ESTIMATE_MSG);
   },
 };
 
 export const scrumTitleMatchesEstimateRule: Rule = {
-  id: "scrum_title_matches_estimate",
+  id: SCRUM_NAME_MISMATCH_RULE,
   severity: "soft",
   evaluate(task, ctx) {
-    const skip = requireScrum(ctx, "scrum_title_matches_estimate");
+    const skip = requireScrum(ctx, SCRUM_NAME_MISMATCH_RULE);
     if (skip) return skip;
     const match = matchTaskToEstimate(task, ctx.scrum!.rows);
-    if (match.kind === "code_title_mismatch") {
+    if (match.kind === "title_mismatch") {
       return warn(
-        "scrum_title_matches_estimate",
-        `Название задачи не совпадает со сметой (код ${match.row.code})`,
+        SCRUM_NAME_MISMATCH_RULE,
+        `AppTask: «${match.taskTitle}» ≠ смета: «${match.estimateTitle}»`,
       );
     }
-    return pass("scrum_title_matches_estimate", "OK");
+    return pass(SCRUM_NAME_MISMATCH_RULE, "OK");
   },
 };
 
 export const scrumPlannedHoursInPortalRule: Rule = {
-  id: "scrum_planned_hours_present",
+  id: SCRUM_PV_MISSING_RULE,
   severity: "soft",
   evaluate(task, ctx) {
-    const skip = requireScrum(ctx, "scrum_planned_hours_present");
+    const skip = requireScrum(ctx, SCRUM_PV_MISSING_RULE);
     if (skip) return skip;
     const match = matchTaskToEstimate(task, ctx.scrum!.rows);
-    if (match.kind !== "ok") {
-      return pass("scrum_planned_hours_present", "Нет строки сметы для проверки ПВ");
+    if (match.kind !== "ok" && match.kind !== "title_mismatch") {
+      return pass(SCRUM_PV_MISSING_RULE, "Нет строки сметы для проверки ПВ");
     }
-    if (match.row.plannedHours == null || match.row.plannedHours <= 0) {
+    const row = match.row;
+    const col = ctx.scrum!.config.pvColumn;
+    if (row.plannedHours == null || row.plannedHours <= 0) {
       return warn(
-        "scrum_planned_hours_present",
-        `ПВ (${ctx.scrum!.config.plannedHoursColumn}) не указано в Scrum-портале`,
+        SCRUM_PV_MISSING_RULE,
+        `ПВ («${col}») не указано в смете для задачи «${row.title}»`,
       );
     }
-    return pass("scrum_planned_hours_present", "ПВ указано");
+    return pass(SCRUM_PV_MISSING_RULE, "ПВ указано");
   },
 };
 
 export const scrumDecompositionOver20hRule: Rule = {
-  id: "scrum_decomposition_over_20h",
+  id: SCRUM_DECOMPOSITION_RULE,
   severity: "soft",
   evaluate(task, ctx) {
-    const skip = requireScrum(ctx, "scrum_decomposition_over_20h");
+    const skip = requireScrum(ctx, SCRUM_DECOMPOSITION_RULE);
     if (skip) return skip;
     const match = matchTaskToEstimate(task, ctx.scrum!.rows);
-    if (match.kind !== "ok") {
-      return pass("scrum_decomposition_over_20h", "Нет строки сметы");
+    if (match.kind !== "ok" && match.kind !== "title_mismatch") {
+      return pass(SCRUM_DECOMPOSITION_RULE, "Нет строки сметы");
     }
-    const hours =
-      match.row.estimateHours ?? match.row.plannedHours ?? null;
+    const row = match.row;
+    const hours = row.plannedHours ?? row.estimateHours ?? null;
     const threshold = ctx.scrum!.config.decompositionHoursThreshold;
-    if (hours != null && hours > threshold && !match.row.subTask?.trim()) {
+    const hasSubTasks = Boolean(row.subTask?.trim());
+    if (hours != null && hours > threshold && !hasSubTasks) {
       return warn(
-        "scrum_decomposition_over_20h",
-        `В смете ${hours} ч (> ${threshold}) без подзадач/декомпозиции`,
+        SCRUM_DECOMPOSITION_RULE,
+        `В смете ${hours} ч (> ${threshold}) без подзадач/декомпозиции («${row.title}»)`,
       );
     }
-    return pass("scrum_decomposition_over_20h", "OK");
+    return pass(SCRUM_DECOMPOSITION_RULE, "OK");
   },
 };
 

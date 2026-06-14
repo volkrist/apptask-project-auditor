@@ -28,7 +28,7 @@ export const RULE_LABELS: Record<string, string> = {
     "На этапе проверки назначен тестировщик",
   scrum_task_in_estimate: "Задача не найдена в утверждённой смете",
   scrum_title_matches_estimate: "Название не совпадает со сметой",
-  scrum_planned_hours_present: "ПВ из сметы не указано в Scrum-портале",
+  scrum_planned_hours_present: "ПВ («Оценка (ч)») не указано в смете",
   scrum_decomposition_over_20h: "Задача >20 ч без декомпозиции",
   deadline_less_than_one_day: "До дедлайна меньше суток",
   blocked_task_reason: "Блокировка без причины",

@@ -1,6 +1,9 @@
 import { google } from "googleapis";
-import { isGoogleSheetsConfigured } from "./scrum-estimate-config.js";
-import type { ScrumEstimateRow } from "./scrum-estimate-config.js";
+import {
+  isGoogleSheetsConfigured,
+  type ScrumEstimateConfig,
+  type ScrumEstimateRow,
+} from "./scrum-estimate-config.js";
 
 function getPrivateKey(): string {
   const raw = process.env.GOOGLE_SHEETS_PRIVATE_KEY ?? "";
@@ -36,7 +39,12 @@ export async function readSheetRows(
   return (res.data.values as string[][]) ?? [];
 }
 
-function parseHours(raw: string | undefined): number | null {
+function sheetRange(sheetName: string, columns = "A:Z"): string {
+  const escaped = sheetName.replace(/'/g, "''");
+  return `'${escaped}'!${columns}`;
+}
+
+export function parseHours(raw: string | undefined): number | null {
   if (!raw?.trim()) return null;
   const n = Number(raw.replace(",", ".").replace(/[^\d.-]/g, ""));
   return Number.isFinite(n) ? n : null;
@@ -47,7 +55,7 @@ function headerIndex(headers: string[], name: string): number {
   return headers.findIndex((h) => h.trim().toLowerCase() === norm);
 }
 
-/** Parse Scrum portal sheet rows into estimate rows (MVP column names from config). */
+/** Parse «Смета Декомпозиция» rows into estimate rows. */
 export function parseScrumEstimateSheet(
   values: string[][],
   columns: {
@@ -55,8 +63,8 @@ export function parseScrumEstimateSheet(
     taskColumn: string;
     subTaskColumn?: string;
     commentColumn?: string;
-    plannedHoursColumn: string;
-    estimateHoursColumn: string;
+    pvColumn: string;
+    estimateHoursColumn?: string;
   },
 ): ScrumEstimateRow[] {
   if (values.length < 2) return [];
@@ -71,8 +79,10 @@ export function parseScrumEstimateSheet(
   const commentIdx = columns.commentColumn
     ? headerIndex(headers, columns.commentColumn)
     : headerIndex(headers, "Коментарий");
-  const plannedIdx = headerIndex(headers, columns.plannedHoursColumn);
-  const estimateIdx = headerIndex(headers, columns.estimateHoursColumn);
+  const pvIdx = headerIndex(headers, columns.pvColumn);
+  const estimateIdx = columns.estimateHoursColumn
+    ? headerIndex(headers, columns.estimateHoursColumn)
+    : -1;
 
   if (taskIdx < 0) return [];
 
@@ -82,12 +92,13 @@ export function parseScrumEstimateSheet(
     const taskCell = row[taskIdx]?.trim() ?? "";
     if (!taskCell) continue;
     const code =
-      itemIdx >= 0 ? (row[itemIdx]?.trim() ?? "") : extractCodeFromTitle(taskCell) ?? "";
-    const title = taskCell;
+      itemIdx >= 0
+        ? (row[itemIdx]?.trim() ?? "")
+        : extractCodeFromTitle(taskCell) ?? "";
     rows.push({
       code,
-      title,
-      plannedHours: plannedIdx >= 0 ? parseHours(row[plannedIdx]) : null,
+      title: taskCell,
+      plannedHours: pvIdx >= 0 ? parseHours(row[pvIdx]) : null,
       estimateHours: estimateIdx >= 0 ? parseHours(row[estimateIdx]) : null,
       subTask: subIdx >= 0 ? row[subIdx]?.trim() || null : null,
       comment: commentIdx >= 0 ? row[commentIdx]?.trim() || null : null,
@@ -102,20 +113,21 @@ export function extractCodeFromTitle(title: string): string | null {
   return m?.[1] ?? null;
 }
 
-export async function loadScrumEstimateRowsFromSheet(options: {
-  spreadsheetId: string;
-  range?: string;
-  plannedHoursColumn: string;
-  estimateHoursColumn: string;
-}): Promise<ScrumEstimateRow[]> {
+export async function loadApprovedEstimateRows(
+  config: ScrumEstimateConfig,
+): Promise<ScrumEstimateRow[]> {
   if (!isGoogleSheetsConfigured()) {
     throw new Error("Google Sheets credentials not configured");
   }
-  const range = options.range ?? "A:Z";
-  const values = await readSheetRows(options.spreadsheetId, range);
+  if (!config.workSpreadsheetId) {
+    throw new Error("GOOGLE_WORK_SPREADSHEET_ID not set");
+  }
+  const range = sheetRange(config.estimateSheetName);
+  const values = await readSheetRows(config.workSpreadsheetId, range);
   return parseScrumEstimateSheet(values, {
-    taskColumn: "Задача",
-    plannedHoursColumn: options.plannedHoursColumn,
-    estimateHoursColumn: options.estimateHoursColumn,
+    taskColumn: config.taskColumn,
+    pvColumn: config.pvColumn,
+    subTaskColumn: config.subTaskColumn,
+    estimateHoursColumn: config.estimateHoursColumn,
   });
 }

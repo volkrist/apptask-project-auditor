@@ -111,6 +111,8 @@ export async function buildAuditResult(
       scrumMatchDisclaimer: scrum?.loaded
         ? scrum.config.matchDisclaimer
         : undefined,
+      scrumEstimateLoaded: scrum?.loaded ?? false,
+      scrumLoadError: scrum?.loaded ? undefined : scrum?.loadError,
     },
     topIssues: [],
     cards: project.cards,

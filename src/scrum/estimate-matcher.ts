@@ -17,9 +17,13 @@ import type { ScrumEstimateRow } from "./scrum-estimate-config.js";
 
 export type EstimateMatchResult =
   | { kind: "ok"; row: ScrumEstimateRow }
-  | { kind: "code_title_mismatch"; row: ScrumEstimateRow; taskTitle: string }
-  | { kind: "not_found" }
-  | { kind: "similar_title"; candidates: ScrumEstimateRow[] };
+  | {
+      kind: "title_mismatch";
+      row: ScrumEstimateRow;
+      taskTitle: string;
+      estimateTitle: string;
+    }
+  | { kind: "not_found" };
 
 export {
   countTestingQueueTasks,
@@ -37,6 +41,8 @@ export function normalizeMatchText(value: string): string {
   return value
     .toLowerCase()
     .replace(/\u00a0/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/[^\p{L}\p{N}\s:./-]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -53,46 +59,119 @@ export function parseTaskCodeAndTitle(title: string | null): {
   return { code: extractCodeFromTitle(title), titlePart: title.trim() };
 }
 
+export function coreTitleForMatch(title: string | null | undefined): string {
+  if (!title?.trim()) return "";
+  const { titlePart } = parseTaskCodeAndTitle(title);
+  const core = titlePart.trim() || title.trim();
+  return normalizeMatchText(core);
+}
+
+export function fullTitleForMatch(title: string | null | undefined): string {
+  return normalizeMatchText(title ?? "");
+}
+
 export function matchTaskToEstimate(
   task: RawTask,
   rows: ScrumEstimateRow[],
 ): EstimateMatchResult {
-  const { code, titlePart } = parseTaskCodeAndTitle(task.title);
-  const normTaskTitle = normalizeMatchText(titlePart || task.title || "");
+  if (!task.title?.trim()) return { kind: "not_found" };
 
-  if (code) {
-    const byCode = rows.filter((r) => r.code === code || r.title.startsWith(code));
-    if (byCode.length === 1) {
-      const row = byCode[0]!;
-      const normRow = normalizeMatchText(
-        row.title.replace(new RegExp(`^${code}\\s*`), ""),
-      );
-      if (normRow && normTaskTitle && normRow !== normTaskTitle) {
-        return { kind: "code_title_mismatch", row, taskTitle: task.title ?? "" };
+  const taskFull = fullTitleForMatch(task.title);
+  const taskCore = coreTitleForMatch(task.title);
+  const { code: taskCode } = parseTaskCodeAndTitle(task.title);
+
+  const exactFull = rows.find((r) => fullTitleForMatch(r.title) === taskFull);
+  if (exactFull) return { kind: "ok", row: exactFull };
+
+  const coreExact = rows.filter((r) => coreTitleForMatch(r.title) === taskCore);
+  if (coreExact.length === 1) {
+    return { kind: "ok", row: coreExact[0]! };
+  }
+
+  if (taskCode) {
+    const sameCode = rows.filter((r) => {
+      const rc = parseTaskCodeAndTitle(r.title).code || r.code;
+      return rc === taskCode;
+    });
+    if (sameCode.length === 1) {
+      const row = sameCode[0]!;
+      if (coreTitleForMatch(row.title) === taskCore) {
+        return { kind: "ok", row };
       }
-      return { kind: "ok", row };
+      return {
+        kind: "title_mismatch",
+        row,
+        taskTitle: task.title,
+        estimateTitle: row.title,
+      };
     }
-    if (byCode.length > 1) {
-      const exact = byCode.find(
-        (r) => normalizeMatchText(r.title) === normalizeMatchText(task.title ?? ""),
+    if (sameCode.length > 1) {
+      const coreHit = sameCode.find(
+        (r) => coreTitleForMatch(r.title) === taskCore,
       );
-      if (exact) return { kind: "ok", row: exact };
-      return { kind: "code_title_mismatch", row: byCode[0]!, taskTitle: task.title ?? "" };
+      if (coreHit) return { kind: "ok", row: coreHit };
+      return {
+        kind: "title_mismatch",
+        row: sameCode[0]!,
+        taskTitle: task.title,
+        estimateTitle: sameCode[0]!.title,
+      };
     }
   }
 
-  const normFull = normalizeMatchText(task.title ?? "");
-  const exactTitle = rows.find(
-    (r) => normalizeMatchText(r.title) === normFull,
-  );
-  if (exactTitle) return { kind: "ok", row: exactTitle };
-
-  const similar = rows.filter((r) => {
-    const nt = normalizeMatchText(r.title);
-    return nt.includes(normFull) || normFull.includes(nt);
+  const coreMatches = rows.filter((r) => {
+    const rowFull = fullTitleForMatch(r.title);
+    const rowCore = coreTitleForMatch(r.title);
+    return (
+      rowCore === taskCore ||
+      rowFull === taskCore ||
+      (taskFull.length > 0 && rowFull === taskFull)
+    );
   });
-  if (similar.length > 0) {
-    return { kind: "similar_title", candidates: similar.slice(0, 3) };
+
+  if (coreMatches.length === 1) {
+    const row = coreMatches[0]!;
+    if (fullTitleForMatch(row.title) !== taskFull) {
+      return {
+        kind: "title_mismatch",
+        row,
+        taskTitle: task.title,
+        estimateTitle: row.title,
+      };
+    }
+    return { kind: "ok", row };
+  }
+
+  if (coreMatches.length > 1) {
+    const exactAmong = coreMatches.find(
+      (r) => fullTitleForMatch(r.title) === taskFull,
+    );
+    if (exactAmong) return { kind: "ok", row: exactAmong };
+    return {
+      kind: "title_mismatch",
+      row: coreMatches[0]!,
+      taskTitle: task.title,
+      estimateTitle: coreMatches[0]!.title,
+    };
+  }
+
+  if (taskCore.length >= 8) {
+    const fuzzy = rows.filter((r) => {
+      const rowCore = coreTitleForMatch(r.title);
+      return rowCore.includes(taskCore) || taskCore.includes(rowCore);
+    });
+    if (fuzzy.length === 1) {
+      const row = fuzzy[0]!;
+      if (fullTitleForMatch(row.title) !== taskFull) {
+        return {
+          kind: "title_mismatch",
+          row,
+          taskTitle: task.title,
+          estimateTitle: row.title,
+        };
+      }
+      return { kind: "ok", row };
+    }
   }
 
   return { kind: "not_found" };

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { RawTask } from "../../src/adapters/apptask/types.js";
+import { emptyRawTask } from "../../src/adapters/apptask/types.js";
 import {
+  coreTitleForMatch,
   matchTaskToEstimate,
   normalizeMatchText,
   parseTaskCodeAndTitle,
@@ -27,31 +29,19 @@ const rows: ScrumEstimateRow[] = [
     comment: null,
     raw: {},
   },
+  {
+    code: "5.0",
+    title: "5.0 Long task",
+    plannedHours: 8,
+    estimateHours: null,
+    subTask: "5.0.1 Sub",
+    comment: null,
+    raw: {},
+  },
 ];
 
 function task(title: string): RawTask {
-  return {
-    id: "1",
-    url: null,
-    title,
-    descriptionText: null,
-    createdAt: null,
-    startDate: null,
-    dueDate: null,
-    priority: null,
-    status: "В процессе",
-    tags: [],
-    creator: null,
-    assignees: [],
-    assigneeRefs: [],
-    category: null,
-    stage: null,
-    plannedTime: null,
-    actualTime: null,
-    links: [],
-    attachments: [],
-    comments: [],
-  };
+  return { ...emptyRawTask(), title, status: "В процессе" };
 }
 
 test("parseTaskCodeAndTitle extracts code", () => {
@@ -61,14 +51,18 @@ test("parseTaskCodeAndTitle extracts code", () => {
   });
 });
 
-test("matchTaskToEstimate exact code and title", () => {
+test("coreTitleForMatch strips code prefix", () => {
+  assert.equal(coreTitleForMatch("3.2.1 UI: HUD"), "ui: hud");
+});
+
+test("matchTaskToEstimate exact title", () => {
   const m = matchTaskToEstimate(task("3.2.1 UI: HUD"), rows);
   assert.equal(m.kind, "ok");
 });
 
-test("matchTaskToEstimate code mismatch title warns", () => {
+test("matchTaskToEstimate title mismatch", () => {
   const m = matchTaskToEstimate(task("3.2.1 UI: Menu"), rows);
-  assert.equal(m.kind, "code_title_mismatch");
+  assert.equal(m.kind, "title_mismatch");
 });
 
 test("matchTaskToEstimate not found", () => {
@@ -76,6 +70,11 @@ test("matchTaskToEstimate not found", () => {
   assert.equal(m.kind, "not_found");
 });
 
-test("normalizeMatchText collapses spaces", () => {
+test("normalizeMatchText collapses spaces and nbsp", () => {
   assert.equal(normalizeMatchText("  Hello   World  "), "hello world");
+});
+
+test("match by core title without code in AppTask", () => {
+  const m = matchTaskToEstimate(task("UI: HUD"), rows);
+  assert.equal(m.kind, "ok");
 });

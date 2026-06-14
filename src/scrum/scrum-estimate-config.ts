@@ -4,16 +4,20 @@
  */
 
 export type ScrumEstimateConfig = {
+  /** Approved estimate tab in work spreadsheet. */
   estimateSource: string;
-  plannedHoursColumn: string;
+  estimateSheetName: string;
+  taskColumn: string;
+  /** ПВ column in «Смета Декомпозиция». */
+  pvColumn: string;
   estimateHoursColumn: string;
-  matchMode: "code_and_title";
+  subTaskColumn: string;
+  matchMode: "title";
   approvedRule: "row_exists_in_estimate";
-  /** Spreadsheet id for Scrum portal (read-only). */
-  scrumSpreadsheetId: string | null;
-  /** Gid / sheet name for estimate tab. */
-  scrumSheetGid: string | null;
   workSpreadsheetId: string | null;
+  /** Legacy Scrum portal sheet (not used for MVP matching). */
+  scrumSpreadsheetId: string | null;
+  scrumSheetGid: string | null;
   reviewQueueMax: number;
   decompositionHoursThreshold: number;
   staleWorkdayHours: number;
@@ -21,35 +25,33 @@ export type ScrumEstimateConfig = {
 };
 
 export const DEFAULT_SCRUM_ESTIMATE_CONFIG: ScrumEstimateConfig = {
-  estimateSource: "smeta_decomposition",
-  plannedHoursColumn: "Часы (оценка стаса). В Апптаск",
-  estimateHoursColumn: "Часы (с рисками). К смете",
-  matchMode: "code_and_title",
+  estimateSource: "work_table_smeta_decomposition",
+  estimateSheetName:
+    process.env.SCRUM_ESTIMATE_SHEET_NAME?.trim() || "Смета Декомпозиция",
+  taskColumn: process.env.SCRUM_TASK_COLUMN?.trim() || "Задача",
+  pvColumn: process.env.SCRUM_PV_COLUMN?.trim() || "Оценка (ч)",
+  estimateHoursColumn:
+    process.env.SCRUM_ESTIMATE_HOURS_COLUMN?.trim() ||
+    "Часы (с рисками). К смете",
+  subTaskColumn: process.env.SCRUM_SUBTASK_COLUMN?.trim() || "Под Задача",
+  matchMode: "title",
   approvedRule: "row_exists_in_estimate",
+  workSpreadsheetId:
+    process.env.GOOGLE_WORK_SPREADSHEET_ID?.trim() ||
+    "1aNFtgJbvGQ5EuQJNoSNkT1RK3KCl046939Ha42qKCFY",
   scrumSpreadsheetId:
     process.env.GOOGLE_SCRUM_SPREADSHEET_ID?.trim() ||
     "1xh2xDxnPx_e7fbfa3x-6Ok1_9FkRVrNC4hY4UbjJuUw",
   scrumSheetGid: process.env.GOOGLE_SCRUM_SHEET_GID?.trim() || "1949461145",
-  workSpreadsheetId:
-    process.env.GOOGLE_WORK_SPREADSHEET_ID?.trim() ||
-    "1aNFtgJbvGQ5EuQJNoSNkT1RK3KCl046939Ha42qKCFY",
   reviewQueueMax: Number(process.env.SCRUM_REVIEW_QUEUE_MAX ?? "10") || 10,
   decompositionHoursThreshold: 20,
   staleWorkdayHours: 24,
   matchDisclaimer:
-    "Сверка со сметой выполнена по коду/названию. Для 100% точности нужна колонка AppTask URL или AppTask ID.",
+    "Сопоставление AppTask ↔ смета выполнено по названию задачи. В Scrum-портале нет AppTask id/ссылки.",
 };
 
 export function loadScrumEstimateConfig(): ScrumEstimateConfig {
-  return {
-    ...DEFAULT_SCRUM_ESTIMATE_CONFIG,
-    plannedHoursColumn:
-      process.env.SCRUM_PLANNED_HOURS_COLUMN?.trim() ||
-      DEFAULT_SCRUM_ESTIMATE_CONFIG.plannedHoursColumn,
-    estimateHoursColumn:
-      process.env.SCRUM_ESTIMATE_HOURS_COLUMN?.trim() ||
-      DEFAULT_SCRUM_ESTIMATE_CONFIG.estimateHoursColumn,
-  };
+  return { ...DEFAULT_SCRUM_ESTIMATE_CONFIG };
 }
 
 export function isGoogleSheetsConfigured(): boolean {
@@ -63,6 +65,7 @@ export function isGoogleSheetsConfigured(): boolean {
 export type ScrumEstimateRow = {
   code: string;
   title: string;
+  /** ПВ from «Оценка (ч)». */
   plannedHours: number | null;
   estimateHours: number | null;
   subTask: string | null;
@@ -89,3 +92,8 @@ export type BoardAuditMetrics = {
   reviewQueueMax: number;
   byBoard: Record<string, BoardQueueMetrics>;
 };
+
+/** @deprecated use pvColumn */
+export function plannedHoursColumnName(config: ScrumEstimateConfig): string {
+  return config.pvColumn;
+}

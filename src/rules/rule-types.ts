@@ -75,10 +75,16 @@ export type AuditResult = {
       testingQueueIssues: number;
       criticalNoMovementIssues: number;
       commentIssues: number;
+      scrumEstimateMissing: number;
+      scrumNameMismatch: number;
+      pvMissing: number;
+      decompositionMissing: number;
     };
     boardMetrics?: BoardAuditMetrics;
     /** boardId:stateId → status name when collected from DB. */
     stateNameByKey?: Record<string, string>;
+    scrumEstimateLoaded?: boolean;
+    scrumLoadError?: string;
   };
   topIssues: Array<{ ruleId: string; label: string; count: number }>;
   cards: CardAudit[];

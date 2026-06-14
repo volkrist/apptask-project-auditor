@@ -18,6 +18,7 @@ import {
 } from "../rules/history/history-parser.js";
 import { makeStateNameResolver } from "../collectors/state-map.js";
 import { ruleLabel } from "./rule-labels.js";
+import { computeScrumIssueCounts } from "./scrum-findings.js";
 
 export type IssueCounts = {
   deadlineIssues: number;
@@ -26,6 +27,10 @@ export type IssueCounts = {
   testingQueueIssues: number;
   criticalNoMovementIssues: number;
   commentIssues: number;
+  scrumEstimateMissing: number;
+  scrumNameMismatch: number;
+  pvMissing: number;
+  decompositionMissing: number;
 };
 
 const DEADLINE_RULE_IDS = new Set(["deadline_less_than_one_day"]);
@@ -55,6 +60,7 @@ export function computeIssueCounts(
   }
 
   const commentRuleIds = COMMENT_STATUS_RULE_IDS;
+  const scrumCounts = computeScrumIssueCounts(cards);
   return {
     deadlineIssues: countCards(cards, DEADLINE_RULE_IDS),
     staleInProgressIssues: countCards(
@@ -74,6 +80,7 @@ export function computeIssueCounts(
       new Set(["high_priority_stale"]),
     ),
     commentIssues: countCards(cards, commentRuleIds),
+    ...scrumCounts,
   };
 }
 

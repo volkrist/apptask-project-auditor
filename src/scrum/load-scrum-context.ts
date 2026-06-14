@@ -3,30 +3,37 @@ import {
   loadScrumEstimateConfig,
   type ScrumAuditContext,
 } from "./scrum-estimate-config.js";
-import { loadScrumEstimateRowsFromSheet } from "./google-sheets-reader.js";
+import { loadApprovedEstimateRows } from "./google-sheets-reader.js";
 
-export async function loadScrumAuditContext(): Promise<ScrumAuditContext | null> {
-  if (!isGoogleSheetsConfigured()) {
-    return null;
-  }
-
+export async function loadScrumAuditContext(): Promise<ScrumAuditContext> {
   const config = loadScrumEstimateConfig();
-  if (!config.scrumSpreadsheetId) {
+
+  if (!isGoogleSheetsConfigured()) {
     return {
       config,
       rows: [],
       loaded: false,
-      loadError: "GOOGLE_SCRUM_SPREADSHEET_ID not set",
+      loadError:
+        "Google Sheets credentials not configured (GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL / GOOGLE_SHEETS_PRIVATE_KEY)",
+    };
+  }
+
+  if (!config.workSpreadsheetId) {
+    return {
+      config,
+      rows: [],
+      loaded: false,
+      loadError: "GOOGLE_WORK_SPREADSHEET_ID not set",
     };
   }
 
   try {
-    const rows = await loadScrumEstimateRowsFromSheet({
-      spreadsheetId: config.scrumSpreadsheetId,
-      plannedHoursColumn: config.plannedHoursColumn,
-      estimateHoursColumn: config.estimateHoursColumn,
-    });
-    return { config, rows, loaded: true };
+    const rows = await loadApprovedEstimateRows(config);
+    return {
+      config,
+      rows,
+      loaded: true,
+    };
   } catch (err) {
     return {
       config,

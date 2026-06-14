@@ -5,6 +5,7 @@ import {
   buildStatusDeadlineMarkdown,
   buildTestingQueueMarkdown,
 } from "./structured-findings.js";
+import { buildScrumEstimateMarkdown } from "./scrum-findings.js";
 
 const RULE_LABELS: Record<string, string> = {
   deadline_present: "Нет дедлайна",
@@ -131,6 +132,7 @@ export function buildHumanAuditMarkdown(
       `- Очередь тестирования (доски): ${c.testingQueueIssues}`,
       `- Critical/high без движения: ${c.criticalNoMovementIssues}`,
       `- Проблемы по комментариям: ${c.commentIssues}`,
+      `- Scrum: не в смете ${c.scrumEstimateMissing ?? 0} | название ${c.scrumNameMismatch ?? 0} | ПВ ${c.pvMissing ?? 0} | декомп. ${c.decompositionMissing ?? 0}`,
     );
   }
 
@@ -165,6 +167,7 @@ export function buildHumanAuditMarkdown(
 
   lines.push(...buildStatusDeadlineMarkdown(result));
   lines.push(...buildTestingQueueMarkdown(result, result.meta.boardMetrics));
+  lines.push(...buildScrumEstimateMarkdown(result));
   lines.push(...buildCommentIssuesMarkdown(result));
 
   lines.push("", "## Исключённые карточки");
