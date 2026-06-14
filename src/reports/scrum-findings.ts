@@ -27,7 +27,7 @@ function cardHasRuleViolation(
 export function computeScrumIssueCounts(cards: CardAudit[]): ScrumIssueCounts {
   return {
     scrumEstimateMissing: cards.filter((c) =>
-      cardHasRuleViolation(c, SCRUM_ESTIMATE_MISSING_RULE, ["FAIL"]),
+      cardHasRuleViolation(c, SCRUM_ESTIMATE_MISSING_RULE, ["FAIL", "WARN"]),
     ).length,
     scrumNameMismatch: cards.filter((c) =>
       cardHasRuleViolation(c, SCRUM_NAME_MISMATCH_RULE, ["WARN"]),
@@ -74,6 +74,31 @@ export function buildScrumEstimateMarkdown(result: AuditResult): string[] {
     return lines;
   }
 
+  const sources = result.meta.scrumSources;
+  if (sources?.length) {
+    lines.push("**Источники:**", "");
+    for (const s of sources) {
+      const note = s.reason ? ` — ${s.reason}` : "";
+      lines.push(
+        `- \`${s.sheetName}\` (${s.source}): ${s.status}, raw=${s.rawRows}, parsed=${s.parsedRows}${note}`,
+      );
+    }
+    lines.push("");
+  }
+
+  const matchStats = result.meta.scrumMatchStats;
+  if (matchStats) {
+    lines.push(
+      `- Строк в Scrum/estimate: ${result.meta.scrumEstimateRows ?? "?"}`,
+      `- Совпало по названию: ${matchStats.matched}`,
+      `- Не найдено: ${matchStats.notFound}`,
+      `- Расхождение названия: ${matchStats.nameMismatch}`,
+      `- Без ПВ (оценка): ${matchStats.noPv}`,
+      `- >20 ч без декомпозиции: ${matchStats.over20NoDecomp}`,
+      "",
+    );
+  }
+
   const counts = result.meta.issueCounts;
   if (counts) {
     lines.push(
@@ -110,6 +135,26 @@ export function buildScrumEstimateMarkdown(result: AuditResult): string[] {
 
   if (!any && loaded) {
     lines.push("_Нарушений по Scrum/смете не найдено._");
+  }
+
+  if (matchStats && matchStats.matchExamples.length > 0) {
+    lines.push("### Примеры совпадений", "");
+    for (const ex of matchStats.matchExamples) {
+      lines.push(
+        `- AppTask: «${ex.apptask.slice(0, 80)}» → Scrum: «${ex.scrum.slice(0, 80)}» (${ex.sheet})`,
+      );
+    }
+    lines.push("");
+  }
+
+  if (matchStats && matchStats.mismatchExamples.length > 0) {
+    lines.push("### Примеры несовпадений", "");
+    for (const ex of matchStats.mismatchExamples) {
+      lines.push(
+        `- [${ex.kind}] AppTask: «${ex.apptask.slice(0, 80)}»${ex.scrum ? ` ≠ «${ex.scrum.slice(0, 80)}»` : ""}`,
+      );
+    }
+    lines.push("");
   }
 
   return lines;

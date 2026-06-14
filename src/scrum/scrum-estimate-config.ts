@@ -4,35 +4,46 @@
  */
 
 export type ScrumEstimateConfig = {
-  /** Approved estimate tab in work spreadsheet. */
   estimateSource: string;
-  estimateSheetName: string;
+  /** Optional work-table tab (SKIP if non-standard structure). */
+  workEstimateSheetName: string;
+  /** Scrum portal sprint tabs S1–S4 (primary). */
+  sprintSheetPattern: RegExp;
+  sprintSheetExcludePattern: RegExp;
+  /** Scrum portal decomposition fallback tab. */
+  decompositionSheetName: string;
   taskColumn: string;
-  /** ПВ column in «Смета Декомпозиция». */
   pvColumn: string;
   estimateHoursColumn: string;
   subTaskColumn: string;
   matchMode: "title";
   approvedRule: "row_exists_in_estimate";
   workSpreadsheetId: string | null;
-  /** Legacy Scrum portal sheet (not used for MVP matching). */
   scrumSpreadsheetId: string | null;
   scrumSheetGid: string | null;
   reviewQueueMax: number;
   decompositionHoursThreshold: number;
   staleWorkdayHours: number;
   matchDisclaimer: string;
+  headerScanRows: number;
+  /** AppTask board ids with linked Scrum/estimate source (MVP: TurboWeave = 783). */
+  scrumBoardIds: string[];
 };
 
 export const DEFAULT_SCRUM_ESTIMATE_CONFIG: ScrumEstimateConfig = {
-  estimateSource: "work_table_smeta_decomposition",
-  estimateSheetName:
+  estimateSource: "scrum_portal_s1_s4_plus_decomposition",
+  workEstimateSheetName:
     process.env.SCRUM_ESTIMATE_SHEET_NAME?.trim() || "Смета Декомпозиция",
+  sprintSheetPattern: /🚦S[1-4]\s|S[1-4]\s*-\s/i,
+  sprintSheetExcludePattern: /🚦S0\s|S0\s*—|S0\s*-.*шаблон/i,
+  decompositionSheetName:
+    process.env.SCRUM_DECOMPOSITION_SHEET_NAME?.trim() ||
+    "Этап 2. Декомпозиция",
   taskColumn: process.env.SCRUM_TASK_COLUMN?.trim() || "Задача",
   pvColumn: process.env.SCRUM_PV_COLUMN?.trim() || "Оценка (ч)",
   estimateHoursColumn:
     process.env.SCRUM_ESTIMATE_HOURS_COLUMN?.trim() ||
-    "Часы (с рисками). К смете",
+    "Часы (оценка стаса). В Апптаск",
   subTaskColumn: process.env.SCRUM_SUBTASK_COLUMN?.trim() || "Под Задача",
   matchMode: "title",
   approvedRule: "row_exists_in_estimate",
@@ -47,11 +58,33 @@ export const DEFAULT_SCRUM_ESTIMATE_CONFIG: ScrumEstimateConfig = {
   decompositionHoursThreshold: 20,
   staleWorkdayHours: 24,
   matchDisclaimer:
-    "Сопоставление AppTask ↔ смета выполнено по названию задачи. В Scrum-портале нет AppTask id/ссылки.",
+    "Сопоставление AppTask ↔ Scrum/смета выполнено по названию задачи. AppTask id/ссылки в Scrum нет.",
+  headerScanRows: 80,
+  scrumBoardIds: parseScrumBoardIdsFromEnv(),
 };
+
+/** @deprecated use workEstimateSheetName */
+export function estimateSheetName(config: ScrumEstimateConfig): string {
+  return config.workEstimateSheetName;
+}
 
 export function loadScrumEstimateConfig(): ScrumEstimateConfig {
   return { ...DEFAULT_SCRUM_ESTIMATE_CONFIG };
+}
+
+export function parseScrumBoardIdsFromEnv(
+  raw = process.env.SCRUM_BOARD_IDS,
+): string[] {
+  const text = raw?.trim() || "783";
+  return [...new Set(text.split(/[,;\s]+/).map((id) => id.trim()).filter(Boolean))];
+}
+
+export function isScrumAuditBoard(
+  boardId: string | null | undefined,
+  config: ScrumEstimateConfig = loadScrumEstimateConfig(),
+): boolean {
+  if (!boardId?.trim()) return false;
+  return config.scrumBoardIds.includes(boardId.trim());
 }
 
 export function isGoogleSheetsConfigured(): boolean {
@@ -62,15 +95,49 @@ export function isGoogleSheetsConfigured(): boolean {
   );
 }
 
+export function isSprintSheetName(
+  sheetName: string,
+  config: ScrumEstimateConfig,
+): boolean {
+  if (config.sprintSheetExcludePattern.test(sheetName)) return false;
+  return config.sprintSheetPattern.test(sheetName);
+}
+
 export type ScrumEstimateRow = {
+  sourceSheet: string;
+  rowIndex: number;
+  taskTitle: string;
+  subtaskTitle: string | null;
+  fullTitle: string;
+  estimateHours: number | null;
+  /** Legacy fields kept for rules/reports. */
   code: string;
   title: string;
-  /** ПВ from «Оценка (ч)». */
   plannedHours: number | null;
-  estimateHours: number | null;
+  estimateHoursRisk: number | null;
   subTask: string | null;
   comment: string | null;
   raw: Record<string, string>;
+};
+
+export type ScrumSourceLoadStatus = {
+  source: "sprint" | "decomposition" | "work_optional";
+  sheetName: string;
+  status: "ok" | "skip" | "error";
+  /** Sheet line count from Google API (includes header/memo rows). */
+  rawRows: number;
+  /** Task rows parsed from this sheet (before cross-sheet dedup). */
+  parsedRows: number;
+  /** Rows added to merged set after dedup with prior sheets. */
+  mergedAddedRows?: number;
+  reason?: string;
+};
+
+export type EstimateLoadStats = {
+  apiRawRows: number;
+  parsedRowsBeforeDedup: number;
+  uniqueRows: number;
+  duplicatesRemoved: number;
 };
 
 export type ScrumAuditContext = {
@@ -78,6 +145,8 @@ export type ScrumAuditContext = {
   rows: ScrumEstimateRow[];
   loaded: boolean;
   loadError?: string;
+  sources: ScrumSourceLoadStatus[];
+  loadStats?: EstimateLoadStats;
 };
 
 export type BoardQueueMetrics = {

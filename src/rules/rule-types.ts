@@ -85,6 +85,10 @@ export type AuditResult = {
     stateNameByKey?: Record<string, string>;
     scrumEstimateLoaded?: boolean;
     scrumLoadError?: string;
+    scrumEstimateRows?: number;
+    scrumSources?: import("../scrum/scrum-estimate-config.js").ScrumSourceLoadStatus[];
+    scrumLoadStats?: import("../scrum/scrum-estimate-config.js").EstimateLoadStats;
+    scrumMatchStats?: import("../scrum/estimate-matcher.js").ScrumMatchStats;
   };
   topIssues: Array<{ ruleId: string; label: string; count: number }>;
   cards: CardAudit[];

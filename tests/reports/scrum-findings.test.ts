@@ -12,7 +12,7 @@ test("computeScrumIssueCounts aggregates scrum rules", () => {
     {
       task: { ...emptyRawTask(), id: "1", boardId: "783", title: "A" },
       results: [
-        { ruleId: "scrum_task_in_estimate", status: "FAIL", reason: "x" },
+        { ruleId: "scrum_task_in_estimate", status: "WARN", reason: "x" },
         { ruleId: "scrum_title_matches_estimate", status: "WARN", reason: "y" },
       ],
     },
@@ -85,7 +85,7 @@ test("buildScrumEstimateMarkdown lists violations", () => {
         results: [
           {
             ruleId: "scrum_task_in_estimate",
-            status: "FAIL",
+            status: "WARN",
             reason: "не найдена",
           },
         ],

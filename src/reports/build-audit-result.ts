@@ -4,6 +4,8 @@ import { buildBoardSummaries } from "../config/audit-scope.js";
 import type { RawTask } from "../adapters/apptask/types.js";
 import type { AppTaskUser } from "../users/app-task-users.js";
 import { loadScrumAuditContext } from "../scrum/load-scrum-context.js";
+import { computeScrumMatchStats } from "../scrum/estimate-matcher.js";
+import { isScrumAuditBoard } from "../scrum/scrum-estimate-config.js";
 import { buildBoardAuditMetrics } from "./board-metrics.js";
 import { computeIssueCounts } from "./structured-findings.js";
 import { evaluateProject } from "../rules/evaluate.js";
@@ -91,6 +93,14 @@ export async function buildAuditResult(
       : meta.boardUrl;
 
   const issueCounts = computeIssueCounts(project.cards, boardMetrics);
+  const scrumMatchStats =
+    scrum?.loaded && scrum.rows.length > 0
+      ? computeScrumMatchStats(
+          tasks.filter((t) => isScrumAuditBoard(t.boardId, scrum.config)),
+          scrum.rows,
+          scrum.config.decompositionHoursThreshold,
+        )
+      : undefined;
 
   const base: AuditResult = {
     meta: {
@@ -113,6 +123,10 @@ export async function buildAuditResult(
         : undefined,
       scrumEstimateLoaded: scrum?.loaded ?? false,
       scrumLoadError: scrum?.loaded ? undefined : scrum?.loadError,
+      scrumEstimateRows: scrum?.rows.length,
+      scrumSources: scrum?.sources,
+      scrumLoadStats: scrum?.loadStats,
+      scrumMatchStats,
     },
     topIssues: [],
     cards: project.cards,

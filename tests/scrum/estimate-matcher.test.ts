@@ -10,34 +10,45 @@ import {
 } from "../../src/scrum/estimate-matcher.js";
 import type { ScrumEstimateRow } from "../../src/scrum/scrum-estimate-config.js";
 
+function estimateRow(partial: Partial<ScrumEstimateRow> & Pick<ScrumEstimateRow, "title">): ScrumEstimateRow {
+  const title = partial.title;
+  return {
+    sourceSheet: partial.sourceSheet ?? "test",
+    rowIndex: partial.rowIndex ?? 2,
+    taskTitle: partial.taskTitle ?? title,
+    subtaskTitle: partial.subtaskTitle ?? partial.subTask ?? null,
+    fullTitle: partial.fullTitle ?? title,
+    estimateHours: partial.estimateHours ?? partial.plannedHours ?? null,
+    code: partial.code ?? "",
+    title,
+    plannedHours: partial.plannedHours ?? partial.estimateHours ?? null,
+    estimateHoursRisk: partial.estimateHoursRisk ?? null,
+    subTask: partial.subTask ?? partial.subtaskTitle ?? null,
+    comment: partial.comment ?? null,
+    raw: partial.raw ?? {},
+  };
+}
+
 const rows: ScrumEstimateRow[] = [
-  {
+  estimateRow({
     code: "3.2.1",
     title: "3.2.1 UI: HUD",
     plannedHours: 8,
-    estimateHours: 10,
-    subTask: null,
-    comment: null,
-    raw: {},
-  },
-  {
+    estimateHours: 8,
+  }),
+  estimateRow({
     code: "4.1",
     title: "4.1 Backend API",
     plannedHours: 25,
-    estimateHours: 30,
-    subTask: null,
-    comment: null,
-    raw: {},
-  },
-  {
+    estimateHours: 25,
+  }),
+  estimateRow({
     code: "5.0",
     title: "5.0 Long task",
     plannedHours: 8,
-    estimateHours: null,
+    estimateHours: 8,
     subTask: "5.0.1 Sub",
-    comment: null,
-    raw: {},
-  },
+  }),
 ];
 
 function task(title: string): RawTask {
@@ -53,6 +64,10 @@ test("parseTaskCodeAndTitle extracts code", () => {
 
 test("coreTitleForMatch strips code prefix", () => {
   assert.equal(coreTitleForMatch("3.2.1 UI: HUD"), "ui: hud");
+});
+
+test("normalizeMatchText maps ё to е", () => {
+  assert.equal(normalizeMatchText("  Ёлка   Ёж  "), "елка еж");
 });
 
 test("matchTaskToEstimate exact title", () => {
