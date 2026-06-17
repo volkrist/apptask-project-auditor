@@ -37,14 +37,14 @@ if ($existing) {
     Write-Host "Creating scheduled task: $TaskName"
 }
 
-Register-ScheduledTask `
+$null = Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $Action `
     -Trigger $Trigger `
     -Settings $Settings `
     -Principal $Principal `
-    -Description 'TurboWeave audit (board 783) 3 min after logon → Discord #прихожая' `
-    -Force | Out-Null
+    -Description 'TurboWeave audit (board 783) 3 min after logon' `
+    -Force
 
 Write-Host "Task registered: $TaskName"
 Write-Host "Trigger: At logon, delay 3 minutes"
