@@ -4,11 +4,12 @@
 
 | Команда | Описание |
 |---------|----------|
-| **`/audit`** | **Основная команда** — полный аудит по `.env`. Опции `board_url` и `limit` необязательны. |
+| **`/turboweave`** | **TurboWeave** — board 783 + Scrum + tracking → `#прихожая` (автозапуск Windows) |
+| **`/audit`** | **Полный аудит** всех досок **783,445,54** — только вручную |
 | `/audit_full` | То же, что `/audit` без limit (алиас). |
 | `/audit_limit` | Проверка **N** карточек. Обязательный `limit` (1–500). |
 
-Отчёт публикуется в **`AUDIT_DISCORD_CHANNEL_ID`** (канал на сервере «Атаев Маркет», напр. `#основной`) — для `/audit`, scheduled audit, `npm run audit` и comments. Если env не задан, fallback — канал slash-команды или `discordChannelId` проекта. Прогресс — ephemeral-ответ на команду.
+Отчёт публикуется в **`AUDIT_DISCORD_CHANNEL_ID`** из `.env`. Команда **`/turboweave`** временно подставляет канал `#прихожая` (Атаев Маркет). **`/audit`** — полный multi-board 783,445,54. Прогресс slash-команды — ephemeral.
 
 Команда `/comments` **удалена** из регистрации (бот подскажет `/comments_full` / `/comments_limit`).
 
@@ -47,10 +48,11 @@
 
 ## Scheduled / daily audit
 
-`run-scheduled-audit.ts` вызывает `getEnabledProjects()`:
+`run-scheduled-audit` / автозапуск Windows → **TurboWeave only** (`npm run audit:turboweave`, board 783).
 
-1. Есть `enabled: true` в `config/projects.json` → для каждого: аудит доски → отчёт в **`AUDIT_DISCORD_CHANNEL_ID`** (если задан в `.env`), иначе в `discordChannelId` проекта.
-2. Нет enabled-проектов → один прогон из `.env` (`APPTASK_BOARD_URL`, `AUDIT_DISCORD_CHANNEL_ID`).
+1. Задача **AppTask Audit At Startup** (см. `infra/windows/setup-scheduled-audit.ps1`) — TurboWeave через 3 мин после входа.
+2. **AppTask Daily Audit** (full 783,445,54) **отключён** — `setup-task-scheduler.ps1` удаляет legacy-задачу.
+3. Ручной full: `/audit` или `npm run audit:full`.
 
 ## Ручное редактирование
 

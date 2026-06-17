@@ -7,7 +7,7 @@ import {
 export const slashCommands = [
   {
     name: "audit",
-    description: "Запустить аудит карточек (настройки из .env)",
+    description: "Полный аудит всех досок (783,445,54) — ручной режим",
     options: [
       {
         name: "board_url",
@@ -24,6 +24,11 @@ export const slashCommands = [
         max_value: 500,
       },
     ],
+  },
+  {
+    name: "turboweave",
+    description:
+      "Запустить аудит TurboWeave: AppTask board 783 + Scrum + tracking",
   },
   {
     name: "audit_full",
@@ -176,11 +181,13 @@ export const slashCommands = [
   },
 ] as const;
 
+export const TURBOWEAVE_SLASH_COMMANDS = ["turboweave"] as const;
 export const AUDIT_SLASH_COMMANDS = ["audit", "audit_full", "audit_limit"] as const;
 export const COMMENTS_SLASH_COMMANDS = ["comments_full", "comments_limit"] as const;
 
 export const MAIN_SLASH_COMMANDS = [
   ...AUDIT_SLASH_COMMANDS,
+  ...TURBOWEAVE_SLASH_COMMANDS,
   ...COMMENTS_SLASH_COMMANDS,
 ] as const;
 

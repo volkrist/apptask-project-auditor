@@ -19,6 +19,14 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { loadAuditScope } from "../config/audit-scope.js";
+import {
+  applyAuditModeEnv,
+  describeAuditMode,
+  FULL_AUDIT_CONFIG,
+  restoreAuditModeEnv,
+  TURBOWEAVE_AUDIT_CONFIG,
+  type AuditModePreset,
+} from "../config/audit-modes.js";
 import { parseBoardIds } from "../collectors/db-config.js";
 import { runCommentsCheck } from "../app/run-comments-check.js";
 import { runAudit, type RunAuditResult } from "../app/run-audit.js";
@@ -751,59 +759,100 @@ async function handleCommentsSlash(
 
 async function handleAuditSlash(
   interaction: ChatInputCommandInteraction,
-  options: { logTag: string; maxCards: number | undefined },
+  options: {
+    logTag: string;
+    maxCards: number | undefined;
+    auditMode?: AuditModePreset;
+  },
 ): Promise<void> {
   logInteraction(options.logTag, interaction);
   logUserSlashPermission(interaction);
   void logBotChannelPermissions(interaction).catch(() => undefined);
 
-  const boardUrlRaw = interaction.options.getString("board_url") ?? undefined;
-  const resolved = resolveAuditBoardFromInteraction(interaction);
-  if (!resolved) {
-    await safeEditReply(
-      interaction,
-      "Укажите доску: `board_url` (https://apptask.ru/c/7/board/445) или `APPTASK_BOARD_URL` в .env.",
-    );
-    return;
-  }
-
-  const { boardUrl, source: boardSource } = resolved;
-  const maxCards = options.maxCards;
-
-  const boardHint =
-    boardSource === "env" ? "\n_(доска из .env)_" : "";
-
-  const auditScope = loadAuditScope();
-  const configuredBoardIds = parseBoardIds(process.env.APPTASK_DB_BOARD_IDS);
-  const scopeHint =
-    auditScope === "multi" && configuredBoardIds.length > 1
-      ? `\n📦 multi: доски ${configuredBoardIds.join(", ")}`
-      : "";
-
-  if (maxCards != null) {
-    console.log(
-      `[${options.logTag}] boardUrl=${boardUrl} limit=${maxCards} comments=off`,
-    );
-  } else {
-    console.log(`[${options.logTag}] boardUrl=${boardUrl} comments=off`);
-  }
-
-  await safeEditReply(
-    interaction,
-    `⏳ **Audit started.**\n📋 Доска: \`${boardUrl}\`${boardHint}${scopeHint}${maxCards != null ? `\n🔢 limit: ${maxCards}` : "\n🔢 режим: full"}\nСбор карточек и проверка правил…`,
-  );
+  const envSnapshot =
+    options.auditMode != null
+      ? applyAuditModeEnv(options.auditMode)
+      : null;
 
   try {
+    const boardUrlRaw = interaction.options.getString("board_url") ?? undefined;
+    let boardUrl: string;
+    let boardSource: string;
+
+    if (options.auditMode === "turboweave") {
+      boardUrl = TURBOWEAVE_AUDIT_CONFIG.boardUrl;
+      boardSource = "turboweave";
+    } else if (options.auditMode === "full") {
+      const resolved = boardUrlRaw
+        ? resolveAuditBoard(boardUrlRaw, null, process.env.APPTASK_BOARD_URL)
+        : resolveAuditBoardFromInteraction(interaction);
+      if (!resolved) {
+        boardUrl = FULL_AUDIT_CONFIG.boardUrl;
+        boardSource = "full-default";
+      } else {
+        boardUrl = resolved.boardUrl;
+        boardSource = resolved.source;
+      }
+    } else {
+      const resolved = resolveAuditBoardFromInteraction(interaction);
+      if (!resolved) {
+        await safeEditReply(
+          interaction,
+          "Укажите доску: `board_url` (https://apptask.ru/c/7/board/445) или `APPTASK_BOARD_URL` в .env.",
+        );
+        return;
+      }
+      boardUrl = resolved.boardUrl;
+      boardSource = resolved.source;
+    }
+
+    const maxCards = options.maxCards;
+
+    const boardHint =
+      boardSource === "env" ? "\n_(доска из .env)_" : "";
+
+    const auditScope = loadAuditScope();
+    const configuredBoardIds = parseBoardIds(process.env.APPTASK_DB_BOARD_IDS);
+    const modeHint = options.auditMode
+      ? `\n📦 ${describeAuditMode(options.auditMode)}`
+      : "";
+    const scopeHint =
+      auditScope === "multi" && configuredBoardIds.length > 0
+        ? `\n📋 доски: ${configuredBoardIds.join(", ")}`
+        : "";
+
+    if (maxCards != null) {
+      console.log(
+        `[${options.logTag}] boardUrl=${boardUrl} limit=${maxCards} comments=off mode=${options.auditMode ?? "env"}`,
+      );
+    } else {
+      console.log(
+        `[${options.logTag}] boardUrl=${boardUrl} comments=off mode=${options.auditMode ?? "env"}`,
+      );
+    }
+
+    await safeEditReply(
+      interaction,
+      `⏳ **Audit started.**\n📋 Доска: \`${boardUrl}\`${boardHint}${modeHint}${scopeHint}${maxCards != null ? `\n🔢 limit: ${maxCards}` : "\n🔢 режим: full"}\nСбор карточек и проверка правил…`,
+    );
+
     logInteraction(options.logTag, interaction, {
       board: boardUrl,
       board_source: boardSource,
-      board_url_raw: boardUrlRaw?.slice(0, 120) ?? "(env)",
+      board_url_raw: boardUrlRaw?.slice(0, 120) ?? "(preset)",
       limit: maxCards != null ? String(maxCards) : "full",
       comments: "off",
+      audit_mode: options.auditMode ?? "env",
     });
     const out = await runAudit(boardUrl, null, {
       maxCards,
       commentsAuditMode: "off",
+      projectName:
+        options.auditMode === "turboweave"
+          ? TURBOWEAVE_AUDIT_CONFIG.projectName
+          : options.auditMode === "full"
+            ? FULL_AUDIT_CONFIG.projectName
+            : undefined,
     });
     logInteraction(options.logTag, interaction, {
       status: "done",
@@ -821,6 +870,10 @@ async function handleAuditSlash(
         interaction,
         `${failMsg}\n\nОшибка: \`${formatDiscordError(err)}\``,
       );
+    }
+  } finally {
+    if (envSnapshot) {
+      restoreAuditModeEnv(envSnapshot);
     }
   }
 }
@@ -1127,8 +1180,9 @@ client.on("interactionCreate", async (interaction) => {
 
   const isAudit = isActiveAuditCommand(cmd);
   const isComments = isActiveCommentsCommand(cmd);
+  const isTurboWeave = cmd === "turboweave";
 
-  if (!isAudit && !isComments) {
+  if (!isAudit && !isComments && !isTurboWeave) {
     logDiscord(`[discord] unknown command=/${cmd} user=${interaction.user.id}`);
     await replyEphemeralHelp(interaction, UNSUPPORTED_COMMAND_MESSAGE);
     return;
@@ -1160,11 +1214,20 @@ client.on("interactionCreate", async (interaction) => {
       });
       return;
     }
+    if (cmd === "turboweave") {
+      await handleAuditSlash(interaction, {
+        logTag: "turboweave-command",
+        maxCards: undefined,
+        auditMode: "turboweave",
+      });
+      return;
+    }
     if (cmd === "audit") {
       const limit = interaction.options.getInteger("limit");
       await handleAuditSlash(interaction, {
         logTag: "audit-command",
         maxCards: limit != null ? Math.min(500, limit) : undefined,
+        auditMode: "full",
       });
       return;
     }
@@ -1172,6 +1235,7 @@ client.on("interactionCreate", async (interaction) => {
       await handleAuditSlash(interaction, {
         logTag: "audit-full-command",
         maxCards: undefined,
+        auditMode: "full",
       });
       return;
     }
@@ -1179,6 +1243,7 @@ client.on("interactionCreate", async (interaction) => {
       await handleAuditSlash(interaction, {
         logTag: "audit-limit-command",
         maxCards: Math.min(500, interaction.options.getInteger("limit", true)),
+        auditMode: "full",
       });
     }
   } catch (err) {

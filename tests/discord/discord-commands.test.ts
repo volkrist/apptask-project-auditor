@@ -34,12 +34,13 @@ const REMOVED_OPTIONS = [
 
 const LEGACY_COMMANDS = ["comments"];
 
-test("slash commands include /audit and legacy aliases", () => {
+test("slash commands include /audit, /turboweave and legacy aliases", () => {
   const names = slashCommands.map((c) => c.name);
   for (const cmd of LEGACY_COMMANDS) {
     assert.ok(!names.includes(cmd), `legacy /${cmd} must be removed`);
   }
   assert.ok(names.includes("audit"));
+  assert.ok(names.includes("turboweave"));
   assert.ok(names.includes("audit_full"));
   assert.ok(names.includes("audit_limit"));
   assert.ok(names.includes("comments_full"));
@@ -77,8 +78,11 @@ test("no removed comment/audit options in any command", () => {
   }
 });
 
-test("/audit handlers always pass commentsAuditMode off", () => {
+test("/audit handlers apply full audit mode and commentsAuditMode off", () => {
   assert.match(botHandlerSrc, /commentsAuditMode:\s*"off"/);
+  assert.match(botHandlerSrc, /auditMode:\s*"full"/);
+  assert.match(botHandlerSrc, /turboweave-command/);
+  assert.match(botHandlerSrc, /auditMode:\s*"turboweave"/);
   for (const removed of REMOVED_OPTIONS) {
     assert.ok(!botHandlerSrc.includes(`getString("${removed}")`));
     assert.ok(!botHandlerSrc.includes(`getInteger("${removed}")`));
@@ -209,6 +213,8 @@ test("AUDIT_SLASH_COMMANDS and COMMENTS_SLASH_COMMANDS constants", () => {
     "comments_full",
     "comments_limit",
   ]);
+  const names = slashCommands.map((c) => c.name);
+  assert.ok(names.includes("turboweave"));
 });
 
 test("/audit runs full audit when limit omitted", () => {

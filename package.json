@@ -14,6 +14,8 @@
     "test:rules": "node --import tsx --test tests/rules/*.test.ts",
     "test:reports": "node --import tsx --test tests/reports/*.test.ts",
     "audit": "tsx src/app/run-audit.ts",
+    "audit:turboweave": "tsx src/scripts/run-turboweave-audit.ts",
+    "audit:full": "tsx src/scripts/run-full-audit.ts",
     "audit:scheduled": "tsx src/scripts/run-scheduled-audit.ts",
     "comments:publish": "tsx src/scripts/run-comments-publish.ts",
     "publish:audit": "tsx src/scripts/publish-audit-report.ts",
