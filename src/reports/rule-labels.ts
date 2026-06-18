@@ -24,6 +24,7 @@ export const RULE_LABELS: Record<string, string> = {
   not_duplicate: "Возможный дубликат",
   unresolved_question_keywords_in_card:
     "Есть признак незакрытого вопроса",
+  open_questions_closed: "Открытый вопрос в комментариях без ответа",
   review_stage_requires_assignee:
     "На этапе проверки назначен тестировщик",
   scrum_task_in_estimate: "Задача не найдена в утверждённой смете",
@@ -49,7 +50,11 @@ export const RULE_LABELS: Record<string, string> = {
   board_name_template: "Название доски не по шаблону",
   board_folder_link: "Нет ссылки на папку проекта в описании доски",
   board_tz_summary: "Нет краткого описания проекта из ТЗ",
+  project_worksheet_match:
+    "Название и описание проекта не сверены с рабочей таблицей",
   team_worksheet_match: "Состав команды не сверен с рабочей таблицей",
+  team_role_rate_match: "Роль и ставка не сверены с рабочей таблицей",
+  task_type_classification: "Задачи не классифицированы по типам",
   sprint_dates_match: "Даты спринтов не сверены со Scrum",
   ui_has_mockup_link: "Нет ссылки на макет (UI)",
   ui_mockup_approved: "Макет не согласован перед разработкой",

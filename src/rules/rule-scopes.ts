@@ -5,7 +5,10 @@ export const RULE_SCOPES: Record<string, RuleScope> = {
   board_name_template: "board",
   board_folder_link: "board",
   board_tz_summary: "board",
+  project_worksheet_match: "project",
   team_worksheet_match: "team",
+  team_role_rate_match: "team",
+  task_type_classification: "project",
   sprint_dates_match: "sprint",
   tracking_daily_anomaly: "user",
 };

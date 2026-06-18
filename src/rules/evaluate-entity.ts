@@ -1,4 +1,5 @@
 import type { RawTask } from "../adapters/apptask/types.js";
+import { getAuditProfile, resolveAuditProfileId } from "../config/audit-profiles.js";
 import {
   boardHasFolderLink,
   boardHasTzSummary,
@@ -6,9 +7,14 @@ import {
   extractBoardText,
   type BoardMetadata,
 } from "../collectors/board-metadata.js";
+import { isFlowOrServiceTask } from "../tasks/task-classification.js";
+import { summarizeTaskTypes } from "../tasks/task-type-classification.js";
 import {
   activeWorksheetParticipants,
+  descriptionReflectsWorksheet,
+  findWorksheetParticipant,
   participantNameMatches,
+  projectNamesAlign,
   sprintMilestonesHaveDates,
 } from "../worksheet/worksheet-reader.js";
 import type { EntityFinding, RuleContext } from "./rule-types.js";
@@ -111,6 +117,232 @@ function boardFindings(
   return findings;
 }
 
+function projectWorksheetFindings(
+  meta: BoardMetadata,
+  ctx: RuleContext,
+): EntityFinding[] {
+  const ws = ctx.worksheet;
+  const objectLabel = boardObjectLabel(meta);
+
+  if (!ws?.loaded) {
+    return [
+      {
+        ruleId: "project_worksheet_match",
+        status: "SKIP",
+        reason: ws?.loadError ?? "рабочая таблица проекта не подключена",
+        scope: "project",
+        objectLabel: "проект",
+      },
+    ];
+  }
+
+  const findings: EntityFinding[] = [];
+  const boardText = extractBoardText(meta);
+  const boardName = meta.name?.trim() ?? "";
+
+  if (!ws.projectInfoTabFound) {
+    findings.push({
+      ruleId: "project_worksheet_match",
+      status: "WARN",
+      reason: "в рабочей таблице не найден лист «Информация о проекте»",
+      scope: "project",
+      objectLabel: "проект",
+      actualValue: "лист с названием и описанием проекта отсутствует",
+    });
+    return findings;
+  }
+
+  if (!ws.projectName && !ws.projectDescription) {
+    findings.push({
+      ruleId: "project_worksheet_match",
+      status: "WARN",
+      reason: "в рабочей таблице не найдены поля названия и краткого описания проекта",
+      scope: "project",
+      objectLabel: "проект",
+      actualValue: "колонки «Проект» / «Краткое описание» не распознаны",
+    });
+  }
+
+  if (!boardText.trim()) {
+    findings.push({
+      ruleId: "project_worksheet_match",
+      status: "WARN",
+      reason: "описание доски пустое — нельзя сверить с рабочей таблицей",
+      scope: "project",
+      objectLabel,
+      actualValue: boardName || "описание доски пустое",
+    });
+  }
+
+  if (ws.projectName && boardName && !projectNamesAlign(boardName, ws.projectName)) {
+    findings.push({
+      ruleId: "project_worksheet_match",
+      status: "WARN",
+      reason: "название доски не совпадает с названием проекта в рабочей таблице",
+      scope: "project",
+      objectLabel,
+      actualValue: `доска: ${boardName}; таблица: ${ws.projectName}`,
+    });
+  }
+
+  if (ws.projectDescription) {
+    if (!boardText.trim()) {
+      // already reported
+    } else if (!descriptionReflectsWorksheet(boardText, ws.projectDescription)) {
+      findings.push({
+        ruleId: "project_worksheet_match",
+        status: "WARN",
+        reason: "описание доски не отражает краткое описание проекта из рабочей таблицы",
+        scope: "project",
+        objectLabel,
+        actualValue: `таблица: ${ws.projectDescription.slice(0, 120)}`,
+      });
+    }
+  } else {
+    findings.push({
+      ruleId: "project_worksheet_match",
+      status: "WARN",
+      reason: "в рабочей таблице не найдено краткое описание проекта для сверки",
+      scope: "project",
+      objectLabel: "проект",
+      actualValue: "поле «Краткое описание» не заполнено или не найдено",
+    });
+  }
+
+  return findings;
+}
+
+function teamRoleRateFindings(
+  auditable: RawTask[],
+  ctx: RuleContext,
+): EntityFinding[] {
+  const ws = ctx.worksheet;
+  if (!ws?.loaded) {
+    return [
+      {
+        ruleId: "team_role_rate_match",
+        status: "SKIP",
+        reason: ws?.loadError ?? "рабочая таблица проекта не подключена",
+        scope: "team",
+        objectLabel: "команда проекта",
+      },
+    ];
+  }
+
+  const findings: EntityFinding[] = [];
+
+  if (!ws.participantColumns.role) {
+    findings.push({
+      ruleId: "team_role_rate_match",
+      status: "WARN",
+      reason: "в рабочей таблице не найдена колонка роли (специализация)",
+      scope: "team",
+      objectLabel: "рабочая таблица",
+      actualValue: "колонка «Специализация» отсутствует",
+    });
+  }
+  if (!ws.participantColumns.rate) {
+    findings.push({
+      ruleId: "team_role_rate_match",
+      status: "WARN",
+      reason: "в рабочей таблице не найдена колонка ставки",
+      scope: "team",
+      objectLabel: "рабочая таблица",
+      actualValue: "колонка «Ставка» отсутствует",
+    });
+  }
+
+  const active = activeWorksheetParticipants(ws.participants);
+  if (active.length === 0) {
+    return [
+      ...findings,
+      {
+        ruleId: "team_role_rate_match",
+        status: "SKIP",
+        reason: "в рабочей таблице не найден список участников",
+        scope: "team",
+        objectLabel: "команда проекта",
+      },
+    ];
+  }
+
+  const assignees = new Set<string>();
+  for (const task of auditable) {
+    const name = primaryAssignee(task);
+    if (name) assignees.add(name);
+  }
+
+  for (const assignee of [...assignees].sort()) {
+    const participant = findWorksheetParticipant(assignee, active);
+    if (!participant) continue;
+    if (ws.participantColumns.role && !participant.role?.trim()) {
+      findings.push({
+        ruleId: "team_role_rate_match",
+        status: "WARN",
+        reason: "роль не заполнена в рабочей таблице",
+        scope: "team",
+        objectLabel: `участник — ${assignee}`,
+      });
+    }
+    if (ws.participantColumns.rate && !participant.rate?.trim()) {
+      findings.push({
+        ruleId: "team_role_rate_match",
+        status: "WARN",
+        reason: "ставка не заполнена в рабочей таблице",
+        scope: "team",
+        objectLabel: `участник — ${assignee}`,
+      });
+    }
+  }
+
+  return findings;
+}
+
+function taskTypeClassificationFindings(
+  allTasks: RawTask[],
+  ctx: RuleContext,
+): EntityFinding[] {
+  const profile = getAuditProfile(
+    resolveAuditProfileId(ctx.auditProfileId),
+  );
+  const summary = summarizeTaskTypes(allTasks, profile);
+  const details = [
+    `всего задач на доске: ${summary.total}`,
+    `потоковые / сервисные (исключены из карточного аудита): ${summary.flow}`,
+    `UI / front: ${summary.ui}`,
+    `обычные задачи: ${summary.regular}`,
+    `не удалось классифицировать: ${summary.unknown}`,
+  ];
+
+  if (summary.unknown > 0) {
+    const examples = summary.unknownExamples
+      .map((e) => `№${e.id} — ${e.title}`)
+      .join("; ");
+    return [
+      {
+        ruleId: "task_type_classification",
+        status: "WARN",
+        reason: `не удалось классифицировать ${summary.unknown} задач(и)`,
+        scope: "project",
+        objectLabel: "классификация задач на доске",
+        actualValue: examples || undefined,
+        details,
+      },
+    ];
+  }
+
+  return [
+    {
+      ruleId: "task_type_classification",
+      status: "PASS",
+      reason: "все задачи классифицированы по типам",
+      scope: "project",
+      objectLabel: "классификация задач на доске",
+      details,
+    },
+  ];
+}
+
 function teamFindings(
   auditable: RawTask[],
   ctx: RuleContext,
@@ -202,7 +434,10 @@ function sprintFindings(ctx: RuleContext): EntityFinding[] {
   }));
 }
 
-function trackingDailyFindings(ctx: RuleContext): EntityFinding[] {
+function trackingDailyFindings(
+  ctx: RuleContext,
+  flowTaskIds: Set<string>,
+): EntityFinding[] {
   if (!ctx.tracking?.loaded) {
     return [
       {
@@ -241,13 +476,17 @@ function trackingDailyFindings(ctx: RuleContext): EntityFinding[] {
   for (const entry of byUserDay.values()) {
     if (entry.hours <= TRACKING_DAILY_ANOMALY_HOURS) continue;
     const who = entry.userName ?? `user ${entry.userId}`;
+    const taskLabels = entry.tasks.map((id) => {
+      const label = `№${id}`;
+      return flowTaskIds.has(id) ? `${label} (потоковая)` : label;
+    });
     findings.push({
       ruleId: "tracking_daily_anomaly",
       status: "WARN",
       reason: `списано ${Math.round(entry.hours * 10) / 10} ч за день (порог ${TRACKING_DAILY_ANOMALY_HOURS} ч)`,
       scope: "user",
       objectLabel: `${who}, ${entry.date}`,
-      actualValue: `задачи: ${entry.tasks.map((id) => `№${id}`).join(", ")}`,
+      actualValue: `задачи: ${taskLabels.join(", ")}`,
     });
   }
 
@@ -258,12 +497,21 @@ function trackingDailyFindings(ctx: RuleContext): EntityFinding[] {
 export function evaluateEntityFindings(
   ctx: RuleContext,
   auditable: RawTask[],
+  allTasks: RawTask[] = auditable,
 ): EntityFinding[] {
   const findings: EntityFinding[] = [];
+  const profile = getAuditProfile(
+    resolveAuditProfileId(ctx.auditProfileId),
+  );
+  const flowTaskIds = new Set(
+    allTasks
+      .filter((t) => isFlowOrServiceTask(t, profile) && t.id)
+      .map((t) => t.id!),
+  );
 
   const boardIds = [
     ...new Set(
-      auditable
+      allTasks
         .map((t) => t.boardId?.trim())
         .filter((id): id is string => Boolean(id)),
     ),
@@ -273,17 +521,19 @@ export function evaluateEntityFindings(
     const meta = ctx.boardMetadata?.[boardId];
     if (meta) {
       findings.push(...boardFindings(meta, ctx));
+      findings.push(...projectWorksheetFindings(meta, ctx));
     } else {
       for (const ruleId of [
         "board_name_template",
         "board_folder_link",
         "board_tz_summary",
+        "project_worksheet_match",
       ] as const) {
         findings.push({
           ruleId,
           status: "SKIP",
           reason: "данные о доске не найдены в доступных источниках",
-          scope: getRuleScope(ruleId),
+          scope: getRuleScope(ruleId) as EntityFinding["scope"],
           objectLabel: `доска ${boardId}`,
         });
       }
@@ -291,8 +541,10 @@ export function evaluateEntityFindings(
   }
 
   findings.push(...teamFindings(auditable, ctx));
+  findings.push(...teamRoleRateFindings(auditable, ctx));
   findings.push(...sprintFindings(ctx));
-  findings.push(...trackingDailyFindings(ctx));
+  findings.push(...trackingDailyFindings(ctx, flowTaskIds));
+  findings.push(...taskTypeClassificationFindings(allTasks, ctx));
 
   return findings;
 }

@@ -13,6 +13,7 @@ import { isUiRelatedTask } from "../task-ui.js";
 import { getAuditProfile, resolveAuditProfileId } from "../../config/audit-profiles.js";
 import { partitionTasksForAudit } from "../../tasks/task-classification.js";
 import { getTaskTrackingMetrics } from "../../tracking/load-tracking-context.js";
+import { findOpenQuestionWithoutReply } from "../soft/open-questions-closed.js";
 
 function primaryAssignee(task: Parameters<Rule["evaluate"]>[0]): string | null {
   const name = task.assignees.find((a) => a?.trim() && !a.includes("Добавить"));
@@ -145,6 +146,30 @@ export const teamWorksheetMatchRule: Rule = {
   severity: "soft",
   evaluate() {
     return notApplicable("team_worksheet_match", "Проверка уровня команды");
+  },
+};
+
+export const projectWorksheetMatchRule: Rule = {
+  id: "project_worksheet_match",
+  severity: "soft",
+  evaluate() {
+    return notApplicable("project_worksheet_match", "Проверка уровня проекта");
+  },
+};
+
+export const teamRoleRateMatchRule: Rule = {
+  id: "team_role_rate_match",
+  severity: "soft",
+  evaluate() {
+    return notApplicable("team_role_rate_match", "Проверка уровня команды");
+  },
+};
+
+export const taskTypeClassificationRule: Rule = {
+  id: "task_type_classification",
+  severity: "soft",
+  evaluate() {
+    return notApplicable("task_type_classification", "Проверка уровня проекта");
   },
 };
 
@@ -336,6 +361,25 @@ export const massStartWithoutCompletionRule: Rule = {
   },
 };
 
+export const openQuestionsClosedRule: Rule = {
+  id: "open_questions_closed",
+  severity: "soft",
+  evaluate(task) {
+    const comments = task.comments ?? [];
+    if (comments.length === 0) {
+      return pass("open_questions_closed", "Комментариев нет");
+    }
+    const snippet = findOpenQuestionWithoutReply(task);
+    if (snippet) {
+      return warn(
+        "open_questions_closed",
+        `Открытый вопрос в комментарии без ответа: «${snippet}»`,
+      );
+    }
+    return pass("open_questions_closed", "Открытых вопросов без ответа не найдено");
+  },
+};
+
 export const actReadyNamingRule: Rule = {
   id: "act_ready_naming",
   severity: "soft",
@@ -371,6 +415,9 @@ export const contractRules: Rule[] = [
   boardFolderLinkRule,
   boardTzSummaryRule,
   teamWorksheetMatchRule,
+  projectWorksheetMatchRule,
+  teamRoleRateMatchRule,
+  taskTypeClassificationRule,
   sprintDatesMatchRule,
   uiHasMockupLinkRule,
   uiMockupApprovedRule,
@@ -381,5 +428,6 @@ export const contractRules: Rule[] = [
   verifiedSuccessCommentRule,
   testerFeedbackHasProofRule,
   massStartWithoutCompletionRule,
+  openQuestionsClosedRule,
   actReadyNamingRule,
 ];

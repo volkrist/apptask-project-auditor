@@ -25,6 +25,8 @@ export type WorksheetAuditContext = {
   spreadsheetId: string | null;
   projectName: string | null;
   projectDescription: string | null;
+  projectInfoTabFound: boolean;
+  participantColumns: { role: boolean; rate: boolean };
   participants: WorksheetParticipant[];
   milestones: WorksheetMilestone[];
 };
@@ -59,12 +61,17 @@ function findRowValue(rows: string[][], labelRe: RegExp): string | null {
   return null;
 }
 
-function parseParticipants(rows: string[][]): WorksheetParticipant[] {
+function parseParticipants(rows: string[][]): {
+  participants: WorksheetParticipant[];
+  columns: { role: boolean; rate: boolean };
+} {
   const headerIdx = rows.findIndex((row) =>
     row.some((c) => /имя\s+фамилия/i.test(c ?? "")) &&
     row.some((c) => /специализац/i.test(c ?? "")),
   );
-  if (headerIdx < 0) return [];
+  if (headerIdx < 0) {
+    return { participants: [], columns: { role: false, rate: false } };
+  }
 
   const header = rows[headerIdx] ?? [];
   const statusCol = header.findIndex((c) => /статус/i.test(c ?? ""));
@@ -86,7 +93,10 @@ function parseParticipants(rows: string[][]): WorksheetParticipant[] {
       email: emailCol >= 0 ? row[emailCol]?.trim() || null : null,
     });
   }
-  return out;
+  return {
+    participants: out,
+    columns: { role: roleCol >= 0, rate: rateCol >= 0 },
+  };
 }
 
 function parseMilestones(rows: string[][]): WorksheetMilestone[] {
@@ -118,6 +128,18 @@ function parseMilestones(rows: string[][]): WorksheetMilestone[] {
   return out;
 }
 
+export function findWorksheetParticipant(
+  assignee: string,
+  participants: WorksheetParticipant[],
+): WorksheetParticipant | undefined {
+  if (!participantNameMatches(assignee, participants)) return undefined;
+  const norm = normalizeName(assignee);
+  return participants.find((p) => {
+    const pNorm = normalizeName(p.name);
+    if (!pNorm) return false;
+    return pNorm === norm || norm.includes(pNorm) || pNorm.includes(norm);
+  });
+}
 export function participantNameMatches(
   assignee: string,
   participants: WorksheetParticipant[],
@@ -144,6 +166,36 @@ export function activeWorksheetParticipants(
   return participants.filter((p) => /активен/i.test(p.status));
 }
 
+function normalizeProjectText(value: string | null | undefined): string {
+  return (value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+export function projectNamesAlign(
+  boardName: string | null,
+  worksheetName: string | null,
+): boolean {
+  const na = normalizeProjectText(boardName);
+  const nb = normalizeProjectText(worksheetName);
+  if (!na || !nb) return false;
+  if (na.includes(nb) || nb.includes(na)) return true;
+  const wordsA = na.split(/\s+/).filter((w) => w.length > 2);
+  const wordsB = new Set(nb.split(/\s+/).filter((w) => w.length > 2));
+  const overlap = wordsA.filter((w) => wordsB.has(w));
+  return overlap.length >= 2;
+}
+
+export function descriptionReflectsWorksheet(
+  boardText: string,
+  worksheetDescription: string,
+): boolean {
+  const board = normalizeProjectText(boardText);
+  const ws = normalizeProjectText(worksheetDescription);
+  if (!board || !ws) return false;
+  if (board.includes(ws) || ws.includes(board)) return true;
+  const snippet = ws.slice(0, Math.min(40, ws.length));
+  return snippet.length >= 20 && board.includes(snippet);
+}
+
 export async function loadWorksheetAuditContext(): Promise<WorksheetAuditContext> {
   const config = loadScrumEstimateConfig();
   const empty: WorksheetAuditContext = {
@@ -151,6 +203,8 @@ export async function loadWorksheetAuditContext(): Promise<WorksheetAuditContext
     spreadsheetId: config.workSpreadsheetId,
     projectName: null,
     projectDescription: null,
+    projectInfoTabFound: false,
+    participantColumns: { role: false, rate: false },
     participants: [],
     milestones: [],
   };
@@ -171,9 +225,12 @@ export async function loadWorksheetAuditContext(): Promise<WorksheetAuditContext
     let projectName: string | null = null;
     let projectDescription: string | null = null;
     let participants: WorksheetParticipant[] = [];
+    let participantColumns = { role: false, rate: false };
     let milestones: WorksheetMilestone[] = [];
+    let projectInfoTabFound = false;
 
     if (infoTab) {
+      projectInfoTabFound = true;
       const infoRows = await readSheetRows(
         config.workSpreadsheetId,
         `${escSheet(infoTab)}!A1:H40`,
@@ -195,7 +252,9 @@ export async function loadWorksheetAuditContext(): Promise<WorksheetAuditContext
         config.workSpreadsheetId,
         `${escSheet(teamTab)}!A1:H80`,
       );
-      participants = parseParticipants(teamRows);
+      const parsed = parseParticipants(teamRows);
+      participants = parsed.participants;
+      participantColumns = parsed.columns;
     }
 
     if (milestoneTab) {
@@ -211,6 +270,8 @@ export async function loadWorksheetAuditContext(): Promise<WorksheetAuditContext
       spreadsheetId: config.workSpreadsheetId,
       projectName,
       projectDescription,
+      projectInfoTabFound,
+      participantColumns,
       participants,
       milestones,
     };

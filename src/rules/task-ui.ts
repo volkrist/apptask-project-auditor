@@ -1,7 +1,7 @@
 import type { RawTask } from "../adapters/apptask/types.js";
 
 const UI_TITLE_RE =
-  /(^|\s)(ui|ux|интерфейс|верстк|frontend|front-end|макет|дизайн|layout)(\s|$)/i;
+  /(^|\s)(ui|ux|интерфейс|верстк|frontend|front-end|макет|дизайн|layout)(\s|:|$)/i;
 const UI_TYPE_RE = /ui|front|дизайн|верст/i;
 
 /** Задачи, к которым применяются правила про макеты/адаптив. */

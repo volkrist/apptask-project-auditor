@@ -220,7 +220,7 @@ export async function evaluateProject(
   });
   const rules = rulesForProfile(profileId);
   const taskRules = rules.filter((rule) => !isEntityRule(rule.id));
-  const entityFindings = evaluateEntityFindings(ctx, auditable);
+  const entityFindings = evaluateEntityFindings(ctx, auditable, tasks);
 
   const cards: CardAudit[] = await Promise.all(
     auditable.map(async (task) => ({

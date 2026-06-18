@@ -12,7 +12,9 @@ export const SOURCE_UNAVAILABLE_RULE_IDS = new Set([
   "board_name_template",
   "board_folder_link",
   "board_tz_summary",
+  "project_worksheet_match",
   "team_worksheet_match",
+  "team_role_rate_match",
   "sprint_dates_match",
   "tracking_daily_anomaly",
 ]);
@@ -37,7 +39,9 @@ const SKIP_USER_EXPLANATIONS: Record<string, string> = {
     "описание доски недоступно — нельзя проверить ссылку на папку проекта",
   board_tz_summary:
     "описание доски недоступно — нельзя проверить краткое описание из ТЗ",
+  project_worksheet_match: "рабочая таблица проекта не подключена",
   team_worksheet_match: "рабочая таблица проекта не подключена",
+  team_role_rate_match: "рабочая таблица проекта не подключена",
   sprint_dates_match: "в Scrum-портале или рабочей таблице не найдены даты спринтов",
   tracking_daily_anomaly: "учёт времени по дням недоступен",
 };

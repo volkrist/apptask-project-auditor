@@ -11,6 +11,7 @@ import {
   simplifyReasonText,
   skipExplanationForReport,
 } from "./report-presentation.js";
+import { formatCheckRegistryMarkdown } from "./build-check-registry.js";
 
 function overallStatus(failCount: number, warnCount: number): string {
   if (failCount > 0) return "Требует исправлений (есть FAIL)";
@@ -81,6 +82,7 @@ function entityFindingsForSection(
     if (!ruleSet.has(f.ruleId)) return false;
     if (f.status === "FAIL" || f.status === "WARN") return true;
     if (f.ruleId === "board_name_template" && f.status === "PASS") return true;
+    if (f.ruleId === "task_type_classification" && f.status === "PASS") return true;
     return false;
   });
 }
@@ -205,6 +207,12 @@ export function buildContractAuditMarkdown(
     `- Исключения: потоковые / сервисные карточки (${excludedFlow})`,
   );
 
+  if (excludedFlow > 0) {
+    lines.push(
+      "- Потоковые карточки исключены из проверок карточек, но их фактическое время учитывается в проверке дневного списания времени.",
+    );
+  }
+
   if (meta.boardSummaries && meta.boardSummaries.length > 1) {
     lines.push("", "### Доски в аудите");
     for (const b of meta.boardSummaries) {
@@ -241,6 +249,9 @@ export function buildContractAuditMarkdown(
   if (!hasAnyResults) {
     lines.push("", "Нарушений по проверкам не найдено.");
   }
+
+  lines.push("");
+  lines.push(...formatCheckRegistryMarkdown(result));
 
   lines.push("", "## Исключённые карточки", "");
   const excluded = meta.excludedFlowCards ?? meta.excludedFlowExamples ?? [];

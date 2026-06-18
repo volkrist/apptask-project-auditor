@@ -56,7 +56,16 @@ test("entity board rules evaluated once per board", () => {
           discordLink: null,
         },
       },
-      worksheet: { loaded: false, spreadsheetId: null, projectName: null, projectDescription: null, participants: [], milestones: [] },
+      worksheet: {
+        loaded: false,
+        spreadsheetId: null,
+        projectName: null,
+        projectDescription: null,
+        projectInfoTabFound: false,
+        participantColumns: { role: false, rate: false },
+        participants: [],
+        milestones: [],
+      },
     },
     [{ ...emptyRawTask(), boardId: "783" }],
   );
