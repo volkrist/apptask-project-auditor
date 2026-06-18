@@ -15,6 +15,7 @@ import { ruleLabel } from "./rule-labels.js";
 import {
   filterSourceUnavailableSkips,
   formatAuditedAt,
+  humanizeDiscordTeamNote,
   humanizeProfileLabel,
   humanizeSourcesUsed,
   simplifyReasonText,
@@ -163,7 +164,7 @@ export function buildContractAuditMarkdown(
 
   const discordNote = result.meta.discordTeamNote;
   if (discordNote) {
-    lines.push(`- Discord-сверка команды: ${discordNote}`);
+    lines.push(`- Discord-сверка команды: ${humanizeDiscordTeamNote(discordNote)}`);
   }
 
   if (meta.boardSummaries && meta.boardSummaries.length > 1) {
@@ -268,10 +269,15 @@ export function buildContractAuditMarkdown(
     for (const card of problematic) {
       const t = card.task;
       const id = t.id ? `№${t.id}` : "без номера";
+      const title = t.title ?? "(без названия)";
+      const heading = t.url
+        ? `### [${id} — ${title}](${t.url})`
+        : `### ${id} — ${title}`;
+      lines.push("", heading);
+      if (!t.url) {
+        lines.push("- Ссылка: —");
+      }
       lines.push(
-        "",
-        `### ${id} — ${t.title ?? "(без названия)"}`,
-        `- Ссылка: ${t.url ?? "—"}`,
         `- Статус: ${t.status ?? "—"}`,
         `- Исполнитель: ${t.assignees[0] ?? "—"}`,
         "",

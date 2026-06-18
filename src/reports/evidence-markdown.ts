@@ -4,7 +4,7 @@ import { buildTaskClassificationRows } from "../tasks/task-type-classification.j
 import { ruleCondition } from "./rule-conditions.js";
 import { ruleLabel } from "./rule-labels.js";
 import { escapeTableCell } from "./report-links.js";
-import { simplifyReasonText } from "./report-presentation.js";
+import { simplifyReasonText, humanizeDiscordInReportText } from "./report-presentation.js";
 
 export type TaskViolationGroup = {
   ruleId: string;
@@ -33,20 +33,38 @@ export function parseScrumTitleMismatch(
   return { actual: m[1]!, expected: m[2]! };
 }
 
-function scrumDiff(actual: string, expected: string): string {
-  if (actual === expected) return "—";
+export function formatScrumTitleDiff(actual: string, expected: string): string {
   const a = actual.trim();
   const b = expected.trim();
-  if (a.length !== b.length && a.replace(/\s/g, "") === b.replace(/\s/g, "")) {
+  if (a === b) return "—";
+  if (a.replace(/\s/g, "") === b.replace(/\s/g, "")) {
     return "пробелы / регистр";
   }
-  const min = Math.min(a.length, b.length);
-  for (let i = 0; i < min; i++) {
-    if (a[i] !== b[i]) {
-      return `«${a.slice(i, i + 12)}» ≠ «${b.slice(i, i + 12)}»`;
+  if (b.startsWith(`${a} `) || a.startsWith(`${b} `)) {
+    return `${a} → ${b}`;
+  }
+
+  const aWords = a.split(/\s+/);
+  const bWords = b.split(/\s+/);
+  const diffs: string[] = [];
+  const max = Math.max(aWords.length, bWords.length);
+
+  for (let i = 0; i < max; i++) {
+    const aw = aWords[i];
+    const bw = bWords[i];
+    if (aw === bw) continue;
+    if (aw === undefined) {
+      diffs.push(`+ ${bw}`);
+    } else if (bw === undefined) {
+      diffs.push(`− ${aw}`);
+    } else {
+      diffs.push(`${aw} → ${bw}`);
     }
   }
-  return "разные строки";
+
+  if (diffs.length === 1) return diffs[0]!;
+  if (diffs.length > 1) return diffs.join("; ");
+  return `${a} → ${b}`;
 }
 
 function formatScrumTitleTable(group: TaskViolationGroup): string[] {
@@ -60,7 +78,7 @@ function formatScrumTitleTable(group: TaskViolationGroup): string[] {
     const parsed = r ? parseScrumTitleMismatch(r.reason) : null;
     const actual = parsed?.actual ?? simplifyReasonText(r?.reason ?? "—");
     const expected = parsed?.expected ?? "—";
-    const diff = parsed ? scrumDiff(parsed.actual, parsed.expected) : "—";
+    const diff = parsed ? formatScrumTitleDiff(parsed.actual, parsed.expected) : "—";
     lines.push(
       `| ${cardLink(card)} | ${escapeTableCell(actual)} | ${escapeTableCell(expected)} | ${escapeTableCell(diff)} |`,
     );
@@ -88,7 +106,8 @@ function formatDefaultTaskTable(group: TaskViolationGroup): string[] {
 
 function entityEvidenceCell(value: string | undefined, fallback: string): string {
   const v = value?.trim();
-  return escapeTableCell(v && v !== "—" ? v : fallback);
+  const text = v && v !== "—" ? v : fallback;
+  return escapeTableCell(humanizeDiscordInReportText(text));
 }
 
 export function formatTaskClassificationDebugTable(

@@ -123,3 +123,21 @@ export function formatAuditedAt(iso: string): string {
     return iso;
   }
 }
+
+/** Пользовательская формулировка статуса Discord-сверки команды. */
+export function humanizeDiscordTeamNote(note: string): string {
+  if (/disallowed intents/i.test(note)) {
+    return "не выполнена — у бота нет доступа к списку участников сервера";
+  }
+  return note;
+}
+
+/** Убирает тех. формулировки Discord из текста отчёта. */
+export function humanizeDiscordInReportText(text: string): string {
+  return text
+    .replace(/Used disallowed intents/gi, "доступ к списку участников не предоставлен")
+    .replace(
+      /Discord:\s*сверка пропущена/gi,
+      "Discord: доступ к списку участников не предоставлен",
+    );
+}

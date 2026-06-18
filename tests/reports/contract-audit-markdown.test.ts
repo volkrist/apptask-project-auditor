@@ -69,6 +69,59 @@ test("contract report uses evidence tables for violations", () => {
   assert.match(md, /\[№65/);
   assert.match(md, /Bконка/);
   assert.match(md, /Иконка/);
+  assert.match(md, /Bконка → Иконка/);
+});
+
+test("card detail headings are clickable when url exists", () => {
+  const md = buildContractAuditMarkdown({
+    ...baseResult({ failCount: 1, warnCount: 0 }),
+    cards: [
+      {
+        task: {
+          id: "16",
+          url: "https://apptask.ru/c/7/board/783/16",
+          title: "3.2.1 UI: HUD  (UI/UX)",
+          descriptionText: null,
+          createdAt: null,
+          startDate: null,
+          dueDate: null,
+          priority: null,
+          status: "Завершено",
+          tags: [],
+          creator: null,
+          assignees: [],
+          assigneeRefs: [],
+          category: null,
+          stage: null,
+          plannedTime: null,
+          actualTime: null,
+          links: [],
+          attachments: [],
+          comments: [],
+          boardId: "783",
+        },
+        results: [
+          { ruleId: "assignee_present", status: "FAIL", reason: "Нет исполнителя" },
+        ],
+      },
+    ],
+  });
+
+  assert.match(
+    md,
+    /### \[№16 — 3\.2\.1 UI: HUD  \(UI\/UX\)\]\(https:\/\/apptask\.ru\/c\/7\/board\/783\/16\)/,
+  );
+  assert.doesNotMatch(md, /- Ссылка: https:\/\/apptask\.ru\/c\/7\/board\/783\/16/);
+});
+
+test("discord access errors are humanized in report", () => {
+  const md = buildContractAuditMarkdown(
+    baseResult({
+      discordTeamNote: "недоступна (Used disallowed intents)",
+    }),
+  );
+  assert.match(md, /Discord-сверка команды: не выполнена — у бота нет доступа к списку участников сервера/);
+  assert.doesNotMatch(md, /disallowed intents/i);
 });
 
 test("excluded flow cards listed fully", () => {
