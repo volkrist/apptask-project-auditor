@@ -68,12 +68,12 @@ import {
   formatBriefSummary,
   getAuditPublishChannelId,
   isAuditDiscordDmOnly,
-  publishFullReportToChannel,
   resolveAuditChannel,
 } from "./publish-report.js";
 import {
   buildAuditReportEmbed,
   buildCommentsReportEmbed,
+  getAuditStatusText,
   humanizeRuleLabel,
   recommendationForRule,
 } from "./report-embeds.js";
@@ -246,12 +246,6 @@ function logInteractionError(
   err: unknown,
 ): void {
   logInteraction(tag, interaction, { error: formatDiscordError(err) });
-}
-
-function getAuditStatusText(failCount: number, warnCount: number): string {
-  if (failCount > 0) return "Требует доработки";
-  if (warnCount > 0) return "Есть предупреждения";
-  return "Проблем не найдено";
 }
 
 function buildPagerButtons(page: number, total: number): ActionRowBuilder<ButtonBuilder> {
@@ -488,16 +482,11 @@ async function deliverFullReportViaDm(
   }
 }
 
-/** Канал для публичного отчёта: AUDIT_DISCORD_CHANNEL_ID (Атаев Маркет), иначе канал команды. */
+/** Канал для публичного отчёта: всегда AUDIT_DISCORD_CHANNEL_ID / #аудитор. */
 async function resolveReportChannel(
   interaction: ChatInputCommandInteraction,
 ): Promise<SendableChannels | null> {
-  const fallback =
-    interaction.channel?.isTextBased() && interaction.channel.isSendable()
-      ? interaction.channelId
-      : null;
-  const channelId = getAuditPublishChannelId(fallback);
-  if (!channelId) return null;
+  const channelId = getAuditPublishChannelId();
   return resolveAuditChannel(client, channelId);
 }
 
@@ -508,7 +497,7 @@ async function deliverPagedAuditReport(
 ): Promise<void> {
   const summary = buildAuditReportEmbed(out).addFields({
     name: "Детали",
-    value: "Отчёт доступен ниже. Используйте кнопки для просмотра деталей.",
+    value: "Листайте страницы кнопками ниже или скачайте файлы отчёта.",
     inline: false,
   });
   const detailPages = buildAuditDetailPages(out);
@@ -530,13 +519,20 @@ async function deliverPagedAuditReport(
     files: [
       { path: out.output.humanSummaryPath, name: "human-summary.md" },
       { path: out.output.reportPath, name: "audit-report.md" },
-      { path: out.output.humanSummaryHtmlPath, name: "human-summary.html" },
       { path: out.output.jsonPath, name: "audit.json" },
     ],
   });
   console.log(
-    `[attachments] audit report → ${logLabel} (paged message ${sent.id})`,
+    `[attachments] audit report → ${logLabel} (paged message ${sent.id}, ${pages.length} pages)`,
   );
+
+  const files = buildReportAttachments(out);
+  if (files.length > 0) {
+    await channel.send({
+      content: "Подробные файлы отчёта прикреплены ниже.",
+      files,
+    });
+  }
 }
 
 /** Полный отчёт в ЛС пользователю (AUDIT_DISCORD_DM_ONLY). */
@@ -909,14 +905,17 @@ async function handleProjectAdd(
     name,
     boardUrl,
     discordChannelId: channel.id,
+    guildId: interaction.guildId ?? "unknown",
   });
 
   await interaction.editReply(
     [
       "Проект сохранён:",
-      project.name,
-      project.boardUrl,
-      project.discordChannelId,
+      `name: ${project.name}`,
+      `board: ${project.boardUrl}`,
+      `guild: ${project.guildId}`,
+      `channel: ${project.discordChannelId}`,
+      `profile: ${project.ruleProfile ?? "contract_turboweave_v1"}`,
     ].join("\n"),
   );
 }
@@ -934,7 +933,9 @@ async function handleProjectList(
   const lines = projects.flatMap((p) => [
     `**${p.name}** (\`${p.id}\`)`,
     p.boardUrl,
-    p.discordChannelId,
+    `guild: ${p.guildId}`,
+    `channel: ${p.discordChannelId}`,
+    `profile: ${p.ruleProfile ?? "contract_turboweave_v1"}`,
     `enabled: ${p.enabled}`,
     "",
   ]);

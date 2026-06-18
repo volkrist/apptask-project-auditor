@@ -49,7 +49,6 @@ async function main(): Promise<void> {
   const summaryPath = path.join(auditDir, "summary.md");
   const reportPath = path.join(auditDir, "audit-report.md");
   const humanSummaryPath = path.join(auditDir, "human-summary.md");
-  const humanSummaryHtmlPath = path.join(auditDir, "human-summary.html");
   for (const p of [jsonPath, markdownPath, summaryPath, reportPath]) {
     if (!fs.existsSync(p)) {
       console.error(`Missing file: ${p}`);
@@ -65,7 +64,6 @@ async function main(): Promise<void> {
     summaryPath,
     reportPath,
     humanSummaryPath,
-    humanSummaryHtmlPath,
   };
 
   const out: RunAuditResult = {

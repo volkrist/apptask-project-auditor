@@ -1,0 +1,400 @@
+import type { Rule } from "../rule-types.js";
+import { fail, pass, skip, warn } from "../helpers.js";
+import {
+  isBlockedTask,
+  isCompletedStatus,
+  isInProgressStatus,
+  isTestingStatus,
+} from "../status/status-helpers.js";
+import { hoursSince } from "../../scrum/estimate-matcher.js";
+import { findInProgressStartedAt } from "../history/history-parser.js";
+import { makeStateNameResolver } from "../../collectors/state-map.js";
+import { isUiRelatedTask } from "../task-ui.js";
+import { getAuditProfile, resolveAuditProfileId } from "../../config/audit-profiles.js";
+import { partitionTasksForAudit } from "../../tasks/task-classification.js";
+import { getTaskTrackingMetrics } from "../../tracking/load-tracking-context.js";
+
+function primaryAssignee(task: Parameters<Rule["evaluate"]>[0]): string | null {
+  const name = task.assignees.find((a) => a?.trim() && !a.includes("Добавить"));
+  return name?.trim() ?? null;
+}
+
+const DEVELOPER_MAX_ACTIVE =
+  Number(process.env.DEVELOPER_MAX_ACTIVE_TASKS ?? "3") || 3;
+const NEVER_STARTED_DAYS =
+  Number(process.env.NEVER_STARTED_DAYS ?? "14") || 14;
+const TRACKING_HIGH_HOURS_THRESHOLD =
+  Number(process.env.TRACKING_HIGH_WITHOUT_RESULT_HOURS ?? "20") || 20;
+
+export const blockedTagPresentRule: Rule = {
+  id: "blocked_tag_present",
+  severity: "soft",
+  evaluate(task) {
+    if (!isBlockedTask(task)) {
+      return pass("blocked_tag_present", "Задача не заблокирована");
+    }
+    const tags = task.tags ?? [];
+    const hasTag = tags.some((t) => /blocked|блок/i.test(t));
+    if (hasTag) {
+      return pass("blocked_tag_present", "Тег blocked указан");
+    }
+    return fail(
+      "blocked_tag_present",
+      "Задача заблокирована, но нет тега blocked/блок",
+    );
+  },
+};
+
+export const developerActiveTasksLimitRule: Rule = {
+  id: "developer_active_tasks_limit",
+  severity: "soft",
+  evaluate(task, ctx) {
+    const assignee = primaryAssignee(task);
+    if (!assignee || !isInProgressStatus(task.status)) {
+      return pass("developer_active_tasks_limit", "Не активная задача исполнителя");
+    }
+    const profile = getAuditProfile(
+      resolveAuditProfileId(ctx.auditProfileId),
+    );
+    const { auditable } = partitionTasksForAudit(ctx.allTasks, profile);
+    const active = auditable.filter(
+      (t) =>
+        primaryAssignee(t) === assignee && isInProgressStatus(t.status),
+    );
+    if (active.length <= DEVELOPER_MAX_ACTIVE) {
+      return pass("developer_active_tasks_limit", "Лимит не превышен");
+    }
+    return warn(
+      "developer_active_tasks_limit",
+      `У исполнителя ${assignee}: ${active.length} задач в работе (лимит ${DEVELOPER_MAX_ACTIVE})`,
+    );
+  },
+};
+
+export const neverStartedTaskRule: Rule = {
+  id: "never_started_task",
+  severity: "soft",
+  evaluate(task, ctx) {
+    if (isCompletedStatus(task.status)) {
+      return pass("never_started_task", "Завершена");
+    }
+    if (isInProgressStatus(task.status) || isTestingStatus(task.status)) {
+      return pass("never_started_task", "Уже в работе или на проверке");
+    }
+    const createdAt = task.createdAt ?? null;
+    const ageHours = hoursSince(createdAt);
+    if (ageHours == null || ageHours < NEVER_STARTED_DAYS * 24) {
+      return pass("never_started_task", "Недавно создана или нет даты");
+    }
+    const resolve = makeStateNameResolver(ctx.stateNameByKey);
+    const started = findInProgressStartedAt(task, resolve);
+    if (started) {
+      return pass("never_started_task", "Была в работе");
+    }
+    return warn(
+      "never_started_task",
+      `Создана ${Math.floor(ageHours / 24)} дн. назад, ни разу не брали в работу`,
+    );
+  },
+};
+
+function sourceSkip(ruleId: string, reason: string) {
+  return skip(ruleId, reason);
+}
+
+function uiOnlyRule(
+  ruleId: string,
+  task: Parameters<Rule["evaluate"]>[0],
+  message: string,
+): ReturnType<typeof skip> | ReturnType<typeof warn> {
+  if (!isUiRelatedTask(task)) {
+    return skip(ruleId, "Не UI/front задача");
+  }
+  return warn(ruleId, message);
+}
+
+export const boardNameTemplateRule: Rule = {
+  id: "board_name_template",
+  severity: "soft",
+  evaluate() {
+    return sourceSkip(
+      "board_name_template",
+      "Источник названия доски не подключён (нужен board metadata collector)",
+    );
+  },
+};
+
+export const boardFolderLinkRule: Rule = {
+  id: "board_folder_link",
+  severity: "soft",
+  evaluate() {
+    return sourceSkip(
+      "board_folder_link",
+      "Описание доски недоступно в текущем collector",
+    );
+  },
+};
+
+export const boardTzSummaryRule: Rule = {
+  id: "board_tz_summary",
+  severity: "soft",
+  evaluate() {
+    return sourceSkip(
+      "board_tz_summary",
+      "Описание доски недоступно в текущем collector",
+    );
+  },
+};
+
+export const teamWorksheetMatchRule: Rule = {
+  id: "team_worksheet_match",
+  severity: "soft",
+  evaluate() {
+    return sourceSkip(
+      "team_worksheet_match",
+      "Рабочая таблица не настроена (WORKSHEET_SOURCE)",
+    );
+  },
+};
+
+export const sprintDatesMatchRule: Rule = {
+  id: "sprint_dates_match",
+  severity: "soft",
+  evaluate(_task, ctx) {
+    if (!ctx.scrum?.loaded) {
+      return sourceSkip(
+        "sprint_dates_match",
+        ctx.scrum?.loadError ?? "Scrum portal недоступен",
+      );
+    }
+    return sourceSkip(
+      "sprint_dates_match",
+      "Сверка дат спринтов не реализована в текущем Scrum adapter",
+    );
+  },
+};
+
+export const uiHasMockupLinkRule: Rule = {
+  id: "ui_has_mockup_link",
+  severity: "soft",
+  evaluate(task) {
+    if (!isUiRelatedTask(task)) {
+      return skip("ui_has_mockup_link", "Не UI/front задача");
+    }
+    const links = [...(task.links ?? []), ...(task.attachments ?? []).map((a) => a.url ?? a.name)];
+    const hasMockup = links.some((l) =>
+      /figma|mockup|макет|zeplin|sketch/i.test(l ?? ""),
+    );
+    const desc = task.descriptionText ?? "";
+    if (hasMockup || /figma|mockup|макет/i.test(desc)) {
+      return pass("ui_has_mockup_link", "Ссылка на макет найдена");
+    }
+    return fail("ui_has_mockup_link", "Нет ссылки на актуальный макет");
+  },
+};
+
+export const uiMockupApprovedRule: Rule = {
+  id: "ui_mockup_approved",
+  severity: "soft",
+  evaluate(task) {
+    return uiOnlyRule(
+      "ui_mockup_approved",
+      task,
+      "Нет подтверждения согласования макета перед разработкой",
+    );
+  },
+};
+
+export const uiAdaptiveRequirementsRule: Rule = {
+  id: "ui_adaptive_requirements",
+  severity: "soft",
+  evaluate(task) {
+    if (!isUiRelatedTask(task)) {
+      return skip("ui_adaptive_requirements", "Не UI/front задача");
+    }
+    const text = `${task.descriptionText ?? ""} ${task.title ?? ""}`;
+    if (/адаптив|responsive|mobile|мобил/i.test(text)) {
+      return pass("ui_adaptive_requirements", "Требования к адаптиву указаны");
+    }
+    return warn(
+      "ui_adaptive_requirements",
+      "Нет требований к адаптивности в описании",
+    );
+  },
+};
+
+export const uiBrowserDeviceRequirementsRule: Rule = {
+  id: "ui_browser_device_requirements",
+  severity: "soft",
+  evaluate(task) {
+    return uiOnlyRule(
+      "ui_browser_device_requirements",
+      task,
+      "Нет требований к браузерам/устройствам (если применимо)",
+    );
+  },
+};
+
+export const trackingDailyAnomalyRule: Rule = {
+  id: "tracking_daily_anomaly",
+  severity: "soft",
+  evaluate(_task, ctx) {
+    if (!ctx.tracking?.loaded) {
+      return sourceSkip(
+        "tracking_daily_anomaly",
+        ctx.tracking?.loadError ?? "tracking DB недоступен",
+      );
+    }
+    return sourceSkip(
+      "tracking_daily_anomaly",
+      "Daily breakdown tracking недоступен в текущем источнике",
+    );
+  },
+};
+
+export const trackingHighWithoutResultRule: Rule = {
+  id: "tracking_high_without_result",
+  severity: "soft",
+  evaluate(task, ctx) {
+    if (!ctx.tracking?.loaded) {
+      return sourceSkip(
+        "tracking_high_without_result",
+        ctx.tracking?.loadError ?? "tracking DB недоступен",
+      );
+    }
+    const metrics = getTaskTrackingMetrics(ctx.tracking, task);
+    const hours = metrics?.totalHours ?? 0;
+    if (hours < TRACKING_HIGH_HOURS_THRESHOLD) {
+      return pass("tracking_high_without_result", "Факт ниже порога");
+    }
+    const comments = task.comments ?? [];
+    const meaningful = comments.filter(
+      (c) =>
+        (c.text?.trim().length ?? 0) > 40 &&
+        !/^(готово|сделал|проверь)/i.test(c.text?.trim() ?? ""),
+    );
+    if (meaningful.length > 0 || (task.descriptionText?.length ?? 0) > 80) {
+      return pass("tracking_high_without_result", "Есть содержательный результат");
+    }
+    return warn(
+      "tracking_high_without_result",
+      `Затрекано ${hours} ч без содержательных комментариев/результата`,
+    );
+  },
+};
+
+export const verifiedSuccessCommentRule: Rule = {
+  id: "verified_success_comment",
+  severity: "soft",
+  evaluate(task) {
+    if (!isCompletedStatus(task.status)) {
+      return pass("verified_success_comment", "Не завершена");
+    }
+    const comments = task.comments ?? [];
+    const ok = comments.some((c) =>
+      /проверено|принято|approved|ok\b/i.test(c.text ?? ""),
+    );
+    if (ok) {
+      return pass("verified_success_comment", "Маркер успешной проверки найден");
+    }
+    return warn(
+      "verified_success_comment",
+      "Нет комментария «проверено» после успешной проверки",
+    );
+  },
+};
+
+export const testerFeedbackHasProofRule: Rule = {
+  id: "tester_feedback_has_proof",
+  severity: "soft",
+  evaluate(task) {
+    if (!isTestingStatus(task.status) && !isCompletedStatus(task.status)) {
+      return pass("tester_feedback_has_proof", "Не на проверке");
+    }
+    const comments = task.comments ?? [];
+    const feedback = comments.filter((c) =>
+      /баг|ошибк|не работ|замечан|вернуть|rework/i.test(c.text ?? ""),
+    );
+    if (feedback.length === 0) {
+      return pass("tester_feedback_has_proof", "Нет замечаний тестировщика");
+    }
+    const withProof = feedback.some((c) =>
+      /https?:\/\/|скрин|screenshot|видео|\.png|\.jpg|attachment/i.test(
+        c.text ?? "",
+      ),
+    );
+    if (withProof) {
+      return pass("tester_feedback_has_proof", "Есть пруф в замечаниях");
+    }
+    return warn(
+      "tester_feedback_has_proof",
+      "Замечания тестировщика без скриншота/ссылки/видео",
+    );
+  },
+};
+
+export const massStartWithoutCompletionRule: Rule = {
+  id: "mass_start_without_completion",
+  severity: "soft",
+  evaluate(task, ctx) {
+    const assignee = primaryAssignee(task);
+    if (!assignee || !isInProgressStatus(task.status)) {
+      return pass("mass_start_without_completion", "Не применимо");
+    }
+    const profile = getAuditProfile(
+      resolveAuditProfileId(ctx.auditProfileId),
+    );
+    const { auditable } = partitionTasksForAudit(ctx.allTasks, profile);
+    const mine = auditable.filter((t) => primaryAssignee(t) === assignee);
+    const inProgress = mine.filter((t) => isInProgressStatus(t.status));
+    const oldOpen = mine.filter(
+      (t) =>
+        !isCompletedStatus(t.status) &&
+        !isInProgressStatus(t.status) &&
+        !isTestingStatus(t.status),
+    );
+    if (inProgress.length >= 4 && oldOpen.length >= 3) {
+      return warn(
+        "mass_start_without_completion",
+        `У исполнителя ${inProgress.length} в работе при ${oldOpen.length} незавершённых старых`,
+      );
+    }
+    return pass("mass_start_without_completion", "OK");
+  },
+};
+
+export const actReadyNamingRule: Rule = {
+  id: "act_ready_naming",
+  severity: "soft",
+  evaluate(task) {
+    if (!isCompletedStatus(task.status)) {
+      return skip("act_ready_naming", "Только для готовых задач");
+    }
+    const title = task.title?.trim() ?? "";
+    if (title.length < 5) {
+      return warn("act_ready_naming", "Название слишком короткое для акта");
+    }
+    return pass("act_ready_naming", "OK");
+  },
+};
+
+export const contractRules: Rule[] = [
+  blockedTagPresentRule,
+  developerActiveTasksLimitRule,
+  neverStartedTaskRule,
+  boardNameTemplateRule,
+  boardFolderLinkRule,
+  boardTzSummaryRule,
+  teamWorksheetMatchRule,
+  sprintDatesMatchRule,
+  uiHasMockupLinkRule,
+  uiMockupApprovedRule,
+  uiAdaptiveRequirementsRule,
+  uiBrowserDeviceRequirementsRule,
+  trackingDailyAnomalyRule,
+  trackingHighWithoutResultRule,
+  verifiedSuccessCommentRule,
+  testerFeedbackHasProofRule,
+  massStartWithoutCompletionRule,
+  actReadyNamingRule,
+];

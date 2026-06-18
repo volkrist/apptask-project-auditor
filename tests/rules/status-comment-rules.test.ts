@@ -89,3 +89,14 @@ test("status comment rules included in evaluateTask", async () => {
   const results = await evaluateTask(t, config, [t]);
   assert.ok(results.some((r) => r.ruleId === "blocked_task_reason" && r.status !== "PASS"));
 });
+
+test("in_progress_stale limit is 48 business hours by default", async () => {
+  const prev = process.env.IN_PROGRESS_STALE_BUSINESS_HOURS;
+  delete process.env.IN_PROGRESS_STALE_BUSINESS_HOURS;
+  const old = new Date(Date.now() - 50 * 60 * 60 * 1000).toISOString();
+  const t = task({ status: "В работе", updatedAt: old });
+  const r = await inProgressStaleRule.evaluate(t, { config, allTasks: [t] });
+  assert.equal(r.status, "WARN");
+  assert.match(r.reason, /48/);
+  if (prev) process.env.IN_PROGRESS_STALE_BUSINESS_HOURS = prev;
+});

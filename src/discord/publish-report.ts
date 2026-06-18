@@ -12,6 +12,8 @@ import {
 } from "discord.js";
 import type { RunAuditResult } from "../app/run-audit.js";
 import type { EnrichCommentsResult } from "../comments/enrich-tasks-comments.js";
+import { ATAEV_AUDIT_DISCORD_CHANNEL_ID } from "../config/audit-modes.js";
+import { findProjectByGuildAndBoard } from "../config/projects.js";
 import { buildAuditReportEmbed } from "./report-embeds.js";
 
 export function isAuditDiscordDmOnly(): boolean {
@@ -19,12 +21,24 @@ export function isAuditDiscordDmOnly(): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
-/** Единый канал публикации: AUDIT_DISCORD_CHANNEL_ID (Атаев Маркет), иначе fallback. */
-export function getAuditPublishChannelId(fallback?: string | null): string | null {
-  const configured = process.env.AUDIT_DISCORD_CHANNEL_ID?.trim();
-  if (configured) return configured;
-  const fb = fallback?.trim();
-  return fb || null;
+/** Канал публикации: project mapping по guild → env fallback → #аудитор. */
+export function getAuditPublishChannelId(options?: {
+  guildId?: string | null;
+  boardUrl?: string | null;
+  fallback?: string | null;
+}): string {
+  const mapped = findProjectByGuildAndBoard(
+    options?.guildId,
+    options?.boardUrl,
+  );
+  if (mapped?.discordChannelId) {
+    return mapped.discordChannelId;
+  }
+  return (
+    process.env.AUDIT_DISCORD_CHANNEL_ID?.trim() ||
+    options?.fallback?.trim() ||
+    ATAEV_AUDIT_DISCORD_CHANNEL_ID
+  );
 }
 
 async function waitForDiscordClient(client: DiscordClient): Promise<void> {
@@ -148,14 +162,9 @@ export function buildReportAttachments(
     logReportFile("jsonPath", out.output.jsonPath);
     logReportFile("reportPath", out.output.reportPath);
     logReportFile("humanSummaryPath", out.output.humanSummaryPath);
-    logReportFile("humanSummaryHtmlPath", out.output.humanSummaryHtmlPath);
   }
 
-  const candidates = [
-    { path: out.output.humanSummaryPath, name: "human-summary.md" },
-    { path: out.output.reportPath, name: "audit-report.md" },
-    { path: out.output.humanSummaryHtmlPath, name: "human-summary.html" },
-  ];
+  const candidates = [{ path: out.output.reportPath, name: "audit-report.md" }];
 
   const files: AttachmentBuilder[] = [];
   for (const { path: filePath, name } of candidates) {
@@ -285,6 +294,7 @@ export async function publishFullReportToChannel(
   await channel.send({
     content: "Готово. Отчёт сформирован.",
     embeds: [embed],
+    files: files.length > 0 ? files : undefined,
   });
 
   const sentNames = files.map((f) => f.name).filter((n): n is string => !!n);
@@ -294,12 +304,8 @@ export async function publishFullReportToChannel(
     return sentNames;
   }
 
-  await channel.send({
-    content: "Подробные файлы отчёта прикреплены ниже.",
-    files,
-  });
   console.log(
-    `[audit-channel] posted summary + ${files.length} file(s) to channel ${channelId}`,
+    `[audit-channel] posted embed + ${files.length} file(s) to channel ${channelId}`,
   );
   return sentNames;
 }

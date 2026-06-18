@@ -21,7 +21,10 @@ import {
 import { makeStateNameResolver } from "../../collectors/state-map.js";
 import { pass, warn, fail } from "../helpers.js";
 
-const STALE_WORKDAY_HOURS = Number(process.env.STALE_WORKDAY_HOURS ?? "24") || 24;
+const IN_PROGRESS_STALE_HOURS =
+  Number(process.env.IN_PROGRESS_STALE_BUSINESS_HOURS ?? "48") || 48;
+const REVIEW_STALE_HOURS =
+  Number(process.env.REVIEW_STALE_BUSINESS_HOURS ?? "24") || 24;
 const REVIEW_QUEUE_MAX = Number(process.env.REVIEW_QUEUE_MAX ?? "10") || 10;
 const RECENT_REWORK_DAYS = Number(process.env.RECENT_REWORK_DAYS ?? "30") || 30;
 
@@ -101,10 +104,10 @@ export const inProgressStaleRule: Rule = {
     }
     const lastAt = computeLastActivityAt(task);
     const hours = businessHoursSince(lastAt);
-    if (hours != null && hours > STALE_WORKDAY_HOURS) {
+    if (hours != null && hours > IN_PROGRESS_STALE_HOURS) {
       return warn(
         "in_progress_stale",
-        `В работе без активности ${formatHoursLabel(hours)} (лимит ${STALE_WORKDAY_HOURS} раб.ч)`,
+        `В работе без активности ${formatHoursLabel(hours)} (лимит ${IN_PROGRESS_STALE_HOURS} раб.ч)`,
       );
     }
     return pass("in_progress_stale", "OK");
@@ -123,10 +126,10 @@ export const reviewStaleRule: Rule = {
     const refAt = review?.at ?? computeLastActivityAt(task);
     const hours = businessHoursSince(refAt);
     const confidence = review?.confidence ?? "fallback_update_time";
-    if (hours != null && hours > STALE_WORKDAY_HOURS) {
+    if (hours != null && hours > REVIEW_STALE_HOURS) {
       return warn(
         "review_stale",
-        `На проверке ${formatHoursLabel(hours)} (confidence=${confidence})`,
+        `На проверке ${formatHoursLabel(hours)} (лимит ${REVIEW_STALE_HOURS} раб.ч, confidence=${confidence})`,
       );
     }
     return pass("review_stale", "OK");

@@ -42,7 +42,9 @@ async function main(): Promise<void> {
   }
 
   const projects = getEnabledProjects();
-  const publishChannelId = getAuditPublishChannelId(projects[0]?.discordChannelId);
+  const publishChannelId = getAuditPublishChannelId({
+    fallback: projects[0]?.discordChannelId,
+  });
   if (!publishChannelId) {
     console.error(
       "Set AUDIT_DISCORD_CHANNEL_ID in .env or add a project with discordChannelId",

@@ -44,26 +44,21 @@ test("comments status text is derived from markers", () => {
   assert.equal(getCommentsStatusText(0), "Маркеры не найдены");
 });
 
-test("buildAuditReportEmbed includes management summary fields", () => {
+test("buildAuditReportEmbed is short notification with single file hint", () => {
   const auditOut = {
-    totalOnBoard: 106,
+    totalOnBoard: 79,
     result: {
       meta: {
-        projectName: "AppFox",
-        boardUrl: "https://apptask.ru/c/7/board/445",
+        projectName: "TurboWeave",
+        boardUrl: "https://apptask.ru/c/7/board/783",
         auditedAt: "2026-05-28T00:00:00Z",
-        cardsChecked: 106,
+        cardsChecked: 65,
         failCount: 5,
         warnCount: 1,
+        excludedFlowTasks: 14,
+        auditProfile: "contract_turboweave_v1",
       },
-      topIssues: [
-        { ruleId: "deadline_present", label: "Missing deadline", count: 106 },
-        {
-          ruleId: "artifact_links_present",
-          label: "Missing artifacts",
-          count: 102,
-        },
-      ],
+      topIssues: [],
       cards: [],
     },
     output: {
@@ -73,18 +68,16 @@ test("buildAuditReportEmbed includes management summary fields", () => {
       jsonPath: "audit.json",
       reportPath: "audit-report.md",
       humanSummaryPath: "human-summary.md",
-      humanSummaryHtmlPath: "human-summary.html",
     },
     discordPublished: false,
   } as RunAuditResult;
 
   const embed = buildAuditReportEmbed(auditOut);
   const json = embed.toJSON();
-  assert.equal(json.title, "✅ Аудит AppFox завершён");
-  assert.ok(json.fields?.some((f) => f.name === "Общая картина" && String(f.value).includes("Проверено задач")));
-  assert.ok(json.fields?.some((f) => f.name === "Что важно сейчас"));
-  assert.ok(json.fields?.some((f) => f.name === "Что сделать в первую очередь"));
-  assert.ok(json.fields?.some((f) => f.name === "Файлы" && String(f.value).includes("human-summary.md")));
+  assert.equal(json.title, "Аудит TurboWeave");
+  assert.ok(String(json.description).includes("audit-report.md"));
+  assert.ok(json.fields?.some((f) => f.name === "Сводка" && String(f.value).includes("Исключено потоковых")));
+  assert.ok(!json.fields?.some((f) => f.name === "Главные проблемы"));
 });
 
 test("buildCommentsReportEmbed includes status", () => {

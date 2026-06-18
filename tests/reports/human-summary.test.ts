@@ -8,7 +8,6 @@ import { loadAuditConfig } from "../../src/config/audit-config.js";
 import { buildAuditResult } from "../../src/reports/build-audit-result.js";
 import { writeAuditReports } from "../../src/reports/output.js";
 import { buildHumanSummaryMarkdown } from "../../src/reports/human-summary.js";
-import { buildHumanSummaryHtml } from "../../src/reports/human-summary-html.js";
 import fs from "node:fs";
 import os from "node:os";
 
@@ -36,30 +35,17 @@ test("buildHumanSummaryMarkdown contains management sections without ruleId nois
   assert.doesNotMatch(md, /\{[\s\S]*"meta"/);
 });
 
-test("buildHumanSummaryHtml renders readable page", async () => {
-  const result = await buildAuditResult([loadFixture("task-bad.json")], testConfig, {
-    projectName: "TurboWeave",
-    boardUrl: "https://apptask.ru/c/7/board/783",
-  });
-  const html = buildHumanSummaryHtml(result);
-  assert.match(html, /<title>Аудит TurboWeave/);
-  assert.match(html, /Главные риски/);
-  assert.doesNotMatch(html, /C:\\/);
-});
-
-test("writeAuditReports creates human-summary files alongside audit-report", async () => {
+test("writeAuditReports creates contract audit-report only (no human-summary)", async () => {
   const tmp = fs.mkdtempSync(join(os.tmpdir(), "audit-human-"));
   const result = await buildAuditResult([loadFixture("task-bad.json")], testConfig, {
     projectName: "Test",
     boardUrl: "https://example.com/board/1",
   });
   const paths = writeAuditReports(result, tmp);
-  assert.ok(fs.existsSync(paths.humanSummaryPath));
-  assert.ok(fs.existsSync(paths.humanSummaryHtmlPath));
   assert.ok(fs.existsSync(paths.reportPath));
-  const human = fs.readFileSync(paths.humanSummaryPath, "utf8");
+  assert.ok(!fs.existsSync(paths.humanSummaryPath));
   const full = fs.readFileSync(paths.reportPath, "utf8");
-  assert.match(human, /Главные риски/);
   assert.match(full, /# Отчёт аудита AppTask/);
-  assert.match(full, /## Краткий вывод/);
+  assert.match(full, /## Нарушения по группам/);
+  assert.doesNotMatch(full, /## Краткий вывод/);
 });

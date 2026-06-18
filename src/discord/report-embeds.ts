@@ -1,7 +1,6 @@
 import { EmbedBuilder } from "discord.js";
 import type { RunAuditResult } from "../app/run-audit.js";
 import type { RunCommentsCheckResult } from "../app/run-comments-check.js";
-import { buildManagementSummary, formatHighlightsList, formatPrioritiesList } from "../reports/management-summary.js";
 
 const RULE_LABELS: Record<string, string> = {
   deadline_present: "Нет дедлайна",
@@ -62,44 +61,30 @@ export function getCommentsStatusText(markersFound: number): string {
     : "Маркеры не найдены";
 }
 
+/** Короткое уведомление в Discord; полный отчёт — во вложении audit-report.md. */
 export function buildAuditReportEmbed(
   out: RunAuditResult,
 ): EmbedBuilder {
   const { meta } = out.result;
   const status = getAuditStatusText(meta.failCount, meta.warnCount);
-  const mgmt = buildManagementSummary(out.result);
+  const excluded = meta.excludedFlowTasks ?? 0;
+  const profile = meta.auditProfile ?? "contract_turboweave_v1";
 
   const overview = [
-    `• Проверено задач: ${meta.cardsChecked}`,
-    `• Критичных проблем: ${meta.failCount}`,
-    `• Предупреждений: ${meta.warnCount}`,
-    `• Статус: ${status}`,
-  ].join("\n");
+    `Проверено: **${meta.cardsChecked}** карточек`,
+    excluded > 0 ? `Исключено потоковых: **${excluded}**` : null,
+    `FAIL: **${meta.failCount}** | WARN: **${meta.warnCount}**`,
+    `Статус: **${status}**`,
+    `Профиль: \`${profile}\``,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
-  const filesBlock = [
-    "• **human-summary.md** — понятный отчёт для руководителя",
-    "• **audit-report.md** — полный технический отчёт",
-  ].join("\n");
-
-  const embed = new EmbedBuilder()
-    .setTitle(`✅ Аудит ${meta.projectName} завершён`)
+  return new EmbedBuilder()
+    .setTitle(`Аудит ${meta.projectName}`)
+    .setDescription("Полный отчёт в прикреплённом файле **audit-report.md**.")
     .setColor(meta.failCount > 0 ? 0xed4245 : meta.warnCount > 0 ? 0xfee75c : 0x57f287)
-    .addFields(
-      { name: "Общая картина", value: overview, inline: false },
-      {
-        name: "Что важно сейчас",
-        value: formatHighlightsList(mgmt.highlights).slice(0, 1024),
-        inline: false,
-      },
-      {
-        name: "Что сделать в первую очередь",
-        value: formatPrioritiesList(mgmt.priorities).slice(0, 1024),
-        inline: false,
-      },
-      { name: "Файлы", value: filesBlock, inline: false },
-    );
-
-  return embed;
+    .addFields({ name: "Сводка", value: overview, inline: false });
 }
 
 export function buildCommentsReportEmbed(

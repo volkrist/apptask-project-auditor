@@ -10,6 +10,7 @@ import { evaluateProject, evaluateTask } from "../../src/rules/evaluate.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const testConfig = loadAuditConfig({ linkCheckEnabled: false });
+const legacyExtras = { auditProfileId: "legacy_generic" };
 
 function loadFixture(name: string): RawTask {
   const path = join(__dirname, "..", "fixtures", name);
@@ -23,9 +24,9 @@ function statusOf(
   return results.find((r) => r.ruleId === ruleId)?.status;
 }
 
-test("evaluateTask: хорошая карточка без критичных FAIL", async () => {
+test("evaluateTask legacy: хорошая карточка без критичных FAIL", async () => {
   const task = loadFixture("task-good.json");
-  const results = await evaluateTask(task, testConfig, [task]);
+  const results = await evaluateTask(task, testConfig, [task], undefined, legacyExtras);
 
   assert.equal(statusOf(results, "title_present"), "PASS");
   assert.equal(statusOf(results, "assignee_present"), "PASS");
@@ -36,9 +37,9 @@ test("evaluateTask: хорошая карточка без критичных FA
   assert.equal(statusOf(results, "artifact_links_present"), "PASS");
 });
 
-test("evaluateTask: плохая карточка с FAIL по жёстким правилам", async () => {
+test("evaluateTask legacy: плохая карточка с FAIL по жёстким правилам", async () => {
   const task = loadFixture("task-bad.json");
-  const results = await evaluateTask(task, testConfig, [task]);
+  const results = await evaluateTask(task, testConfig, [task], undefined, legacyExtras);
 
   assert.equal(statusOf(results, "title_present"), "FAIL");
   assert.equal(statusOf(results, "title_not_generic"), "FAIL");
@@ -51,23 +52,47 @@ test("evaluateTask: плохая карточка с FAIL по жёстким п
   assert.equal(statusOf(results, "estimate_present"), "FAIL");
 });
 
-test("evaluateTask: tags_required PASS если REQUIRED_TAGS не задан", async () => {
+test("evaluateTask legacy: tags_required PASS если REQUIRED_TAGS не задан", async () => {
   const task = loadFixture("task-good.json");
-  const results = await evaluateTask(task, testConfig, [task]);
+  const results = await evaluateTask(task, testConfig, [task], undefined, legacyExtras);
   assert.equal(statusOf(results, "tags_required"), "PASS");
 });
 
-test("evaluateProject: агрегирует счётчики", async () => {
+test("evaluateProject legacy: агрегирует счётчики", async () => {
   const good = loadFixture("task-good.json");
   const bad = loadFixture("task-bad.json");
-  const project = await evaluateProject([good, bad], testConfig);
+  const project = await evaluateProject([good, bad], testConfig, undefined, legacyExtras);
 
   assert.equal(project.cards.length, 2);
   assert.ok(project.failCount > 0);
   assert.ok(project.warnCount > 0);
 });
 
-test("not_duplicate: похожие названия на доске", async () => {
+test("evaluateTask contract: не запускает generic deadline_present", async () => {
+  const task = loadFixture("task-bad.json");
+  const results = await evaluateTask(task, testConfig, [task]);
+  assert.equal(statusOf(results, "deadline_present"), undefined);
+  assert.equal(statusOf(results, "artifact_links_present"), undefined);
+  assert.ok(results.some((r) => r.ruleId === "assignee_present"));
+});
+
+test("evaluateProject contract: исключает потоковые карточки", async () => {
+  const flow: RawTask = {
+    ...loadFixture("task-good.json"),
+    id: "9",
+    title: "Менеджмент (PM)",
+  };
+  const dev: RawTask = {
+    ...loadFixture("task-good.json"),
+    id: "10",
+    title: "API endpoint",
+  };
+  const project = await evaluateProject([flow, dev], testConfig);
+  assert.equal(project.cards.length, 1);
+  assert.equal(project.meta.excludedFlowTasks, 1);
+});
+
+test("not_duplicate legacy: похожие названия на доске", async () => {
   const a: RawTask = {
     ...loadFixture("task-good.json"),
     id: "1",
@@ -78,6 +103,6 @@ test("not_duplicate: похожие названия на доске", async () 
     id: "2",
     title: "Отчёт по найму за май",
   };
-  const results = await evaluateTask(a, testConfig, [a, b]);
+  const results = await evaluateTask(a, testConfig, [a, b], undefined, legacyExtras);
   assert.equal(statusOf(results, "not_duplicate"), "WARN");
 });

@@ -7,7 +7,7 @@ import type {
 } from "../scrum/scrum-estimate-config.js";
 import type { TrackingAuditContext } from "../tracking/load-tracking-context.js";
 
-export type RuleStatus = "PASS" | "FAIL" | "WARN";
+export type RuleStatus = "PASS" | "FAIL" | "WARN" | "SKIP";
 
 export type RuleResult = {
   ruleId: string;
@@ -24,6 +24,8 @@ export type RuleContext = {
   boardMetrics?: BoardAuditMetrics;
   /** boardId:stateId → status name (DB collector). */
   stateNameByKey?: Record<string, string>;
+  /** Контрактный профиль правил. */
+  auditProfileId?: string;
 };
 
 export type Rule = {
@@ -87,6 +89,12 @@ export type AuditResult = {
       estimateExceededWithoutComment: number;
       trackingOnNonWorkStatus: number;
     };
+    /** Профиль правил (contract_turboweave_v1). */
+    auditProfile?: string;
+    excludedFlowTasks?: number;
+    excludedFlowExamples?: Array<{ id: string; title: string; url: string | null }>;
+    skipRuleSummaries?: Array<{ ruleId: string; label: string; count: number; sampleReason: string }>;
+    sourcesUsed?: string[];
     trackingLoaded?: boolean;
     trackingLoadError?: string;
     trackingRowCount?: number;

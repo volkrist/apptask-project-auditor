@@ -4,6 +4,7 @@ import { resolveStateLabel } from "../../collectors/state-map.js";
 import {
   IN_PROGRESS_STATUS_RE,
   TESTING_STATUS_RE,
+  isInProgressStatus,
   isTestingStatus,
 } from "../status/status-helpers.js";
 
@@ -171,6 +172,32 @@ export function findReworkTransitions(
   return found.sort(
     (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime(),
   );
+}
+
+/** Первый переход в «в работе» по history (для never_started). */
+export function findInProgressStartedAt(
+  task: RawTask,
+  resolve?: StateNameResolver,
+): { at: string } | null {
+  for (const entry of task.history ?? []) {
+    const parsed = parseHistoryEntry(entry);
+    const statusChange = extractStatusFromChanges(
+      parsed.changes,
+      task.boardId,
+      resolve,
+    );
+    if (!statusChange || !entry.date) continue;
+    if (
+      IN_PROGRESS_STATUS_RE.test(statusChange.to) &&
+      !IN_PROGRESS_STATUS_RE.test(statusChange.from)
+    ) {
+      return { at: entry.date };
+    }
+  }
+  if (isInProgressStatus(task.status) && task.updatedAt) {
+    return { at: task.updatedAt };
+  }
+  return null;
 }
 
 export function summarizeActionTypes(

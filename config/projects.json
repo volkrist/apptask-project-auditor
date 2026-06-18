@@ -3,7 +3,10 @@
     "id": "appfox",
     "name": "AppFox",
     "boardUrl": "https://apptask.ru/c/7/board/445",
-    "discordChannelId": "1481273491482218511",
+    "boardIds": ["445"],
+    "guildId": "1481273490299555904",
+    "discordChannelId": "1508451205402067055",
+    "ruleProfile": "contract_turboweave_v1",
     "enabled": true
   }
 ]

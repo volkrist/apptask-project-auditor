@@ -4,13 +4,18 @@
  */
 
 export const TURBOWEAVE_GUILD_ID = "1481273490299555904";
-export const TURBOWEAVE_DISCORD_CHANNEL_ID = "1481273491482218511";
+
+/** Единый канал публикации аудита на сервере Атаев Маркет (#аудитор). */
+export const ATAEV_AUDIT_DISCORD_CHANNEL_ID = "1508451205402067055";
+
+/** @deprecated use ATAEV_AUDIT_DISCORD_CHANNEL_ID */
+export const TURBOWEAVE_DISCORD_CHANNEL_ID = ATAEV_AUDIT_DISCORD_CHANNEL_ID;
 
 export const TURBOWEAVE_AUDIT_CONFIG = {
   boardId: "783",
   boardUrl: "https://apptask.ru/c/7/board/783",
   projectName: "TurboWeave",
-  discordChannelId: TURBOWEAVE_DISCORD_CHANNEL_ID,
+  discordChannelId: ATAEV_AUDIT_DISCORD_CHANNEL_ID,
   env: {
     APPTASK_COLLECTOR: "db",
     APPTASK_AUDIT_SCOPE: "multi",
@@ -18,7 +23,10 @@ export const TURBOWEAVE_AUDIT_CONFIG = {
     APPTASK_DB_FALLBACK: "false",
     SCRUM_BOARD_IDS: "783",
     TRACKING_ESTIMATE_OVER_LIMIT_PERCENT: "20",
-    AUDIT_DISCORD_CHANNEL_ID: TURBOWEAVE_DISCORD_CHANNEL_ID,
+    AUDIT_DISCORD_CHANNEL_ID: ATAEV_AUDIT_DISCORD_CHANNEL_ID,
+    AUDIT_PROFILE: "contract_turboweave_v1",
+    IN_PROGRESS_STALE_BUSINESS_HOURS: "48",
+    REVIEW_STALE_BUSINESS_HOURS: "24",
   },
 } as const;
 
@@ -32,6 +40,10 @@ export const FULL_AUDIT_CONFIG = {
     APPTASK_DB_BOARD_IDS: "783,445,54",
     APPTASK_DB_FALLBACK: "false",
     SCRUM_BOARD_IDS: "783",
+    AUDIT_DISCORD_CHANNEL_ID: ATAEV_AUDIT_DISCORD_CHANNEL_ID,
+    AUDIT_PROFILE: "contract_turboweave_v1",
+    IN_PROGRESS_STALE_BUSINESS_HOURS: "48",
+    REVIEW_STALE_BUSINESS_HOURS: "24",
   },
 } as const;
 

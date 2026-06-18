@@ -18,6 +18,8 @@ test("applyAuditModeEnv turboweave sets board 783 only", () => {
       TURBOWEAVE_AUDIT_CONFIG.discordChannelId,
     );
     assert.equal(process.env.APPTASK_DB_FALLBACK, "false");
+    assert.equal(process.env.AUDIT_PROFILE, "contract_turboweave_v1");
+    assert.equal(process.env.IN_PROGRESS_STALE_BUSINESS_HOURS, "48");
   } finally {
     restoreAuditModeEnv(snapshot);
     for (const [k, v] of Object.entries(prev)) {
@@ -27,13 +29,17 @@ test("applyAuditModeEnv turboweave sets board 783 only", () => {
   }
 });
 
-test("applyAuditModeEnv full sets three boards", () => {
+test("applyAuditModeEnv full sets three boards and audit channel", () => {
   const prev = { ...process.env };
   const snapshot = applyAuditModeEnv("full");
   try {
     assert.equal(process.env.APPTASK_DB_BOARD_IDS, "783,445,54");
     assert.equal(process.env.APPTASK_AUDIT_SCOPE, "multi");
     assert.equal(process.env.SCRUM_BOARD_IDS, "783");
+    assert.equal(
+      process.env.AUDIT_DISCORD_CHANNEL_ID,
+      FULL_AUDIT_CONFIG.env.AUDIT_DISCORD_CHANNEL_ID,
+    );
   } finally {
     restoreAuditModeEnv(snapshot);
     for (const [k, v] of Object.entries(prev)) {

@@ -4,9 +4,7 @@ import type { AuditResult } from "../rules/rule-types.js";
 import { buildDetailJson } from "./json.js";
 import { buildDetailMarkdown } from "./markdown.js";
 import { buildSummaryMarkdown } from "./summary-markdown.js";
-import { buildHumanAuditMarkdown } from "./human-audit-markdown.js";
-import { buildHumanSummaryMarkdown } from "./human-summary.js";
-import { buildHumanSummaryHtml } from "./human-summary-html.js";
+import { buildContractAuditMarkdown } from "./contract-audit-markdown.js";
 
 export type AuditOutputPaths = {
   dir: string;
@@ -15,7 +13,6 @@ export type AuditOutputPaths = {
   summaryPath: string;
   reportPath: string;
   humanSummaryPath: string;
-  humanSummaryHtmlPath: string;
 };
 
 function formatAuditDirName(date = new Date()): string {
@@ -50,18 +47,14 @@ export function writeAuditReports(
   const summaryPath = path.join(dir, "summary.md");
   const reportPath = path.join(dir, "audit-report.md");
   const humanSummaryPath = path.join(dir, "human-summary.md");
-  const humanSummaryHtmlPath = path.join(dir, "human-summary.html");
 
   fs.writeFileSync(jsonPath, buildDetailJson(result), "utf8");
   fs.writeFileSync(markdownPath, buildDetailMarkdown(result), "utf8");
   fs.writeFileSync(summaryPath, buildSummaryMarkdown(result), "utf8");
-  fs.writeFileSync(humanSummaryPath, buildHumanSummaryMarkdown(result), "utf8");
-  fs.writeFileSync(humanSummaryHtmlPath, buildHumanSummaryHtml(result), "utf8");
   fs.writeFileSync(
     reportPath,
-    buildHumanAuditMarkdown(result, {
+    buildContractAuditMarkdown(result, {
       ignoredCount: extras.ignoredCount ?? 0,
-      ignoredUrls: extras.ignoredUrls ?? [],
     }),
     "utf8",
   );
@@ -73,6 +66,5 @@ export function writeAuditReports(
     summaryPath,
     reportPath,
     humanSummaryPath,
-    humanSummaryHtmlPath,
   };
 }

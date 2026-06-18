@@ -16,6 +16,10 @@ export function warn(ruleId: string, reason: string): RuleResult {
   return { ruleId, status: "WARN", reason };
 }
 
+export function skip(ruleId: string, reason: string): RuleResult {
+  return { ruleId, status: "SKIP", reason };
+}
+
 export function result(
   ruleId: string,
   status: RuleStatus,

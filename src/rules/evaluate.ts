@@ -1,4 +1,9 @@
 import type { AuditConfig } from "../config/audit-config.js";
+import {
+  getAuditProfile,
+  isRuleInProfile,
+  resolveAuditProfileId,
+} from "../config/audit-profiles.js";
 import type { RawTask } from "../adapters/apptask/types.js";
 import type { AppTaskUser } from "../users/app-task-users.js";
 import type {
@@ -6,6 +11,7 @@ import type {
   ScrumAuditContext,
 } from "../scrum/scrum-estimate-config.js";
 import type { TrackingAuditContext } from "../tracking/load-tracking-context.js";
+import { partitionTasksForAudit } from "../tasks/task-classification.js";
 import { allRules } from "./registry.js";
 import type {
   AuditResult,
@@ -14,12 +20,14 @@ import type {
   RuleContext,
   RuleResult,
 } from "./rule-types.js";
+import { ruleLabel } from "../reports/rule-labels.js";
 
 export type EvaluateExtras = {
   scrum?: ScrumAuditContext | null;
   tracking?: TrackingAuditContext | null;
   boardMetrics?: BoardAuditMetrics;
   stateNameByKey?: Record<string, string>;
+  auditProfileId?: string;
 };
 
 function buildContext(
@@ -28,6 +36,7 @@ function buildContext(
   appTaskUsers?: AppTaskUser[],
   extras?: EvaluateExtras,
 ): RuleContext {
+  const profileId = resolveAuditProfileId(extras?.auditProfileId);
   return {
     config,
     allTasks,
@@ -36,7 +45,15 @@ function buildContext(
     tracking: extras?.tracking ?? null,
     boardMetrics: extras?.boardMetrics,
     stateNameByKey: extras?.stateNameByKey,
+    auditProfileId: profileId,
   };
+}
+
+function rulesForProfile(profileId: string) {
+  const profile = getAuditProfile(
+    profileId as ReturnType<typeof resolveAuditProfileId>,
+  );
+  return allRules.filter((rule) => isRuleInProfile(rule.id, profile));
 }
 
 async function runRule(
@@ -50,45 +67,99 @@ async function runRule(
 function countStatuses(results: RuleResult[]): {
   failCount: number;
   warnCount: number;
+  skipCount: number;
 } {
   let failCount = 0;
   let warnCount = 0;
+  let skipCount = 0;
   for (const r of results) {
     if (r.status === "FAIL") failCount++;
     if (r.status === "WARN") warnCount++;
+    if (r.status === "SKIP") skipCount++;
   }
-  return { failCount, warnCount };
+  return { failCount, warnCount, skipCount };
 }
 
-/** Оценка одной карточки по всем правилам. */
+function summarizeSkips(
+  cards: CardAudit[],
+): AuditResult["meta"]["skipRuleSummaries"] {
+  const map = new Map<
+    string,
+    { count: number; sampleReason: string }
+  >();
+  for (const card of cards) {
+    for (const r of card.results) {
+      if (r.status !== "SKIP") continue;
+      const entry = map.get(r.ruleId) ?? { count: 0, sampleReason: r.reason };
+      entry.count++;
+      map.set(r.ruleId, entry);
+    }
+  }
+  return [...map.entries()].map(([ruleId, v]) => ({
+    ruleId,
+    label: ruleLabel(ruleId),
+    count: v.count,
+    sampleReason: v.sampleReason,
+  }));
+}
+
+function detectSourcesUsed(extras?: EvaluateExtras): string[] {
+  const sources: string[] = ["AppTask DB"];
+  if (extras?.scrum?.loaded) sources.push("Scrum");
+  if (extras?.tracking?.loaded) sources.push("tracking-hours");
+  if (extras?.stateNameByKey && Object.keys(extras.stateNameByKey).length > 0) {
+    sources.push("status history");
+  }
+  return sources;
+}
+
+/** Оценка одной карточки по правилам активного профиля. */
 export async function evaluateTask(
   rawTask: RawTask,
   config: AuditConfig,
   allTasks: RawTask[] = [],
   appTaskUsers?: AppTaskUser[],
+  extras?: EvaluateExtras,
 ): Promise<RuleResult[]> {
   const ctx = buildContext(
     config,
     allTasks.length > 0 ? allTasks : [rawTask],
     appTaskUsers,
+    extras,
   );
-  return Promise.all(allRules.map((rule) => runRule(rule, rawTask, ctx)));
+  const rules = rulesForProfile(ctx.auditProfileId ?? "contract_turboweave_v1");
+  return Promise.all(rules.map((rule) => runRule(rule, rawTask, ctx)));
 }
 
-/** Оценка всех карточек доски. */
+export type ProjectEvaluationMeta = {
+  excludedFlowTasks: number;
+  excludedFlowExamples: Array<{ id: string; title: string; url: string | null }>;
+  auditProfile: string;
+  sourcesUsed: string[];
+  skipRuleSummaries: AuditResult["meta"]["skipRuleSummaries"];
+  totalTasksOnBoard: number;
+};
+
+/** Оценка всех карточек доски с исключением потоковых задач. */
 export async function evaluateProject(
   tasks: RawTask[],
   config: AuditConfig,
   appTaskUsers?: AppTaskUser[],
   extras?: EvaluateExtras,
-): Promise<ProjectEvaluation> {
-  const ctx = buildContext(config, tasks, appTaskUsers, extras);
+): Promise<ProjectEvaluation & { meta: ProjectEvaluationMeta }> {
+  const profileId = resolveAuditProfileId(extras?.auditProfileId);
+  const profile = getAuditProfile(profileId);
+  const { auditable, excludedFlow } = partitionTasksForAudit(tasks, profile);
+  const ctx = buildContext(config, tasks, appTaskUsers, {
+    ...extras,
+    auditProfileId: profileId,
+  });
+  const rules = rulesForProfile(profileId);
+
   const cards: CardAudit[] = await Promise.all(
-    tasks.map(async (task) => ({
+    auditable.map(async (task) => ({
       task,
-      results: await Promise.all(
-        allRules.map((rule) => runRule(rule, task, ctx)),
-      ),
+      results: await Promise.all(rules.map((rule) => runRule(rule, task, ctx))),
     })),
   );
 
@@ -100,7 +171,25 @@ export async function evaluateProject(
     warnCount += counts.warnCount;
   }
 
-  return { cards, failCount, warnCount };
+  const excludedFlowExamples = excludedFlow.slice(0, 10).map((t) => ({
+    id: t.id ?? "?",
+    title: t.title ?? "(без названия)",
+    url: t.url,
+  }));
+
+  return {
+    cards,
+    failCount,
+    warnCount,
+    meta: {
+      excludedFlowTasks: excludedFlow.length,
+      excludedFlowExamples,
+      auditProfile: profileId,
+      sourcesUsed: detectSourcesUsed(extras),
+      skipRuleSummaries: summarizeSkips(cards),
+      totalTasksOnBoard: tasks.length,
+    },
+  };
 }
 
 /** @deprecated Используйте evaluateTask. */
@@ -119,14 +208,20 @@ export async function evaluateBoard(
   config: AuditConfig,
   meta: AuditResult["meta"],
   appTaskUsers?: AppTaskUser[],
+  extras?: EvaluateExtras,
 ): Promise<AuditResult> {
-  const project = await evaluateProject(tasks, config, appTaskUsers);
+  const project = await evaluateProject(tasks, config, appTaskUsers, extras);
   return {
     meta: {
       ...meta,
-      cardsChecked: tasks.length,
+      cardsChecked: project.cards.length,
       failCount: project.failCount,
       warnCount: project.warnCount,
+      auditProfile: project.meta.auditProfile,
+      excludedFlowTasks: project.meta.excludedFlowTasks,
+      excludedFlowExamples: project.meta.excludedFlowExamples,
+      skipRuleSummaries: project.meta.skipRuleSummaries,
+      sourcesUsed: project.meta.sourcesUsed,
     },
     topIssues: [],
     cards: project.cards,

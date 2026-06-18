@@ -1,5 +1,5 @@
 /**
- * TurboWeave audit: board 783 + Scrum + tracking → Discord #прихожая.
+ * TurboWeave audit: board 783 + Scrum + tracking → Discord #аудитор.
  * Used by npm run audit:turboweave, Windows autostart, /turboweave.
  */
 import "dotenv/config";

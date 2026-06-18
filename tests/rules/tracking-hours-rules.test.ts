@@ -237,8 +237,8 @@ test("board 445 SKIP actual_hours_exceeds_estimate", async () => {
       estimateRow({ title: "HR task", plannedHours: 1 }),
     ]),
   });
-  assert.equal(r.status, "PASS");
-  assert.match(r.reason, /SKIP/);
+  assert.equal(r.status, "SKIP");
+  assert.match(r.reason, /board|Scrum|445/i);
 });
 
 test("estimate exceeded without explanation comment → WARN", async () => {

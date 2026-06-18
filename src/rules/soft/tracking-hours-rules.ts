@@ -1,7 +1,7 @@
 import type { RawTask } from "../../adapters/apptask/types.js";
 import type { Rule, RuleContext, RuleResult } from "../rule-types.js";
 import { commentPlainTextForRules } from "../helpers.js";
-import { pass, warn } from "../helpers.js";
+import { pass, warn, skip } from "../helpers.js";
 import {
   isCompletedStatus,
   isInProgressStatus,
@@ -36,7 +36,7 @@ export const TRACKING_HOURS_RULE_IDS = new Set([
 ]);
 
 function trackingSkip(ruleId: string, reason: string): RuleResult {
-  return pass(ruleId, `${reason} (SKIP)`);
+  return skip(ruleId, reason);
 }
 
 function requireTracking(
