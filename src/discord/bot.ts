@@ -30,6 +30,7 @@ import {
 import { parseBoardIds } from "../collectors/db-config.js";
 import { runCommentsCheck } from "../app/run-comments-check.js";
 import { runAudit, type RunAuditResult } from "../app/run-audit.js";
+import { isAuditLocked } from "../app/audit-lock.js";
 import {
   resolveAuditBoard,
   resolveBoardUrl,
