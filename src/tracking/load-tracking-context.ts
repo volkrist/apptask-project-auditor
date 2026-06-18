@@ -2,6 +2,7 @@ import { loadDbConfig } from "../collectors/db-config.js";
 import { closeDb } from "../collectors/db-client.js";
 import {
   aggregateTrackingByTask,
+  aggregateDailyByTask,
   fetchTrackingSummaryRows,
   taskTrackingKey,
   type TaskTrackingHours,
@@ -11,11 +12,19 @@ import {
   type TrackingHoursConfig,
 } from "./tracking-hours-config.js";
 
+export type DailyTrackingEntry = {
+  userId: number;
+  userName: string | null;
+  date: string;
+  hours: number;
+};
+
 export type TrackingAuditContext = {
   config: TrackingHoursConfig;
   loaded: boolean;
   loadError?: string;
   byTaskKey: Record<string, TaskTrackingHours>;
+  dailyByTaskKey: Record<string, DailyTrackingEntry[]>;
   rowCount: number;
 };
 
@@ -35,6 +44,7 @@ export async function loadTrackingAuditContext(
     config,
     loaded: false,
     byTaskKey: {},
+    dailyByTaskKey: {},
     rowCount: 0,
   };
 
@@ -46,11 +56,13 @@ export async function loadTrackingAuditContext(
     const dbConfig = loadDbConfig({ boardIds });
     const rawRows = await fetchTrackingSummaryRows(dbConfig, boardIds);
     const aggregated = aggregateTrackingByTask(rawRows, boardIds);
+    const dailyByTaskKey = aggregateDailyByTask(rawRows, boardIds);
     await closeDb();
     return {
       config,
       loaded: true,
       byTaskKey: buildIndex(aggregated),
+      dailyByTaskKey,
       rowCount: rawRows.length,
     };
   } catch (err) {

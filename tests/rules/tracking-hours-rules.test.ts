@@ -53,6 +53,7 @@ function trackingCtx(
     },
     loaded: true,
     byTaskKey,
+    dailyByTaskKey: {},
     rowCount: rows.length,
   };
 }

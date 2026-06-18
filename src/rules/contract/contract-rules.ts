@@ -1,5 +1,5 @@
 import type { Rule } from "../rule-types.js";
-import { fail, pass, skip, warn } from "../helpers.js";
+import { fail, notApplicable, pass, skip, warn } from "../helpers.js";
 import {
   isBlockedTask,
   isCompletedStatus,
@@ -13,6 +13,19 @@ import { isUiRelatedTask } from "../task-ui.js";
 import { getAuditProfile, resolveAuditProfileId } from "../../config/audit-profiles.js";
 import { partitionTasksForAudit } from "../../tasks/task-classification.js";
 import { getTaskTrackingMetrics } from "../../tracking/load-tracking-context.js";
+import {
+  boardHasFolderLink,
+  boardHasTzSummary,
+  checkBoardNameTemplate,
+  extractBoardText,
+  getBoardMetadataForTask,
+} from "../../collectors/board-metadata.js";
+import {
+  activeWorksheetParticipants,
+  participantNameMatches,
+  sprintMilestonesHaveDates,
+} from "../../worksheet/worksheet-reader.js";
+import { taskTrackingKey } from "../../tracking/tracking-hours-reader.js";
 
 function primaryAssignee(task: Parameters<Rule["evaluate"]>[0]): string | null {
   const name = task.assignees.find((a) => a?.trim() && !a.includes("Добавить"));
@@ -25,6 +38,11 @@ const NEVER_STARTED_DAYS =
   Number(process.env.NEVER_STARTED_DAYS ?? "14") || 14;
 const TRACKING_HIGH_HOURS_THRESHOLD =
   Number(process.env.TRACKING_HIGH_WITHOUT_RESULT_HOURS ?? "20") || 20;
+const TRACKING_DAILY_ANOMALY_HOURS =
+  Number(process.env.TRACKING_DAILY_ANOMALY_HOURS ?? "10") || 10;
+
+const ACT_BAD_TITLE_RE =
+  /^(фикс|баг|тест|правки|fix|bug|todo|wip)\b/i;
 
 export const blockedTagPresentRule: Rule = {
   id: "blocked_tag_present",
@@ -106,9 +124,9 @@ function uiOnlyRule(
   ruleId: string,
   task: Parameters<Rule["evaluate"]>[0],
   message: string,
-): ReturnType<typeof skip> | ReturnType<typeof warn> {
+): ReturnType<typeof notApplicable> | ReturnType<typeof warn> {
   if (!isUiRelatedTask(task)) {
-    return skip(ruleId, "Не UI/front задача");
+    return notApplicable(ruleId, "Не UI/front задача");
   }
   return warn(ruleId, message);
 }
@@ -116,21 +134,52 @@ function uiOnlyRule(
 export const boardNameTemplateRule: Rule = {
   id: "board_name_template",
   severity: "soft",
-  evaluate() {
-    return sourceSkip(
-      "board_name_template",
-      "Источник названия доски не подключён (нужен board metadata collector)",
-    );
+  evaluate(task, ctx) {
+    const meta = getBoardMetadataForTask(ctx.boardMetadata, task.boardId);
+    if (!meta) {
+      return sourceSkip(
+        "board_name_template",
+        "данные о названии доски не найдены в доступных источниках",
+      );
+    }
+    if (!meta.name) {
+      return sourceSkip(
+        "board_name_template",
+        "данные о названии доски не найдены в доступных источниках",
+      );
+    }
+    const check = checkBoardNameTemplate(meta.name);
+    if (check.matches) {
+      return pass("board_name_template", check.reason);
+    }
+    return warn("board_name_template", check.reason);
   },
 };
 
 export const boardFolderLinkRule: Rule = {
   id: "board_folder_link",
   severity: "soft",
-  evaluate() {
-    return sourceSkip(
+  evaluate(task, ctx) {
+    const meta = getBoardMetadataForTask(ctx.boardMetadata, task.boardId);
+    if (!meta) {
+      return sourceSkip(
+        "board_folder_link",
+        "описание доски недоступно в источнике данных",
+      );
+    }
+    const text = extractBoardText(meta);
+    if (!text.trim()) {
+      return warn(
+        "board_folder_link",
+        "в описании доски нет ссылки на папку проекта (описание пустое)",
+      );
+    }
+    if (boardHasFolderLink(meta)) {
+      return pass("board_folder_link", "Ссылка на папку проекта найдена");
+    }
+    return warn(
       "board_folder_link",
-      "Описание доски недоступно в текущем collector",
+      "в описании доски нет ссылки на папку проекта",
     );
   },
 };
@@ -138,10 +187,27 @@ export const boardFolderLinkRule: Rule = {
 export const boardTzSummaryRule: Rule = {
   id: "board_tz_summary",
   severity: "soft",
-  evaluate() {
-    return sourceSkip(
+  evaluate(task, ctx) {
+    const meta = getBoardMetadataForTask(ctx.boardMetadata, task.boardId);
+    if (!meta) {
+      return sourceSkip(
+        "board_tz_summary",
+        "описание доски недоступно в источнике данных",
+      );
+    }
+    const text = extractBoardText(meta);
+    if (!text.trim()) {
+      return warn(
+        "board_tz_summary",
+        "в описании доски нет краткого описания проекта из ТЗ (описание пустое)",
+      );
+    }
+    if (boardHasTzSummary(meta)) {
+      return pass("board_tz_summary", "Краткое описание из ТЗ найдено");
+    }
+    return warn(
       "board_tz_summary",
-      "Описание доски недоступно в текущем collector",
+      "в описании доски нет краткого описания проекта из ТЗ",
     );
   },
 };
@@ -149,10 +215,31 @@ export const boardTzSummaryRule: Rule = {
 export const teamWorksheetMatchRule: Rule = {
   id: "team_worksheet_match",
   severity: "soft",
-  evaluate() {
-    return sourceSkip(
+  evaluate(task, ctx) {
+    const ws = ctx.worksheet;
+    if (!ws?.loaded) {
+      return sourceSkip(
+        "team_worksheet_match",
+        ws?.loadError ?? "рабочая таблица проекта не подключена",
+      );
+    }
+    const assignee = primaryAssignee(task);
+    if (!assignee) {
+      return pass("team_worksheet_match", "Нет исполнителя для сверки");
+    }
+    const active = activeWorksheetParticipants(ws.participants);
+    if (active.length === 0) {
+      return sourceSkip(
+        "team_worksheet_match",
+        "в рабочей таблице не найден список участников",
+      );
+    }
+    if (participantNameMatches(assignee, active)) {
+      return pass("team_worksheet_match", "Исполнитель найден в рабочей таблице");
+    }
+    return warn(
       "team_worksheet_match",
-      "Рабочая таблица не настроена (WORKSHEET_SOURCE)",
+      `Исполнитель «${assignee}» не найден среди активных участников рабочей таблицы`,
     );
   },
 };
@@ -161,15 +248,32 @@ export const sprintDatesMatchRule: Rule = {
   id: "sprint_dates_match",
   severity: "soft",
   evaluate(_task, ctx) {
-    if (!ctx.scrum?.loaded) {
+    const ws = ctx.worksheet;
+    if (!ws?.loaded) {
       return sourceSkip(
         "sprint_dates_match",
-        ctx.scrum?.loadError ?? "Scrum portal недоступен",
+        ws?.loadError ?? "рабочая таблица проекта не подключена",
+      );
+    }
+    if (ws.milestones.length === 0) {
+      return sourceSkip(
+        "sprint_dates_match",
+        "в рабочей таблице не найдены майлстоуны со сроками",
+      );
+    }
+    const check = sprintMilestonesHaveDates(ws.milestones);
+    if (check.ok) {
+      return pass("sprint_dates_match", "Даты этапов S1–S4 заполнены в майлстоунах");
+    }
+    if (check.missing.length > 0) {
+      return warn(
+        "sprint_dates_match",
+        `Не заполнены даты: ${check.missing.join(", ")}`,
       );
     }
     return sourceSkip(
       "sprint_dates_match",
-      "Сверка дат спринтов не реализована в текущем Scrum adapter",
+      "в Scrum-портале не найдены даты спринтов",
     );
   },
 };
@@ -179,7 +283,7 @@ export const uiHasMockupLinkRule: Rule = {
   severity: "soft",
   evaluate(task) {
     if (!isUiRelatedTask(task)) {
-      return skip("ui_has_mockup_link", "Не UI/front задача");
+      return notApplicable("ui_has_mockup_link", "Не UI/front задача");
     }
     const links = [...(task.links ?? []), ...(task.attachments ?? []).map((a) => a.url ?? a.name)];
     const hasMockup = links.some((l) =>
@@ -210,7 +314,7 @@ export const uiAdaptiveRequirementsRule: Rule = {
   severity: "soft",
   evaluate(task) {
     if (!isUiRelatedTask(task)) {
-      return skip("ui_adaptive_requirements", "Не UI/front задача");
+      return notApplicable("ui_adaptive_requirements", "Не UI/front задача");
     }
     const text = `${task.descriptionText ?? ""} ${task.title ?? ""}`;
     if (/адаптив|responsive|mobile|мобил/i.test(text)) {
@@ -238,16 +342,30 @@ export const uiBrowserDeviceRequirementsRule: Rule = {
 export const trackingDailyAnomalyRule: Rule = {
   id: "tracking_daily_anomaly",
   severity: "soft",
-  evaluate(_task, ctx) {
+  evaluate(task, ctx) {
     if (!ctx.tracking?.loaded) {
       return sourceSkip(
         "tracking_daily_anomaly",
-        ctx.tracking?.loadError ?? "tracking DB недоступен",
+        ctx.tracking?.loadError ?? "учёт времени недоступен",
       );
     }
-    return sourceSkip(
+    if (!task.boardId || !task.id) {
+      return pass("tracking_daily_anomaly", "Нет идентификатора задачи");
+    }
+    const key = taskTrackingKey(task.boardId, task.id);
+    const daily = ctx.tracking.dailyByTaskKey[key] ?? [];
+    if (daily.length === 0) {
+      return pass("tracking_daily_anomaly", "Нет дневных записей трекинга");
+    }
+    const anomalies = daily.filter((d) => d.hours > TRACKING_DAILY_ANOMALY_HOURS);
+    if (anomalies.length === 0) {
+      return pass("tracking_daily_anomaly", "Аномалий по дням нет");
+    }
+    const worst = anomalies.sort((a, b) => b.hours - a.hours)[0]!;
+    const who = worst.userName ?? `user ${worst.userId}`;
+    return warn(
       "tracking_daily_anomaly",
-      "Daily breakdown tracking недоступен в текущем источнике",
+      `Списано ${Math.round(worst.hours * 10) / 10} ч за ${worst.date} (${who}), порог ${TRACKING_DAILY_ANOMALY_HOURS} ч`,
     );
   },
 };
@@ -368,13 +486,25 @@ export const actReadyNamingRule: Rule = {
   severity: "soft",
   evaluate(task) {
     if (!isCompletedStatus(task.status)) {
-      return skip("act_ready_naming", "Только для готовых задач");
+      return pass("act_ready_naming", "Не завершена");
     }
     const title = task.title?.trim() ?? "";
-    if (title.length < 5) {
+    if (title.length < 12) {
       return warn("act_ready_naming", "Название слишком короткое для акта");
     }
-    return pass("act_ready_naming", "OK");
+    if (ACT_BAD_TITLE_RE.test(title)) {
+      return warn(
+        "act_ready_naming",
+        "Название содержит служебное слово без контекста работы",
+      );
+    }
+    if (title.split(/\s+/).filter(Boolean).length < 3) {
+      return warn(
+        "act_ready_naming",
+        "Название не содержит понятного наименования работы",
+      );
+    }
+    return pass("act_ready_naming", "Название пригодно для акта");
   },
 };
 

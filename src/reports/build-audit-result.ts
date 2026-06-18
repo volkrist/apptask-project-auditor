@@ -8,6 +8,10 @@ import { computeScrumMatchStats } from "../scrum/estimate-matcher.js";
 import { isScrumAuditBoard } from "../scrum/scrum-estimate-config.js";
 import { buildBoardAuditMetrics } from "./board-metrics.js";
 import { loadTrackingAuditContext } from "../tracking/load-tracking-context.js";
+import { loadBoardMetadataById } from "../collectors/board-metadata.js";
+import { loadDbConfig } from "../collectors/db-config.js";
+import { closeDb } from "../collectors/db-client.js";
+import { loadWorksheetAuditContext } from "../worksheet/worksheet-reader.js";
 import { computeIssueCounts } from "./structured-findings.js";
 import { evaluateProject } from "../rules/evaluate.js";
 import type { AuditResult, RuleStatus } from "../rules/rule-types.js";
@@ -80,12 +84,25 @@ export async function buildAuditResult(
     ),
   ];
   const tracking = await loadTrackingAuditContext(boardIds);
+  const worksheet = await loadWorksheetAuditContext();
+  let boardMetadata: Awaited<ReturnType<typeof loadBoardMetadataById>> = {};
+  if (boardIds.length > 0) {
+    try {
+      const dbConfig = loadDbConfig({ boardIds });
+      boardMetadata = await loadBoardMetadataById(dbConfig, boardIds);
+      await closeDb();
+    } catch {
+      await closeDb().catch(() => undefined);
+    }
+  }
   const boardMetrics = buildBoardAuditMetrics(tasks);
   const project = await evaluateProject(tasks, config, appTaskUsers, {
     scrum,
     tracking,
     boardMetrics,
     stateNameByKey: options.stateNameByKey,
+    boardMetadata,
+    worksheet,
   });
 
   const boardSummaries =
@@ -123,6 +140,9 @@ export async function buildAuditResult(
       auditProfile: project.meta.auditProfile,
       excludedFlowTasks: project.meta.excludedFlowTasks,
       excludedFlowExamples: project.meta.excludedFlowExamples,
+      excludedFlowCards: project.meta.excludedFlowCards,
+      totalTasksOnBoard: project.meta.totalTasksOnBoard,
+      sourceSkipRuleCount: project.meta.sourceSkipRuleCount,
       skipRuleSummaries: project.meta.skipRuleSummaries,
       sourcesUsed: project.meta.sourcesUsed,
       collectorSource: options.collectorSource,

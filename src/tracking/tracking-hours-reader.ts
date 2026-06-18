@@ -151,6 +151,50 @@ export function trackingDayKey(value: Date | string): string {
   return formatted?.slice(0, 10) ?? String(value).slice(0, 10);
 }
 
+export type DailyTrackingAggregate = {
+  userId: number;
+  userName: string | null;
+  date: string;
+  hours: number;
+};
+
+/** Группировка по task + user + day для проверки дневных аномалий. */
+export function aggregateDailyByTask(
+  rows: TrackingSummaryRow[],
+  boardIds: number[],
+): Record<string, DailyTrackingAggregate[]> {
+  const out: Record<string, DailyTrackingAggregate[]> = {};
+  const buckets = new Map<string, DailyTrackingAggregate>();
+
+  for (const row of rows) {
+    if (!isTrackingRowIncluded(row, boardIds) || row.task_id == null) continue;
+    const taskKey = taskTrackingKey(row.board_id, row.task_id);
+    const day = trackingDayKey(row.date);
+    const bucketKey = `${taskKey}:${row.user_id}:${day}`;
+    const hours = msToHours(sumActualMs(row.total_time) + sumAppendMs(row.append_total_time));
+    const existing = buckets.get(bucketKey);
+    if (existing) {
+      existing.hours += hours;
+    } else {
+      buckets.set(bucketKey, {
+        userId: row.user_id,
+        userName: row.user_name,
+        date: day,
+        hours,
+      });
+    }
+  }
+
+  for (const [bucketKey, entry] of buckets) {
+    const taskKey = bucketKey.split(":").slice(0, 2).join(":");
+    const list = out[taskKey] ?? [];
+    list.push(entry);
+    out[taskKey] = list;
+  }
+
+  return out;
+}
+
 export function isTrackingRowIncluded(
   row: TrackingSummaryRow,
   boardIds: number[],
