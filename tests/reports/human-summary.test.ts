@@ -46,6 +46,6 @@ test("writeAuditReports creates contract audit-report only (no human-summary)", 
   assert.ok(!fs.existsSync(paths.humanSummaryPath));
   const full = fs.readFileSync(paths.reportPath, "utf8");
   assert.match(full, /# Отчёт аудита AppTask/);
-  assert.match(full, /## Нарушения по группам/);
+  assert.match(full, /## Результаты проверок/);
   assert.doesNotMatch(full, /## Краткий вывод/);
 });

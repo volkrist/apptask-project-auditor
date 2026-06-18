@@ -20,6 +20,10 @@ export function skip(ruleId: string, reason: string): RuleResult {
   return { ruleId, status: "SKIP", reason };
 }
 
+export function notApplicable(ruleId: string, reason = "Не применимо"): RuleResult {
+  return { ruleId, status: "NOT_APPLICABLE", reason };
+}
+
 export function result(
   ruleId: string,
   status: RuleStatus,

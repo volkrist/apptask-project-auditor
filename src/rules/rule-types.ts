@@ -6,8 +6,10 @@ import type {
   ScrumAuditContext,
 } from "../scrum/scrum-estimate-config.js";
 import type { TrackingAuditContext } from "../tracking/load-tracking-context.js";
+import type { BoardMetadataById } from "../collectors/board-metadata.js";
+import type { WorksheetAuditContext } from "../worksheet/worksheet-reader.js";
 
-export type RuleStatus = "PASS" | "FAIL" | "WARN" | "SKIP";
+export type RuleStatus = "PASS" | "FAIL" | "WARN" | "SKIP" | "NOT_APPLICABLE";
 
 export type RuleResult = {
   ruleId: string;
@@ -26,6 +28,8 @@ export type RuleContext = {
   stateNameByKey?: Record<string, string>;
   /** Контрактный профиль правил. */
   auditProfileId?: string;
+  boardMetadata?: BoardMetadataById;
+  worksheet?: WorksheetAuditContext | null;
 };
 
 export type Rule = {
@@ -93,6 +97,9 @@ export type AuditResult = {
     auditProfile?: string;
     excludedFlowTasks?: number;
     excludedFlowExamples?: Array<{ id: string; title: string; url: string | null }>;
+    excludedFlowCards?: Array<{ id: string; title: string; url: string | null; status: string | null; assignee: string | null }>;
+    totalTasksOnBoard?: number;
+    sourceSkipRuleCount?: number;
     skipRuleSummaries?: Array<{ ruleId: string; label: string; count: number; sampleReason: string }>;
     sourcesUsed?: string[];
     trackingLoaded?: boolean;

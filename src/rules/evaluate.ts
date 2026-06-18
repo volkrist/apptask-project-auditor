@@ -11,6 +11,9 @@ import type {
   ScrumAuditContext,
 } from "../scrum/scrum-estimate-config.js";
 import type { TrackingAuditContext } from "../tracking/load-tracking-context.js";
+import type { BoardMetadataById } from "../collectors/board-metadata.js";
+import type { WorksheetAuditContext } from "../worksheet/worksheet-reader.js";
+import { filterSourceUnavailableSkips } from "../reports/report-presentation.js";
 import { partitionTasksForAudit } from "../tasks/task-classification.js";
 import { allRules } from "./registry.js";
 import type {
@@ -28,6 +31,8 @@ export type EvaluateExtras = {
   boardMetrics?: BoardAuditMetrics;
   stateNameByKey?: Record<string, string>;
   auditProfileId?: string;
+  boardMetadata?: BoardMetadataById;
+  worksheet?: WorksheetAuditContext | null;
 };
 
 function buildContext(
@@ -46,6 +51,8 @@ function buildContext(
     boardMetrics: extras?.boardMetrics,
     stateNameByKey: extras?.stateNameByKey,
     auditProfileId: profileId,
+    boardMetadata: extras?.boardMetadata,
+    worksheet: extras?.worksheet ?? null,
   };
 }
 
@@ -110,6 +117,10 @@ function detectSourcesUsed(extras?: EvaluateExtras): string[] {
   if (extras?.stateNameByKey && Object.keys(extras.stateNameByKey).length > 0) {
     sources.push("status history");
   }
+  if (extras?.boardMetadata && Object.keys(extras.boardMetadata).length > 0) {
+    sources.push("метаданные доски");
+  }
+  if (extras?.worksheet?.loaded) sources.push("рабочая таблица");
   return sources;
 }
 
@@ -134,9 +145,17 @@ export async function evaluateTask(
 export type ProjectEvaluationMeta = {
   excludedFlowTasks: number;
   excludedFlowExamples: Array<{ id: string; title: string; url: string | null }>;
+  excludedFlowCards: Array<{
+    id: string;
+    title: string;
+    url: string | null;
+    status: string | null;
+    assignee: string | null;
+  }>;
   auditProfile: string;
   sourcesUsed: string[];
   skipRuleSummaries: AuditResult["meta"]["skipRuleSummaries"];
+  sourceSkipRuleCount: number;
   totalTasksOnBoard: number;
 };
 
@@ -177,6 +196,19 @@ export async function evaluateProject(
     url: t.url,
   }));
 
+  const excludedFlowCards = excludedFlow.map((t) => ({
+    id: t.id ?? "?",
+    title: t.title ?? "(без названия)",
+    url: t.url,
+    status: t.status,
+    assignee: t.assignees[0] ?? null,
+  }));
+
+  const skipRuleSummaries = summarizeSkips(cards);
+  const sourceSkipRuleCount = filterSourceUnavailableSkips(
+    skipRuleSummaries ?? [],
+  ).length;
+
   return {
     cards,
     failCount,
@@ -184,9 +216,11 @@ export async function evaluateProject(
     meta: {
       excludedFlowTasks: excludedFlow.length,
       excludedFlowExamples,
+      excludedFlowCards,
       auditProfile: profileId,
       sourcesUsed: detectSourcesUsed(extras),
-      skipRuleSummaries: summarizeSkips(cards),
+      skipRuleSummaries,
+      sourceSkipRuleCount,
       totalTasksOnBoard: tasks.length,
     },
   };
@@ -220,6 +254,9 @@ export async function evaluateBoard(
       auditProfile: project.meta.auditProfile,
       excludedFlowTasks: project.meta.excludedFlowTasks,
       excludedFlowExamples: project.meta.excludedFlowExamples,
+      excludedFlowCards: project.meta.excludedFlowCards,
+      totalTasksOnBoard: project.meta.totalTasksOnBoard,
+      sourceSkipRuleCount: project.meta.sourceSkipRuleCount,
       skipRuleSummaries: project.meta.skipRuleSummaries,
       sourcesUsed: project.meta.sourcesUsed,
     },
