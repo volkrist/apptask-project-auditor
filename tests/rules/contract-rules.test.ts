@@ -18,70 +18,26 @@ test("ui_has_mockup_link returns NOT_APPLICABLE for non-ui task", async () => {
   assert.equal(r.status, "NOT_APPLICABLE");
 });
 
-test("board_name_template uses board metadata", async () => {
+test("board_name_template is entity-level on cards", async () => {
   const task = { ...emptyRawTask(), boardId: "783" };
-  const r = await boardNameTemplateRule.evaluate(task, {
-    config,
-    allTasks: [task],
-    boardMetadata: {
-      "783": {
-        boardId: 783,
-        name: "TURBO WEAVE (Аутстафф) - Максим Челпанов",
-        description: null,
-        comment: null,
-        discordLink: null,
-      },
-    },
-  });
-  assert.notEqual(r.status, "SKIP");
+  const r = await boardNameTemplateRule.evaluate(task, { config, allTasks: [task] });
+  assert.equal(r.status, "NOT_APPLICABLE");
 });
 
-test("board_folder_link warns on empty description", async () => {
-  const task = { ...emptyRawTask(), boardId: "783" };
-  const r = await boardFolderLinkRule.evaluate(task, {
-    config,
-    allTasks: [task],
-    boardMetadata: {
-      "783": {
-        boardId: 783,
-        name: "Board",
-        description: null,
-        comment: null,
-        discordLink: null,
-      },
-    },
-  });
-  assert.equal(r.status, "WARN");
-});
-
-test("tracking_daily_anomaly warns on high daily hours", async () => {
+test("tracking_daily_anomaly is entity-level on cards", async () => {
   const task = { ...emptyRawTask(), boardId: "783", id: "1" };
-  const r = await trackingDailyAnomalyRule.evaluate(task, {
-    config,
-    allTasks: [task],
-    tracking: {
-      loaded: true,
-      config: {} as never,
-      byTaskKey: {},
-      dailyByTaskKey: {
-        "783:1": [
-          { userId: 1, userName: "Dev", date: "2026-06-18", hours: 12 },
-        ],
-      },
-      rowCount: 1,
-    },
-  });
-  assert.equal(r.status, "WARN");
-});
-
-test("act_ready_naming passes for open tasks", async () => {
-  const task = { ...emptyRawTask(), status: "В работе", title: "x" };
-  const r = await actReadyNamingRule.evaluate(task, { config, allTasks: [task] });
-  assert.equal(r.status, "PASS");
+  const r = await trackingDailyAnomalyRule.evaluate(task, { config, allTasks: [task] });
+  assert.equal(r.status, "NOT_APPLICABLE");
 });
 
 test("act_ready_naming warns on short done title", async () => {
   const task = { ...emptyRawTask(), status: "Завершено", title: "фикс" };
   const r = await actReadyNamingRule.evaluate(task, { config, allTasks: [task] });
   assert.equal(r.status, "WARN");
+});
+
+test("board_folder_link not evaluated per card", async () => {
+  const task = { ...emptyRawTask(), boardId: "783" };
+  const r = await boardFolderLinkRule.evaluate(task, { config, allTasks: [task] });
+  assert.equal(r.status, "NOT_APPLICABLE");
 });

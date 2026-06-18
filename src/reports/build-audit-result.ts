@@ -145,6 +145,11 @@ export async function buildAuditResult(
       sourceSkipRuleCount: project.meta.sourceSkipRuleCount,
       skipRuleSummaries: project.meta.skipRuleSummaries,
       sourcesUsed: project.meta.sourcesUsed,
+      entityFindings: project.meta.entityFindings,
+      taskLevelFailCount: project.meta.taskLevelFailCount,
+      taskLevelWarnCount: project.meta.taskLevelWarnCount,
+      entityLevelFailCount: project.meta.entityLevelFailCount,
+      entityLevelWarnCount: project.meta.entityLevelWarnCount,
       collectorSource: options.collectorSource,
       boardsChecked: options.boardsChecked,
       auditScope: options.auditScope,
@@ -169,6 +174,7 @@ export async function buildAuditResult(
     },
     topIssues: [],
     cards: project.cards,
+    entityFindings: project.entityFindings,
   };
   return { ...base, topIssues: buildTopIssues(base) };
 }

@@ -13,19 +13,6 @@ import { isUiRelatedTask } from "../task-ui.js";
 import { getAuditProfile, resolveAuditProfileId } from "../../config/audit-profiles.js";
 import { partitionTasksForAudit } from "../../tasks/task-classification.js";
 import { getTaskTrackingMetrics } from "../../tracking/load-tracking-context.js";
-import {
-  boardHasFolderLink,
-  boardHasTzSummary,
-  checkBoardNameTemplate,
-  extractBoardText,
-  getBoardMetadataForTask,
-} from "../../collectors/board-metadata.js";
-import {
-  activeWorksheetParticipants,
-  participantNameMatches,
-  sprintMilestonesHaveDates,
-} from "../../worksheet/worksheet-reader.js";
-import { taskTrackingKey } from "../../tracking/tracking-hours-reader.js";
 
 function primaryAssignee(task: Parameters<Rule["evaluate"]>[0]): string | null {
   const name = task.assignees.find((a) => a?.trim() && !a.includes("Добавить"));
@@ -38,8 +25,6 @@ const NEVER_STARTED_DAYS =
   Number(process.env.NEVER_STARTED_DAYS ?? "14") || 14;
 const TRACKING_HIGH_HOURS_THRESHOLD =
   Number(process.env.TRACKING_HIGH_WITHOUT_RESULT_HOURS ?? "20") || 20;
-const TRACKING_DAILY_ANOMALY_HOURS =
-  Number(process.env.TRACKING_DAILY_ANOMALY_HOURS ?? "10") || 10;
 
 const ACT_BAD_TITLE_RE =
   /^(фикс|баг|тест|правки|fix|bug|todo|wip)\b/i;
@@ -134,147 +119,40 @@ function uiOnlyRule(
 export const boardNameTemplateRule: Rule = {
   id: "board_name_template",
   severity: "soft",
-  evaluate(task, ctx) {
-    const meta = getBoardMetadataForTask(ctx.boardMetadata, task.boardId);
-    if (!meta) {
-      return sourceSkip(
-        "board_name_template",
-        "данные о названии доски не найдены в доступных источниках",
-      );
-    }
-    if (!meta.name) {
-      return sourceSkip(
-        "board_name_template",
-        "данные о названии доски не найдены в доступных источниках",
-      );
-    }
-    const check = checkBoardNameTemplate(meta.name);
-    if (check.matches) {
-      return pass("board_name_template", check.reason);
-    }
-    return warn("board_name_template", check.reason);
+  evaluate() {
+    return notApplicable("board_name_template", "Проверка уровня доски");
   },
 };
 
 export const boardFolderLinkRule: Rule = {
   id: "board_folder_link",
   severity: "soft",
-  evaluate(task, ctx) {
-    const meta = getBoardMetadataForTask(ctx.boardMetadata, task.boardId);
-    if (!meta) {
-      return sourceSkip(
-        "board_folder_link",
-        "описание доски недоступно в источнике данных",
-      );
-    }
-    const text = extractBoardText(meta);
-    if (!text.trim()) {
-      return warn(
-        "board_folder_link",
-        "в описании доски нет ссылки на папку проекта (описание пустое)",
-      );
-    }
-    if (boardHasFolderLink(meta)) {
-      return pass("board_folder_link", "Ссылка на папку проекта найдена");
-    }
-    return warn(
-      "board_folder_link",
-      "в описании доски нет ссылки на папку проекта",
-    );
+  evaluate() {
+    return notApplicable("board_folder_link", "Проверка уровня доски");
   },
 };
 
 export const boardTzSummaryRule: Rule = {
   id: "board_tz_summary",
   severity: "soft",
-  evaluate(task, ctx) {
-    const meta = getBoardMetadataForTask(ctx.boardMetadata, task.boardId);
-    if (!meta) {
-      return sourceSkip(
-        "board_tz_summary",
-        "описание доски недоступно в источнике данных",
-      );
-    }
-    const text = extractBoardText(meta);
-    if (!text.trim()) {
-      return warn(
-        "board_tz_summary",
-        "в описании доски нет краткого описания проекта из ТЗ (описание пустое)",
-      );
-    }
-    if (boardHasTzSummary(meta)) {
-      return pass("board_tz_summary", "Краткое описание из ТЗ найдено");
-    }
-    return warn(
-      "board_tz_summary",
-      "в описании доски нет краткого описания проекта из ТЗ",
-    );
+  evaluate() {
+    return notApplicable("board_tz_summary", "Проверка уровня доски");
   },
 };
 
 export const teamWorksheetMatchRule: Rule = {
   id: "team_worksheet_match",
   severity: "soft",
-  evaluate(task, ctx) {
-    const ws = ctx.worksheet;
-    if (!ws?.loaded) {
-      return sourceSkip(
-        "team_worksheet_match",
-        ws?.loadError ?? "рабочая таблица проекта не подключена",
-      );
-    }
-    const assignee = primaryAssignee(task);
-    if (!assignee) {
-      return pass("team_worksheet_match", "Нет исполнителя для сверки");
-    }
-    const active = activeWorksheetParticipants(ws.participants);
-    if (active.length === 0) {
-      return sourceSkip(
-        "team_worksheet_match",
-        "в рабочей таблице не найден список участников",
-      );
-    }
-    if (participantNameMatches(assignee, active)) {
-      return pass("team_worksheet_match", "Исполнитель найден в рабочей таблице");
-    }
-    return warn(
-      "team_worksheet_match",
-      `Исполнитель «${assignee}» не найден среди активных участников рабочей таблицы`,
-    );
+  evaluate() {
+    return notApplicable("team_worksheet_match", "Проверка уровня команды");
   },
 };
 
 export const sprintDatesMatchRule: Rule = {
   id: "sprint_dates_match",
   severity: "soft",
-  evaluate(_task, ctx) {
-    const ws = ctx.worksheet;
-    if (!ws?.loaded) {
-      return sourceSkip(
-        "sprint_dates_match",
-        ws?.loadError ?? "рабочая таблица проекта не подключена",
-      );
-    }
-    if (ws.milestones.length === 0) {
-      return sourceSkip(
-        "sprint_dates_match",
-        "в рабочей таблице не найдены майлстоуны со сроками",
-      );
-    }
-    const check = sprintMilestonesHaveDates(ws.milestones);
-    if (check.ok) {
-      return pass("sprint_dates_match", "Даты этапов S1–S4 заполнены в майлстоунах");
-    }
-    if (check.missing.length > 0) {
-      return warn(
-        "sprint_dates_match",
-        `Не заполнены даты: ${check.missing.join(", ")}`,
-      );
-    }
-    return sourceSkip(
-      "sprint_dates_match",
-      "в Scrum-портале не найдены даты спринтов",
-    );
+  evaluate() {
+    return notApplicable("sprint_dates_match", "Проверка уровня спринта");
   },
 };
 
@@ -342,31 +220,8 @@ export const uiBrowserDeviceRequirementsRule: Rule = {
 export const trackingDailyAnomalyRule: Rule = {
   id: "tracking_daily_anomaly",
   severity: "soft",
-  evaluate(task, ctx) {
-    if (!ctx.tracking?.loaded) {
-      return sourceSkip(
-        "tracking_daily_anomaly",
-        ctx.tracking?.loadError ?? "учёт времени недоступен",
-      );
-    }
-    if (!task.boardId || !task.id) {
-      return pass("tracking_daily_anomaly", "Нет идентификатора задачи");
-    }
-    const key = taskTrackingKey(task.boardId, task.id);
-    const daily = ctx.tracking.dailyByTaskKey[key] ?? [];
-    if (daily.length === 0) {
-      return pass("tracking_daily_anomaly", "Нет дневных записей трекинга");
-    }
-    const anomalies = daily.filter((d) => d.hours > TRACKING_DAILY_ANOMALY_HOURS);
-    if (anomalies.length === 0) {
-      return pass("tracking_daily_anomaly", "Аномалий по дням нет");
-    }
-    const worst = anomalies.sort((a, b) => b.hours - a.hours)[0]!;
-    const who = worst.userName ?? `user ${worst.userId}`;
-    return warn(
-      "tracking_daily_anomaly",
-      `Списано ${Math.round(worst.hours * 10) / 10} ч за ${worst.date} (${who}), порог ${TRACKING_DAILY_ANOMALY_HOURS} ч`,
-    );
+  evaluate() {
+    return notApplicable("tracking_daily_anomaly", "Проверка уровня учёта времени");
   },
 };
 

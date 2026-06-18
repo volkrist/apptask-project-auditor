@@ -46,10 +46,23 @@ export type CardAudit = {
   results: RuleResult[];
 };
 
+export type EntityFindingScope = "board" | "project" | "sprint" | "team" | "user";
+
+export type EntityFinding = {
+  ruleId: string;
+  status: RuleStatus;
+  reason: string;
+  scope: EntityFindingScope;
+  objectLabel: string;
+  actualValue?: string;
+  details?: string[];
+};
+
 export type ProjectEvaluation = {
   cards: CardAudit[];
   failCount: number;
   warnCount: number;
+  entityFindings?: EntityFinding[];
 };
 
 export type AuditResult = {
@@ -118,7 +131,13 @@ export type AuditResult = {
     scrumSources?: import("../scrum/scrum-estimate-config.js").ScrumSourceLoadStatus[];
     scrumLoadStats?: import("../scrum/scrum-estimate-config.js").EstimateLoadStats;
     scrumMatchStats?: import("../scrum/estimate-matcher.js").ScrumMatchStats;
+    entityFindings?: EntityFinding[];
+    taskLevelFailCount?: number;
+    taskLevelWarnCount?: number;
+    entityLevelFailCount?: number;
+    entityLevelWarnCount?: number;
   };
+  entityFindings?: EntityFinding[];
   topIssues: Array<{ ruleId: string; label: string; count: number }>;
   cards: CardAudit[];
 };

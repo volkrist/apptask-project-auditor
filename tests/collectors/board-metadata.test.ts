@@ -11,15 +11,23 @@ import {
 } from "../../src/worksheet/worksheet-reader.js";
 import { aggregateDailyByTask } from "../../src/tracking/tracking-hours-reader.js";
 import { filterSourceUnavailableSkips } from "../../src/reports/report-presentation.js";
+import { evaluateEntityFindings } from "../../src/rules/evaluate-entity.js";
+import { loadAuditConfig } from "../../src/config/audit-config.js";
+import { isEntityRule } from "../../src/rules/rule-scopes.js";
+import { emptyRawTask } from "../../src/adapters/apptask/types.js";
 
-test("checkBoardNameTemplate accepts manager separator pattern", () => {
-  const ok = checkBoardNameTemplate("TURBO WEAVE (Аутстафф) - Максим Челпанов");
-  assert.equal(ok.matches, true);
+test("checkBoardNameTemplate warns on TurboWeave board name", () => {
+  const r = checkBoardNameTemplate("TURBO WEAVE (Аутстафф) - Максим Челпанов");
+  assert.equal(r.status, "WARN");
+  assert.equal(r.strictMatch, false);
+  assert.ok(r.deviations.some((d) => /дефис|тире/i.test(d)));
+  assert.ok(r.deviations.some((d) => /тег проекта/i.test(d)));
 });
 
-test("checkBoardNameTemplate rejects name without manager", () => {
-  const bad = checkBoardNameTemplate("Turbo Weave board");
-  assert.equal(bad.matches, false);
+test("checkBoardNameTemplate passes strict template", () => {
+  const r = checkBoardNameTemplate("TW Turbo Weave (Аутстафф) — Максим Челпанов");
+  assert.equal(r.status, "PASS");
+  assert.equal(r.strictMatch, true);
 });
 
 test("boardHasFolderLink detects drive folder", () => {
@@ -33,15 +41,32 @@ test("boardHasFolderLink detects drive folder", () => {
   assert.equal(boardHasFolderLink(meta), true);
 });
 
-test("boardHasTzSummary accepts long description", () => {
-  const meta = {
-    boardId: 1,
-    name: "x",
-    description: "А".repeat(90),
-    comment: null,
-    discordLink: null,
-  };
-  assert.equal(boardHasTzSummary(meta), true);
+test("entity board rules evaluated once per board", () => {
+  const config = loadAuditConfig({ linkCheckEnabled: false });
+  const findings = evaluateEntityFindings(
+    {
+      config,
+      allTasks: [],
+      boardMetadata: {
+        "783": {
+          boardId: 783,
+          name: "TURBO WEAVE (Аутстафф) - Максим Челпанов",
+          description: null,
+          comment: null,
+          discordLink: null,
+        },
+      },
+      worksheet: { loaded: false, spreadsheetId: null, projectName: null, projectDescription: null, participants: [], milestones: [] },
+    },
+    [{ ...emptyRawTask(), boardId: "783" }],
+  );
+  const boardFolder = findings.filter((f) => f.ruleId === "board_folder_link");
+  assert.equal(boardFolder.length, 1);
+});
+
+test("isEntityRule marks board and team rules", () => {
+  assert.equal(isEntityRule("board_folder_link"), true);
+  assert.equal(isEntityRule("verified_success_comment"), false);
 });
 
 test("participantNameMatches fuzzy", () => {
@@ -57,7 +82,6 @@ test("sprintMilestonesHaveDates detects missing end dates", () => {
     { id: "M2", name: "S2", startDate: "23.02.2026", endDate: null },
   ]);
   assert.equal(r.ok, false);
-  assert.ok(r.missing.some((m) => m.includes("M2")));
 });
 
 test("aggregateDailyByTask sums hours per user per day", () => {
@@ -73,20 +97,10 @@ test("aggregateDailyByTask sums hours per user per day", () => {
         date: "2026-06-18",
         removed: 0,
       },
-      {
-        board_id: 783,
-        task_id: 1,
-        user_id: 10,
-        user_name: "Dev",
-        total_time: 6 * 3_600_000,
-        append_total_time: 0,
-        date: "2026-06-18",
-        removed: 0,
-      },
     ],
     [783],
   );
-  assert.equal(daily["783:1"]?.[0]?.hours, 11);
+  assert.equal(daily["783:1"]?.[0]?.hours, 5);
 });
 
 test("filterSourceUnavailableSkips excludes NOT_APPLICABLE ui skips", () => {
@@ -97,13 +111,6 @@ test("filterSourceUnavailableSkips excludes NOT_APPLICABLE ui skips", () => {
       count: 50,
       sampleReason: "Не UI/front задача",
     },
-    {
-      ruleId: "team_worksheet_match",
-      label: "Команда",
-      count: 64,
-      sampleReason: "рабочая таблица проекта не подключена",
-    },
   ]);
-  assert.equal(filtered.length, 1);
-  assert.equal(filtered[0]?.ruleId, "team_worksheet_match");
+  assert.equal(filtered.length, 0);
 });

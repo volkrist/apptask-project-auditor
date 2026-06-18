@@ -16,9 +16,15 @@ import type { WorksheetAuditContext } from "../worksheet/worksheet-reader.js";
 import { filterSourceUnavailableSkips } from "../reports/report-presentation.js";
 import { partitionTasksForAudit } from "../tasks/task-classification.js";
 import { allRules } from "./registry.js";
+import {
+  countEntityViolations,
+  evaluateEntityFindings,
+} from "./evaluate-entity.js";
+import { isEntityRule } from "./rule-scopes.js";
 import type {
   AuditResult,
   CardAudit,
+  EntityFinding,
   ProjectEvaluation,
   RuleContext,
   RuleResult,
@@ -90,10 +96,7 @@ function countStatuses(results: RuleResult[]): {
 function summarizeSkips(
   cards: CardAudit[],
 ): AuditResult["meta"]["skipRuleSummaries"] {
-  const map = new Map<
-    string,
-    { count: number; sampleReason: string }
-  >();
+  const map = new Map<string, { count: number; sampleReason: string }>();
   for (const card of cards) {
     for (const r of card.results) {
       if (r.status !== "SKIP") continue;
@@ -101,6 +104,42 @@ function summarizeSkips(
       entry.count++;
       map.set(r.ruleId, entry);
     }
+  }
+  return [...map.entries()].map(([ruleId, v]) => ({
+    ruleId,
+    label: ruleLabel(ruleId),
+    count: v.count,
+    sampleReason: v.sampleReason,
+  }));
+}
+
+function summarizeEntitySkips(
+  findings: EntityFinding[],
+): AuditResult["meta"]["skipRuleSummaries"] {
+  const map = new Map<string, { sampleReason: string }>();
+  for (const f of findings) {
+    if (f.status !== "SKIP") continue;
+    if (!map.has(f.ruleId)) {
+      map.set(f.ruleId, { sampleReason: f.reason });
+    }
+  }
+  return [...map.entries()].map(([ruleId, v]) => ({
+    ruleId,
+    label: ruleLabel(ruleId),
+    count: 1,
+    sampleReason: v.sampleReason,
+  }));
+}
+
+function mergeSkipSummaries(
+  cardSkips: AuditResult["meta"]["skipRuleSummaries"],
+  entitySkips: AuditResult["meta"]["skipRuleSummaries"],
+): AuditResult["meta"]["skipRuleSummaries"] {
+  const map = new Map<string, { count: number; sampleReason: string }>();
+  for (const s of [...(cardSkips ?? []), ...(entitySkips ?? [])]) {
+    const entry = map.get(s.ruleId) ?? { count: 0, sampleReason: s.sampleReason };
+    entry.count += s.count;
+    map.set(s.ruleId, entry);
   }
   return [...map.entries()].map(([ruleId, v]) => ({
     ruleId,
@@ -139,7 +178,8 @@ export async function evaluateTask(
     extras,
   );
   const rules = rulesForProfile(ctx.auditProfileId ?? "contract_turboweave_v1");
-  return Promise.all(rules.map((rule) => runRule(rule, rawTask, ctx)));
+  const taskRules = rules.filter((rule) => !isEntityRule(rule.id));
+  return Promise.all(taskRules.map((rule) => runRule(rule, rawTask, ctx)));
 }
 
 export type ProjectEvaluationMeta = {
@@ -157,6 +197,11 @@ export type ProjectEvaluationMeta = {
   skipRuleSummaries: AuditResult["meta"]["skipRuleSummaries"];
   sourceSkipRuleCount: number;
   totalTasksOnBoard: number;
+  entityFindings: EntityFinding[];
+  taskLevelFailCount: number;
+  taskLevelWarnCount: number;
+  entityLevelFailCount: number;
+  entityLevelWarnCount: number;
 };
 
 /** Оценка всех карточек доски с исключением потоковых задач. */
@@ -174,21 +219,29 @@ export async function evaluateProject(
     auditProfileId: profileId,
   });
   const rules = rulesForProfile(profileId);
+  const taskRules = rules.filter((rule) => !isEntityRule(rule.id));
+  const entityFindings = evaluateEntityFindings(ctx, auditable);
 
   const cards: CardAudit[] = await Promise.all(
     auditable.map(async (task) => ({
       task,
-      results: await Promise.all(rules.map((rule) => runRule(rule, task, ctx))),
+      results: await Promise.all(
+        taskRules.map((rule) => runRule(rule, task, ctx)),
+      ),
     })),
   );
 
-  let failCount = 0;
-  let warnCount = 0;
+  let taskLevelFailCount = 0;
+  let taskLevelWarnCount = 0;
   for (const card of cards) {
     const counts = countStatuses(card.results);
-    failCount += counts.failCount;
-    warnCount += counts.warnCount;
+    taskLevelFailCount += counts.failCount;
+    taskLevelWarnCount += counts.warnCount;
   }
+
+  const entityCounts = countEntityViolations(entityFindings);
+  const failCount = taskLevelFailCount + entityCounts.failCount;
+  const warnCount = taskLevelWarnCount + entityCounts.warnCount;
 
   const excludedFlowExamples = excludedFlow.slice(0, 10).map((t) => ({
     id: t.id ?? "?",
@@ -204,7 +257,9 @@ export async function evaluateProject(
     assignee: t.assignees[0] ?? null,
   }));
 
-  const skipRuleSummaries = summarizeSkips(cards);
+  const cardSkips = summarizeSkips(cards);
+  const entitySkips = summarizeEntitySkips(entityFindings);
+  const skipRuleSummaries = mergeSkipSummaries(cardSkips, entitySkips);
   const sourceSkipRuleCount = filterSourceUnavailableSkips(
     skipRuleSummaries ?? [],
   ).length;
@@ -213,6 +268,7 @@ export async function evaluateProject(
     cards,
     failCount,
     warnCount,
+    entityFindings,
     meta: {
       excludedFlowTasks: excludedFlow.length,
       excludedFlowExamples,
@@ -222,6 +278,11 @@ export async function evaluateProject(
       skipRuleSummaries,
       sourceSkipRuleCount,
       totalTasksOnBoard: tasks.length,
+      entityFindings,
+      taskLevelFailCount,
+      taskLevelWarnCount,
+      entityLevelFailCount: entityCounts.failCount,
+      entityLevelWarnCount: entityCounts.warnCount,
     },
   };
 }
@@ -259,7 +320,13 @@ export async function evaluateBoard(
       sourceSkipRuleCount: project.meta.sourceSkipRuleCount,
       skipRuleSummaries: project.meta.skipRuleSummaries,
       sourcesUsed: project.meta.sourcesUsed,
+      entityFindings: project.meta.entityFindings,
+      taskLevelFailCount: project.meta.taskLevelFailCount,
+      taskLevelWarnCount: project.meta.taskLevelWarnCount,
+      entityLevelFailCount: project.meta.entityLevelFailCount,
+      entityLevelWarnCount: project.meta.entityLevelWarnCount,
     },
+    entityFindings: project.entityFindings,
     topIssues: [],
     cards: project.cards,
   };
