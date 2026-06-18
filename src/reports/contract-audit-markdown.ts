@@ -1,8 +1,15 @@
 import type { AuditResult, CardAudit, EntityFinding } from "../rules/rule-types.js";
 import { getAuditProfile } from "../config/audit-profiles.js";
 import { isEntityRule } from "../rules/rule-scopes.js";
-import { ruleLabel } from "./rule-labels.js";
+import { formatCheckRegistryMarkdown } from "./check-registry-stats.js";
+import {
+  formatEntityViolationBlock,
+  formatTaskViolationBlock,
+  formatTrackingDailyAnomalyGroup,
+  type TaskViolationGroup,
+} from "./evidence-markdown.js";
 import { ruleCondition } from "./rule-conditions.js";
+import { ruleLabel } from "./rule-labels.js";
 import {
   filterSourceUnavailableSkips,
   formatAuditedAt,
@@ -11,7 +18,6 @@ import {
   simplifyReasonText,
   skipExplanationForReport,
 } from "./report-presentation.js";
-import { formatCheckRegistryMarkdown } from "./build-check-registry.js";
 
 function overallStatus(failCount: number, warnCount: number): string {
   if (failCount > 0) return "Требует исправлений (есть FAIL)";
@@ -22,13 +28,6 @@ function overallStatus(failCount: number, warnCount: number): string {
 function humanLabel(ruleId: string): string {
   return ruleLabel(ruleId);
 }
-
-type TaskViolationGroup = {
-  ruleId: string;
-  status: "FAIL" | "WARN";
-  cards: CardAudit[];
-  sampleReason: string;
-};
 
 function taskViolationsBySection(
   result: AuditResult,
@@ -85,59 +84,6 @@ function entityFindingsForSection(
     if (f.ruleId === "task_type_classification" && f.status === "PASS") return true;
     return false;
   });
-}
-
-function formatCardBullet(card: CardAudit): string {
-  const t = card.task;
-  const id = t.id ? `№${t.id}` : "без номера";
-  const assignee = t.assignees[0] ?? "—";
-  const title = t.title ?? "(без названия)";
-  const status = t.status ?? "—";
-  if (t.url) {
-    return `* [${id}](${t.url}) — ${title} | ${status} | ${assignee}`;
-  }
-  return `* ${id} — ${title} | ${status} | ${assignee}`;
-}
-
-function formatTaskCheckBlock(group: TaskViolationGroup): string[] {
-  const count = group.cards.length;
-  const statusLabel = group.status;
-  const reason = simplifyReasonText(group.sampleReason);
-  const lines: string[] = [
-    "",
-    `#### Проверка: ${humanLabel(group.ruleId)}`,
-    "",
-    `Условие: ${ruleCondition(group.ruleId)}.`,
-    `Результат: ${statusLabel} — ${reason || `найдено ${count} карточек`}.`,
-  ];
-  if (count > 0) {
-    lines.push("", "Карточки:", "");
-    for (const card of group.cards) {
-      lines.push(formatCardBullet(card));
-    }
-  }
-  return lines;
-}
-
-function formatEntityCheckBlock(finding: EntityFinding): string[] {
-  const lines: string[] = [
-    "",
-    `#### Проверка: ${humanLabel(finding.ruleId)}`,
-    "",
-    `Условие: ${ruleCondition(finding.ruleId)}.`,
-    `Результат: ${finding.status} — ${simplifyReasonText(finding.reason)}.`,
-    `Объект: ${finding.objectLabel}.`,
-  ];
-  if (finding.actualValue) {
-    lines.push(`Фактическое значение: ${finding.actualValue}.`);
-  }
-  if (finding.details && finding.details.length > 0) {
-    lines.push("", "Детали:");
-    for (const d of finding.details) {
-      lines.push(`* ${d}`);
-    }
-  }
-  return lines;
 }
 
 function problematicCards(result: AuditResult): CardAudit[] {
@@ -238,11 +184,22 @@ export function buildContractAuditMarkdown(
 
     hasAnyResults = true;
     lines.push("", `### ${group.section}`);
-    for (const entity of entityGroups) {
-      lines.push(...formatEntityCheckBlock(entity));
+
+    const trackingAnomalies = entityGroups.filter(
+      (f) => f.ruleId === "tracking_daily_anomaly",
+    );
+    const otherEntities = entityGroups.filter(
+      (f) => f.ruleId !== "tracking_daily_anomaly",
+    );
+
+    if (trackingAnomalies.length > 0) {
+      lines.push(...formatTrackingDailyAnomalyGroup(trackingAnomalies));
+    }
+    for (const entity of otherEntities) {
+      lines.push(...formatEntityViolationBlock(entity));
     }
     for (const taskGroup of taskGroups) {
-      lines.push(...formatTaskCheckBlock(taskGroup));
+      lines.push(...formatTaskViolationBlock(taskGroup));
     }
   }
 
@@ -314,6 +271,7 @@ export function buildContractAuditMarkdown(
 
   const body = lines.join("\n");
   const banned = [
+    "Почему это важно",
     "Что сделать",
     "Рекомендация",
     "Совет",

@@ -127,7 +127,7 @@ test("registry counts task-level violations", () => {
   const row = buildCheckRegistryRows(result).find((r) => r.entry.num === 18);
   assert.equal(row?.executionStatus, "CHECKED");
   assert.equal(row?.failCount, 2);
-  assert.equal(row?.resultText, "FAIL 2");
+  assert.equal(row?.violations, "2 FAIL");
 });
 
 test("summarizeCheckRegistry totals", () => {

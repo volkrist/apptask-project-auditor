@@ -48,6 +48,20 @@ export type CardAudit = {
 
 export type EntityFindingScope = "board" | "project" | "sprint" | "team" | "user";
 
+export type TrackingAnomalyRow = {
+  date: string;
+  userName: string;
+  hours: number;
+  limitHours: number;
+  tasks: Array<{
+    id: string;
+    title: string;
+    url: string | null;
+    status: string | null;
+    isFlow: boolean;
+  }>;
+};
+
 export type EntityFinding = {
   ruleId: string;
   status: RuleStatus;
@@ -55,7 +69,11 @@ export type EntityFinding = {
   scope: EntityFindingScope;
   objectLabel: string;
   actualValue?: string;
+  expectedValue?: string;
+  source?: string;
+  link?: string;
   details?: string[];
+  trackingRows?: TrackingAnomalyRow[];
 };
 
 export type ProjectEvaluation = {

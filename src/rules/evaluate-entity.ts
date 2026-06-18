@@ -1,5 +1,6 @@
 import type { RawTask } from "../adapters/apptask/types.js";
 import { getAuditProfile, resolveAuditProfileId } from "../config/audit-profiles.js";
+import { googleSpreadsheetUrl } from "../reports/report-links.js";
 import {
   boardHasFolderLink,
   boardHasTzSummary,
@@ -81,7 +82,10 @@ function boardFindings(
       reason: "в описании доски нет ссылки на папку проекта",
       scope: "board",
       objectLabel,
+      source: "AppTask Boards.description",
       actualValue: "описание доски пустое",
+      expectedValue: "ссылка на папку проекта (Google Drive / Яндекс.Диск и т.п.)",
+      link: `https://apptask.ru/c/7/board/${meta.boardId}`,
     });
     findings.push({
       ruleId: "board_tz_summary",
@@ -89,7 +93,10 @@ function boardFindings(
       reason: "в описании доски нет краткого описания проекта из ТЗ",
       scope: "board",
       objectLabel,
+      source: "AppTask Boards.description",
       actualValue: "описание доски пустое",
+      expectedValue: "краткое описание проекта из ТЗ",
+      link: `https://apptask.ru/c/7/board/${meta.boardId}`,
     });
   } else {
     if (!boardHasFolderLink(meta)) {
@@ -99,7 +106,10 @@ function boardFindings(
         reason: "в описании доски нет ссылки на папку проекта",
         scope: "board",
         objectLabel,
+        source: "AppTask Boards.description",
         actualValue: text.slice(0, 200),
+        expectedValue: "ссылка на папку проекта",
+        link: `https://apptask.ru/c/7/board/${meta.boardId}`,
       });
     }
     if (!boardHasTzSummary(meta)) {
@@ -109,7 +119,10 @@ function boardFindings(
         reason: "в описании доски нет краткого описания проекта из ТЗ",
         scope: "board",
         objectLabel,
+        source: "AppTask Boards.description",
         actualValue: text.slice(0, 200),
+        expectedValue: "краткое описание проекта из ТЗ (≥80 символов или маркеры ТЗ)",
+        link: `https://apptask.ru/c/7/board/${meta.boardId}`,
       });
     }
   }
@@ -425,18 +438,34 @@ function sprintFindings(ctx: RuleContext): EntityFinding[] {
     return [];
   }
 
-  return check.missing.map((label) => ({
-    ruleId: "sprint_dates_match",
-    status: "WARN" as const,
-    reason: "не заполнены даты начала и/или окончания",
-    scope: "sprint" as const,
-    objectLabel: `спринт / майлстоун — ${label}`,
-  }));
+  return check.missing.map((label) => {
+    const idMatch = label.match(/^(M\d+)/i);
+    const milestone = idMatch
+      ? ws.milestones.find((m) => m.id.toUpperCase() === idMatch[1]!.toUpperCase())
+      : undefined;
+    const sheetLink = ws.spreadsheetId
+      ? googleSpreadsheetUrl(ws.spreadsheetId)
+      : undefined;
+    return {
+      ruleId: "sprint_dates_match",
+      status: "WARN" as const,
+      reason: "не заполнены даты начала и/или окончания",
+      scope: "sprint" as const,
+      objectLabel: `спринт / майлстоун — ${label}`,
+      source: "рабочая таблица / лист «Майлстоуны»",
+      actualValue: milestone
+        ? `начало: ${milestone.startDate ?? "—"}, окончание: ${milestone.endDate ?? "—"}`
+        : "даты не заполнены",
+      expectedValue: "дата начала и дата окончания заполнены",
+      link: sheetLink,
+    };
+  });
 }
 
 function trackingDailyFindings(
   ctx: RuleContext,
   flowTaskIds: Set<string>,
+  taskById: Map<string, RawTask>,
 ): EntityFinding[] {
   if (!ctx.tracking?.loaded) {
     return [
@@ -446,13 +475,20 @@ function trackingDailyFindings(
         reason: ctx.tracking?.loadError ?? "учёт времени недоступен",
         scope: "user",
         objectLabel: "учёт времени по дням",
+        source: "учёт фактического времени (БД)",
       },
     ];
   }
 
   const byUserDay = new Map<
     string,
-    { userId: number; userName: string | null; date: string; hours: number; tasks: string[] }
+    {
+      userId: number;
+      userName: string | null;
+      date: string;
+      hours: number;
+      tasks: string[];
+    }
   >();
 
   for (const [taskKey, rows] of Object.entries(ctx.tracking.dailyByTaskKey)) {
@@ -476,9 +512,16 @@ function trackingDailyFindings(
   for (const entry of byUserDay.values()) {
     if (entry.hours <= TRACKING_DAILY_ANOMALY_HOURS) continue;
     const who = entry.userName ?? `user ${entry.userId}`;
-    const taskLabels = entry.tasks.map((id) => {
-      const label = `№${id}`;
-      return flowTaskIds.has(id) ? `${label} (потоковая)` : label;
+    const taskRefs = entry.tasks.map((id) => {
+      const task = taskById.get(id);
+      const isFlow = flowTaskIds.has(id);
+      return {
+        id,
+        title: task?.title ?? "(без названия)",
+        url: task?.url ?? null,
+        status: task?.status ?? null,
+        isFlow,
+      };
     });
     findings.push({
       ruleId: "tracking_daily_anomaly",
@@ -486,7 +529,18 @@ function trackingDailyFindings(
       reason: `списано ${Math.round(entry.hours * 10) / 10} ч за день (порог ${TRACKING_DAILY_ANOMALY_HOURS} ч)`,
       scope: "user",
       objectLabel: `${who}, ${entry.date}`,
-      actualValue: `задачи: ${taskLabels.join(", ")}`,
+      source: "учёт фактического времени (БД)",
+      actualValue: `${Math.round(entry.hours * 10) / 10} ч`,
+      expectedValue: `не более ${TRACKING_DAILY_ANOMALY_HOURS} ч за день`,
+      trackingRows: [
+        {
+          date: entry.date,
+          userName: who,
+          hours: Math.round(entry.hours * 10) / 10,
+          limitHours: TRACKING_DAILY_ANOMALY_HOURS,
+          tasks: taskRefs,
+        },
+      ],
     });
   }
 
@@ -508,6 +562,10 @@ export function evaluateEntityFindings(
       .filter((t) => isFlowOrServiceTask(t, profile) && t.id)
       .map((t) => t.id!),
   );
+  const taskById = new Map<string, RawTask>();
+  for (const task of allTasks) {
+    if (task.id) taskById.set(task.id, task);
+  }
 
   const boardIds = [
     ...new Set(
@@ -543,7 +601,7 @@ export function evaluateEntityFindings(
   findings.push(...teamFindings(auditable, ctx));
   findings.push(...teamRoleRateFindings(auditable, ctx));
   findings.push(...sprintFindings(ctx));
-  findings.push(...trackingDailyFindings(ctx, flowTaskIds));
+  findings.push(...trackingDailyFindings(ctx, flowTaskIds, taskById));
   findings.push(...taskTypeClassificationFindings(allTasks, ctx));
 
   return findings;

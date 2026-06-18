@@ -23,54 +23,52 @@ function baseResult(overrides: Partial<AuditResult["meta"]> = {}): AuditResult {
   };
 }
 
-test("contract report uses auditor format with condition and full card list", () => {
-  const cards = Array.from({ length: 20 }, (_, i) => ({
-    task: {
-      id: String(i + 1),
-      url: `https://apptask.ru/c/7/board/783/${i + 1}`,
-      title: `Task ${i + 1}`,
-      descriptionText: null,
-      createdAt: null,
-      startDate: null,
-      dueDate: null,
-      priority: null,
-      status: "Завершено",
-      tags: [],
-      creator: null,
-      assignees: ["Dev"],
-      assigneeRefs: [],
-      category: null,
-      stage: null,
-      plannedTime: null,
-      actualTime: null,
-      links: [],
-      attachments: [],
-      comments: [],
-      boardId: "783",
-    },
-    results: [
-      {
-        ruleId: "verified_success_comment",
-        status: "WARN" as const,
-        reason: "Нет комментария",
+test("contract report uses evidence tables for violations", () => {
+  const cards = [
+    {
+      task: {
+        id: "65",
+        url: "https://apptask.ru/c/7/board/783/65",
+        title: '7.2.3 Bконка бустера "Фора” (UI/UX)',
+        descriptionText: null,
+        createdAt: null,
+        startDate: null,
+        dueDate: null,
+        priority: null,
+        status: "Завершено",
+        tags: [],
+        creator: null,
+        assignees: ["Dev"],
+        assigneeRefs: [],
+        category: null,
+        stage: null,
+        plannedTime: null,
+        actualTime: null,
+        links: [],
+        attachments: [],
+        comments: [],
+        boardId: "783",
       },
-    ],
-  }));
+      results: [
+        {
+          ruleId: "scrum_title_matches_estimate",
+          status: "WARN" as const,
+          reason:
+            'AppTask: «7.2.3 Bконка бустера "Фора” (UI/UX)» ≠ смета: «7.2.3 Иконка бустера "Фора” (UI/UX)»',
+        },
+      ],
+    },
+  ];
 
   const md = buildContractAuditMarkdown({
-    ...baseResult({ warnCount: 20 }),
+    ...baseResult({ warnCount: 1 }),
     cards,
   });
 
-  assert.match(md, /# Отчёт аудита AppTask/);
-  assert.match(md, /#### Проверка:/);
-  assert.match(md, /Условие:/);
-  assert.match(md, /Результат: WARN/);
-  assert.match(md, /№20/);
-  assert.doesNotMatch(md, /и ещё/);
-  assert.doesNotMatch(md, /Почему это важно/i);
-  assert.doesNotMatch(md, /Что сделать/i);
-  assert.doesNotMatch(md, /contract_turboweave_v1/);
+  assert.match(md, /\| Карточка \| AppTask \| Смета \/ Scrum \| Расхождение \|/);
+  assert.match(md, /\[№65/);
+  assert.match(md, /Bконка/);
+  assert.match(md, /Иконка/);
 });
 
 test("excluded flow cards listed fully", () => {
@@ -109,12 +107,9 @@ test("source skip block uses SKIP reason format", () => {
 test("contract report includes check registry with all contract items", () => {
   const md = buildContractAuditMarkdown(baseResult());
   assert.match(md, /## Реестр выполненных проверок/);
+  assert.match(md, /\| № \| Проверка \| Область \| Проверено \| Кандидатов \| Нарушения \| Итог \|/);
   assert.match(md, /CHECKED:/);
-  assert.match(md, /NOT_APPLICABLE:/);
-  assert.match(md, /SKIP:/);
-  assert.match(md, /### 1\. До дедлайна меньше 1 дня/);
-  assert.match(md, /### 45\. Названия задач и время готовы к актам/);
-  assert.match(md, /Статус выполнения: CHECKED/);
-  assert.match(md, /выполнено, нарушений: 0/);
+  assert.match(md, /\| 1 \| До дедлайна меньше 1 дня/);
+  assert.match(md, /\| 45 \| Названия задач и время готовы к актам/);
   assert.doesNotMatch(md, /Статус выполнения: NOT_APPLICABLE/);
 });
