@@ -33,7 +33,7 @@ export const RULE_CONDITIONS: Record<string, string> = {
   tracking_on_non_work_status:
     "трекинг времени не должен фиксироваться вне рабочих статусов задачи",
   tracking_daily_anomaly:
-    "списание времени за один день по одной задаче не должно превышать порог",
+    "суммарное списание времени за один день не должно строго превышать порог (значение, равное порогу, не нарушение)",
   tracking_high_without_result:
     "при большом объёме затреканного времени должен быть содержательный результат",
   review_stage_requires_assignee:
@@ -64,7 +64,7 @@ export const RULE_CONDITIONS: Record<string, string> = {
   project_worksheet_match:
     "название и описание проекта в AppTask должны соответствовать рабочей таблице",
   team_worksheet_match:
-    "состав команды должен соответствовать рабочей таблице проекта",
+    "исполнители из AppTask должны присутствовать в Discord-гильдии проекта и в рабочей таблице активных участников",
   team_role_rate_match:
     "роль и ставка участников должны быть заполнены и соответствовать рабочей таблице",
   task_type_classification:

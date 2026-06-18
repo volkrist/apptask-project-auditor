@@ -1,8 +1,6 @@
 import type { RawTask, TaskComment } from "../../adapters/apptask/types.js";
 import { commentPlainTextForRules } from "../helpers.js";
-
-const OPEN_QUESTION_MARKERS =
-  /уточнить|обсудить|ждем ответ|ждём ответ|непонятно|нужно уточнить/i;
+import { isOpenQuestionComment } from "./comment-heuristics.js";
 
 function commentAuthor(comment: TaskComment): string {
   return String(comment.creatorName ?? comment.creatorId ?? "")
@@ -16,11 +14,6 @@ function commentTime(comment: TaskComment): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
-function isQuestionComment(text: string): boolean {
-  if (!text.trim()) return false;
-  return text.includes("?") || text.includes("？") || OPEN_QUESTION_MARKERS.test(text);
-}
-
 /** Эвристика: вопрос в комментарии без ответа другого участника. */
 export function findOpenQuestionWithoutReply(task: RawTask): string | null {
   const comments = [...(task.comments ?? [])].sort(
@@ -30,7 +23,7 @@ export function findOpenQuestionWithoutReply(task: RawTask): string | null {
   for (let i = 0; i < comments.length; i++) {
     const comment = comments[i]!;
     const text = commentPlainTextForRules(comment);
-    if (!isQuestionComment(text)) continue;
+    if (!isOpenQuestionComment(text)) continue;
 
     const author = commentAuthor(comment);
     const later = comments.slice(i + 1);

@@ -1,5 +1,5 @@
 import type { Rule } from "../rule-types.js";
-import { fail, notApplicable, pass, skip, warn } from "../helpers.js";
+import { fail, notApplicable, pass, skip, warn, commentPlainTextForRules } from "../helpers.js";
 import {
   isBlockedTask,
   isCompletedStatus,
@@ -13,6 +13,7 @@ import { isUiRelatedTask } from "../task-ui.js";
 import { getAuditProfile, resolveAuditProfileId } from "../../config/audit-profiles.js";
 import { partitionTasksForAudit } from "../../tasks/task-classification.js";
 import { getTaskTrackingMetrics } from "../../tracking/load-tracking-context.js";
+import { hasVerificationSuccessMarker } from "../soft/comment-heuristics.js";
 import { findOpenQuestionWithoutReply } from "../soft/open-questions-closed.js";
 
 function primaryAssignee(task: Parameters<Rule["evaluate"]>[0]): string | null {
@@ -290,7 +291,7 @@ export const verifiedSuccessCommentRule: Rule = {
     }
     const comments = task.comments ?? [];
     const ok = comments.some((c) =>
-      /проверено|принято|approved|ok\b/i.test(c.text ?? ""),
+      hasVerificationSuccessMarker(commentPlainTextForRules(c)),
     );
     if (ok) {
       return pass("verified_success_comment", "Маркер успешной проверки найден");

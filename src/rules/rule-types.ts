@@ -8,6 +8,7 @@ import type {
 import type { TrackingAuditContext } from "../tracking/load-tracking-context.js";
 import type { BoardMetadataById } from "../collectors/board-metadata.js";
 import type { WorksheetAuditContext } from "../worksheet/worksheet-reader.js";
+import type { DiscordTeamContext } from "../team/discord-guild-members.js";
 
 export type RuleStatus = "PASS" | "FAIL" | "WARN" | "SKIP" | "NOT_APPLICABLE";
 
@@ -30,6 +31,7 @@ export type RuleContext = {
   auditProfileId?: string;
   boardMetadata?: BoardMetadataById;
   worksheet?: WorksheetAuditContext | null;
+  discordTeam?: DiscordTeamContext | null;
 };
 
 export type Rule = {
@@ -154,6 +156,8 @@ export type AuditResult = {
     taskLevelWarnCount?: number;
     entityLevelFailCount?: number;
     entityLevelWarnCount?: number;
+    /** Статус Discord-сверки команды для отчёта. */
+    discordTeamNote?: string;
   };
   entityFindings?: EntityFinding[];
   topIssues: Array<{ ruleId: string; label: string; count: number }>;

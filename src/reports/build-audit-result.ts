@@ -12,6 +12,8 @@ import { loadBoardMetadataById } from "../collectors/board-metadata.js";
 import { loadDbConfig } from "../collectors/db-config.js";
 import { closeDb } from "../collectors/db-client.js";
 import { loadWorksheetAuditContext } from "../worksheet/worksheet-reader.js";
+import { loadDiscordTeamContext } from "../team/discord-guild-members.js";
+import { TURBOWEAVE_GUILD_ID } from "../config/audit-modes.js";
 import { computeIssueCounts } from "./structured-findings.js";
 import { evaluateProject } from "../rules/evaluate.js";
 import type { AuditResult, RuleStatus } from "../rules/rule-types.js";
@@ -85,6 +87,16 @@ export async function buildAuditResult(
   ];
   const tracking = await loadTrackingAuditContext(boardIds);
   const worksheet = await loadWorksheetAuditContext();
+  const guildId =
+    process.env.AUDIT_DISCORD_GUILD_ID?.trim() ||
+    process.env.DISCORD_GUILD_ID?.trim() ||
+    TURBOWEAVE_GUILD_ID;
+  const discordTeam = await loadDiscordTeamContext(guildId);
+  const discordTeamNote = discordTeam.loaded
+    ? `guild ${discordTeam.guildId}, участников ${discordTeam.memberDisplayNames.length}`
+    : discordTeam.guildId
+      ? `недоступна (${discordTeam.loadError ?? "ошибка загрузки"})`
+      : "guild id не задан";
   let boardMetadata: Awaited<ReturnType<typeof loadBoardMetadataById>> = {};
   if (boardIds.length > 0) {
     try {
@@ -103,6 +115,7 @@ export async function buildAuditResult(
     stateNameByKey: options.stateNameByKey,
     boardMetadata,
     worksheet,
+    discordTeam,
   });
 
   const boardSummaries =
@@ -171,6 +184,7 @@ export async function buildAuditResult(
       trackingLoadError: tracking.loaded ? undefined : tracking.loadError,
       trackingRowCount: tracking.rowCount,
       trackingByTaskKey: tracking.byTaskKey,
+      discordTeamNote,
     },
     topIssues: [],
     cards: project.cards,

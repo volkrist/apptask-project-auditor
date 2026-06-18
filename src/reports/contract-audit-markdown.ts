@@ -6,6 +6,8 @@ import {
   formatEntityViolationBlock,
   formatTaskViolationBlock,
   formatTrackingDailyAnomalyGroup,
+  formatTeamWorksheetGroup,
+  formatTaskClassificationDebugTable,
   type TaskViolationGroup,
 } from "./evidence-markdown.js";
 import { ruleCondition } from "./rule-conditions.js";
@@ -159,6 +161,11 @@ export function buildContractAuditMarkdown(
     );
   }
 
+  const discordNote = result.meta.discordTeamNote;
+  if (discordNote) {
+    lines.push(`- Discord-сверка команды: ${discordNote}`);
+  }
+
   if (meta.boardSummaries && meta.boardSummaries.length > 1) {
     lines.push("", "### Доски в аудите");
     for (const b of meta.boardSummaries) {
@@ -188,12 +195,20 @@ export function buildContractAuditMarkdown(
     const trackingAnomalies = entityGroups.filter(
       (f) => f.ruleId === "tracking_daily_anomaly",
     );
+    const teamViolations = entityGroups.filter(
+      (f) => f.ruleId === "team_worksheet_match",
+    );
     const otherEntities = entityGroups.filter(
-      (f) => f.ruleId !== "tracking_daily_anomaly",
+      (f) =>
+        f.ruleId !== "tracking_daily_anomaly" &&
+        f.ruleId !== "team_worksheet_match",
     );
 
     if (trackingAnomalies.length > 0) {
       lines.push(...formatTrackingDailyAnomalyGroup(trackingAnomalies));
+    }
+    if (teamViolations.length > 0) {
+      lines.push(...formatTeamWorksheetGroup(teamViolations));
     }
     for (const entity of otherEntities) {
       lines.push(...formatEntityViolationBlock(entity));
@@ -209,6 +224,7 @@ export function buildContractAuditMarkdown(
 
   lines.push("");
   lines.push(...formatCheckRegistryMarkdown(result));
+  lines.push(...formatTaskClassificationDebugTable(result));
 
   lines.push("", "## Исключённые карточки", "");
   const excluded = meta.excludedFlowCards ?? meta.excludedFlowExamples ?? [];

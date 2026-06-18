@@ -13,6 +13,7 @@ import type {
 import type { TrackingAuditContext } from "../tracking/load-tracking-context.js";
 import type { BoardMetadataById } from "../collectors/board-metadata.js";
 import type { WorksheetAuditContext } from "../worksheet/worksheet-reader.js";
+import type { DiscordTeamContext } from "../team/discord-guild-members.js";
 import { filterSourceUnavailableSkips } from "../reports/report-presentation.js";
 import { partitionTasksForAudit } from "../tasks/task-classification.js";
 import { allRules } from "./registry.js";
@@ -39,6 +40,7 @@ export type EvaluateExtras = {
   auditProfileId?: string;
   boardMetadata?: BoardMetadataById;
   worksheet?: WorksheetAuditContext | null;
+  discordTeam?: DiscordTeamContext | null;
 };
 
 function buildContext(
@@ -59,6 +61,7 @@ function buildContext(
     auditProfileId: profileId,
     boardMetadata: extras?.boardMetadata,
     worksheet: extras?.worksheet ?? null,
+    discordTeam: extras?.discordTeam ?? null,
   };
 }
 

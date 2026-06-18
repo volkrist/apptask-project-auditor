@@ -11,9 +11,14 @@ import {
 test("classifyTaskType detects flow and ui", () => {
   const flow = { ...emptyRawTask(), title: "Менеджмент (PM)" };
   const ui = { ...emptyRawTask(), title: "3.2.1 UI: HUD (UI/UX)" };
+  const uiSuffix = {
+    ...emptyRawTask(),
+    title: '7.2.3 Иконка бустера "Фора" (UI/UX)',
+  };
   const regular = { ...emptyRawTask(), title: "3.1.1 Движение (front)" };
   assert.equal(classifyTaskType(flow), "flow");
   assert.equal(classifyTaskType(ui), "ui");
+  assert.equal(classifyTaskType(uiSuffix), "ui");
   assert.equal(classifyTaskType(regular), "regular");
 });
 

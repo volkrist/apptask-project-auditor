@@ -18,11 +18,39 @@ import {
   projectNamesAlign,
   sprintMilestonesHaveDates,
 } from "../worksheet/worksheet-reader.js";
+import {
+  discordMemberMatches,
+} from "../team/discord-guild-members.js";
 import type { EntityFinding, RuleContext } from "./rule-types.js";
 import { getRuleScope } from "./rule-scopes.js";
 
 const TRACKING_DAILY_ANOMALY_HOURS =
   Number(process.env.TRACKING_DAILY_ANOMALY_HOURS ?? "10") || 10;
+
+function roundTrackingHours(hours: number): number {
+  return Math.round(hours * 10) / 10;
+}
+
+function worksheetSourceLabel(ws: NonNullable<RuleContext["worksheet"]>): string {
+  const base = "рабочая таблица / лист «Участники проекта»";
+  if (ws.spreadsheetId) {
+    return `${base} (${googleSpreadsheetUrl(ws.spreadsheetId)})`;
+  }
+  return base;
+}
+
+function teamSourceLabel(ctx: RuleContext): string {
+  const parts = ["AppTask BoardTaskUsers"];
+  const ws = ctx.worksheet;
+  if (ws?.loaded) parts.push(worksheetSourceLabel(ws));
+  const discord = ctx.discordTeam;
+  if (discord?.loaded) {
+    parts.push(`Discord guild ${discord.guildId}`);
+  } else if (discord?.guildId) {
+    parts.push(`Discord: ${discord.loadError ?? "недоступен"}`);
+  }
+  return parts.join(" + ");
+}
 
 function primaryAssignee(task: RawTask): string | null {
   const name = task.assignees.find((a) => a?.trim() && !a.includes("Добавить"));
@@ -58,7 +86,11 @@ function boardFindings(
         reason: check.summary,
         scope: "board",
         objectLabel,
+        source: "AppTask Boards.name",
         actualValue: meta.name,
+        expectedValue:
+          "шаблон «{Тег проекта} {Проект} {Тип проекта} — {Менеджер проекта}»",
+        link: `https://apptask.ru/c/7/board/${meta.boardId}`,
         details: [...check.deviations, ...check.notes],
       });
     } else {
@@ -68,7 +100,11 @@ function boardFindings(
         reason: check.summary,
         scope: "board",
         objectLabel,
+        source: "AppTask Boards.name",
         actualValue: meta.name,
+        expectedValue:
+          "шаблон «{Тег проекта} {Проект} {Тип проекта} — {Менеджер проекта}»",
+        link: `https://apptask.ru/c/7/board/${meta.boardId}`,
         details: check.notes,
       });
     }
@@ -153,6 +189,11 @@ function projectWorksheetFindings(
   const boardText = extractBoardText(meta);
   const boardName = meta.name?.trim() ?? "";
 
+  const sheetLink = ws.spreadsheetId
+    ? googleSpreadsheetUrl(ws.spreadsheetId)
+    : undefined;
+  const source = `AppTask Boards.description + рабочая таблица / лист «Информация о проекте»`;
+
   if (!ws.projectInfoTabFound) {
     findings.push({
       ruleId: "project_worksheet_match",
@@ -160,7 +201,10 @@ function projectWorksheetFindings(
       reason: "в рабочей таблице не найден лист «Информация о проекте»",
       scope: "project",
       objectLabel: "проект",
+      source,
       actualValue: "лист с названием и описанием проекта отсутствует",
+      expectedValue: "лист «Информация о проекте» с полями проекта",
+      link: sheetLink,
     });
     return findings;
   }
@@ -172,7 +216,10 @@ function projectWorksheetFindings(
       reason: "в рабочей таблице не найдены поля названия и краткого описания проекта",
       scope: "project",
       objectLabel: "проект",
+      source,
       actualValue: "колонки «Проект» / «Краткое описание» не распознаны",
+      expectedValue: "название и краткое описание проекта заполнены в таблице",
+      link: sheetLink,
     });
   }
 
@@ -183,7 +230,10 @@ function projectWorksheetFindings(
       reason: "описание доски пустое — нельзя сверить с рабочей таблицей",
       scope: "project",
       objectLabel,
+      source,
       actualValue: boardName || "описание доски пустое",
+      expectedValue: "описание доски отражает данные из рабочей таблицы",
+      link: `https://apptask.ru/c/7/board/${meta.boardId}`,
     });
   }
 
@@ -194,7 +244,10 @@ function projectWorksheetFindings(
       reason: "название доски не совпадает с названием проекта в рабочей таблице",
       scope: "project",
       objectLabel,
-      actualValue: `доска: ${boardName}; таблица: ${ws.projectName}`,
+      source,
+      actualValue: `доска: «${boardName}»; таблица: «${ws.projectName}»`,
+      expectedValue: "название доски совпадает с названием проекта в таблице",
+      link: sheetLink,
     });
   }
 
@@ -208,7 +261,10 @@ function projectWorksheetFindings(
         reason: "описание доски не отражает краткое описание проекта из рабочей таблицы",
         scope: "project",
         objectLabel,
-        actualValue: `таблица: ${ws.projectDescription.slice(0, 120)}`,
+        source,
+        actualValue: `таблица: «${ws.projectDescription.slice(0, 120)}»; доска: «${boardText.slice(0, 120)}»`,
+        expectedValue: "описание доски содержит краткое описание из таблицы",
+        link: sheetLink,
       });
     }
   } else {
@@ -218,7 +274,10 @@ function projectWorksheetFindings(
       reason: "в рабочей таблице не найдено краткое описание проекта для сверки",
       scope: "project",
       objectLabel: "проект",
+      source,
       actualValue: "поле «Краткое описание» не заполнено или не найдено",
+      expectedValue: "краткое описание проекта заполнено в таблице",
+      link: sheetLink,
     });
   }
 
@@ -243,6 +302,10 @@ function teamRoleRateFindings(
   }
 
   const findings: EntityFinding[] = [];
+  const sheetLink = ws.spreadsheetId
+    ? googleSpreadsheetUrl(ws.spreadsheetId)
+    : undefined;
+  const source = `рабочая таблица / лист «Участники проекта»`;
 
   if (!ws.participantColumns.role) {
     findings.push({
@@ -251,7 +314,10 @@ function teamRoleRateFindings(
       reason: "в рабочей таблице не найдена колонка роли (специализация)",
       scope: "team",
       objectLabel: "рабочая таблица",
+      source,
       actualValue: "колонка «Специализация» отсутствует",
+      expectedValue: "колонка «Специализация» заполнена для участников",
+      link: sheetLink,
     });
   }
   if (!ws.participantColumns.rate) {
@@ -261,7 +327,10 @@ function teamRoleRateFindings(
       reason: "в рабочей таблице не найдена колонка ставки",
       scope: "team",
       objectLabel: "рабочая таблица",
+      source,
       actualValue: "колонка «Ставка» отсутствует",
+      expectedValue: "колонка «Ставка» заполнена для участников",
+      link: sheetLink,
     });
   }
 
@@ -295,6 +364,10 @@ function teamRoleRateFindings(
         reason: "роль не заполнена в рабочей таблице",
         scope: "team",
         objectLabel: `участник — ${assignee}`,
+        source,
+        actualValue: `${assignee}: роль не указана в таблице`,
+        expectedValue: "роль (специализация) заполнена в рабочей таблице",
+        link: sheetLink,
       });
     }
     if (ws.participantColumns.rate && !participant.rate?.trim()) {
@@ -304,6 +377,10 @@ function teamRoleRateFindings(
         reason: "ставка не заполнена в рабочей таблице",
         scope: "team",
         objectLabel: `участник — ${assignee}`,
+        source,
+        actualValue: `${assignee}: ставка не указана в таблице`,
+        expectedValue: "ставка заполнена в рабочей таблице",
+        link: sheetLink,
       });
     }
   }
@@ -361,6 +438,7 @@ function teamFindings(
   ctx: RuleContext,
 ): EntityFinding[] {
   const ws = ctx.worksheet;
+  const discord = ctx.discordTeam;
   if (!ws?.loaded) {
     return [
       {
@@ -369,6 +447,9 @@ function teamFindings(
         reason: ws?.loadError ?? "рабочая таблица проекта не подключена",
         scope: "team",
         objectLabel: "команда проекта",
+        source: "AppTask BoardTaskUsers + рабочая таблица",
+        actualValue: ws?.loadError ?? "рабочая таблица не загружена",
+        expectedValue: "состав команды сверен с Discord и рабочей таблицей",
       },
     ];
   }
@@ -382,6 +463,9 @@ function teamFindings(
         reason: "в рабочей таблице не найден список участников",
         scope: "team",
         objectLabel: "команда проекта",
+        source: teamSourceLabel(ctx),
+        actualValue: "лист участников пуст или не распознан",
+        expectedValue: "активные участники перечислены в рабочей таблице",
       },
     ];
   }
@@ -393,16 +477,44 @@ function teamFindings(
   }
 
   const findings: EntityFinding[] = [];
+  const sheetLink = ws.spreadsheetId
+    ? googleSpreadsheetUrl(ws.spreadsheetId)
+    : undefined;
+  const source = teamSourceLabel(ctx);
+  const expected =
+    "участник назначен в AppTask, найден в Discord проекта и в рабочей таблице активных участников";
+
   for (const assignee of [...assignees].sort()) {
-    if (!participantNameMatches(assignee, active)) {
-      findings.push({
-        ruleId: "team_worksheet_match",
-        status: "WARN",
-        reason: "не найден среди активных участников рабочей таблицы",
-        scope: "team",
-        objectLabel: `участник — ${assignee}`,
-      });
-    }
+    const inWorksheet = participantNameMatches(assignee, active);
+    const inDiscord =
+      discord?.loaded === true
+        ? discordMemberMatches(assignee, discord.memberDisplayNames)
+        : null;
+
+    const problems: string[] = [];
+    if (!inWorksheet) problems.push("не найден в рабочей таблице");
+    if (inDiscord === false) problems.push("не найден в Discord");
+
+    if (problems.length === 0) continue;
+
+    const discordFact =
+      inDiscord === null
+        ? "Discord: сверка пропущена"
+        : inDiscord
+          ? "Discord: найден"
+          : "Discord: не найден";
+
+    findings.push({
+      ruleId: "team_worksheet_match",
+      status: "WARN",
+      reason: problems.join("; "),
+      scope: "team",
+      objectLabel: `участник — ${assignee}`,
+      source,
+      actualValue: `${assignee} назначен в AppTask; таблица: ${inWorksheet ? "найден" : "не найден"}; ${discordFact}`,
+      expectedValue: expected,
+      link: sheetLink,
+    });
   }
 
   return findings;
@@ -510,7 +622,8 @@ function trackingDailyFindings(
 
   const findings: EntityFinding[] = [];
   for (const entry of byUserDay.values()) {
-    if (entry.hours <= TRACKING_DAILY_ANOMALY_HOURS) continue;
+    const roundedHours = roundTrackingHours(entry.hours);
+    if (roundedHours <= TRACKING_DAILY_ANOMALY_HOURS) continue;
     const who = entry.userName ?? `user ${entry.userId}`;
     const taskRefs = entry.tasks.map((id) => {
       const task = taskById.get(id);
@@ -526,17 +639,17 @@ function trackingDailyFindings(
     findings.push({
       ruleId: "tracking_daily_anomaly",
       status: "WARN",
-      reason: `списано ${Math.round(entry.hours * 10) / 10} ч за день (порог ${TRACKING_DAILY_ANOMALY_HOURS} ч)`,
+      reason: `списано ${roundedHours} ч за день (порог > ${TRACKING_DAILY_ANOMALY_HOURS} ч)`,
       scope: "user",
       objectLabel: `${who}, ${entry.date}`,
       source: "учёт фактического времени (БД)",
-      actualValue: `${Math.round(entry.hours * 10) / 10} ч`,
-      expectedValue: `не более ${TRACKING_DAILY_ANOMALY_HOURS} ч за день`,
+      actualValue: `${roundedHours} ч`,
+      expectedValue: `не более ${TRACKING_DAILY_ANOMALY_HOURS} ч за день (нарушение при строго большем значении)`,
       trackingRows: [
         {
           date: entry.date,
           userName: who,
-          hours: Math.round(entry.hours * 10) / 10,
+          hours: roundedHours,
           limitHours: TRACKING_DAILY_ANOMALY_HOURS,
           tasks: taskRefs,
         },

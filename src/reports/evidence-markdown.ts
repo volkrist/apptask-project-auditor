@@ -1,4 +1,6 @@
 import type { AuditResult, CardAudit, EntityFinding } from "../rules/rule-types.js";
+import { getAuditProfile, resolveAuditProfileId } from "../config/audit-profiles.js";
+import { buildTaskClassificationRows } from "../tasks/task-type-classification.js";
 import { ruleCondition } from "./rule-conditions.js";
 import { ruleLabel } from "./rule-labels.js";
 import { escapeTableCell } from "./report-links.js";
@@ -84,6 +86,105 @@ function formatDefaultTaskTable(group: TaskViolationGroup): string[] {
   return lines;
 }
 
+function entityEvidenceCell(value: string | undefined, fallback: string): string {
+  const v = value?.trim();
+  return escapeTableCell(v && v !== "—" ? v : fallback);
+}
+
+export function formatTaskClassificationDebugTable(
+  result: AuditResult,
+): string[] {
+  const profileId = resolveAuditProfileId(
+    result.meta.auditProfile as string | undefined,
+  );
+  const profile = getAuditProfile(profileId);
+  const allTasks = [
+    ...result.cards.map((c) => c.task),
+    ...(result.meta.excludedFlowCards ?? []).map((ex) => ({
+      id: ex.id,
+      title: ex.title,
+      url: ex.url,
+      status: ex.status,
+      assignees: ex.assignee ? [ex.assignee] : [],
+      descriptionText: null,
+      createdAt: null,
+      startDate: null,
+      dueDate: null,
+      priority: null,
+      tags: [],
+      creator: null,
+      assigneeRefs: [],
+      category: null,
+      stage: null,
+      plannedTime: null,
+      actualTime: null,
+      links: [],
+      attachments: [],
+      comments: [],
+      boardId: null,
+    })),
+  ];
+  const seen = new Set<string>();
+  const uniqueTasks = allTasks.filter((t) => {
+    if (!t.id || seen.has(t.id)) return false;
+    seen.add(t.id);
+    return true;
+  });
+
+  const rows = buildTaskClassificationRows(uniqueTasks, profile);
+  const bucketLabel: Record<string, string> = {
+    flow: "потоковая",
+    ui: "UI/front",
+    regular: "обычная",
+    unknown: "неизвестно",
+  };
+
+  const lines = [
+    "",
+    "## Классификация задач",
+    "",
+    "| № | Название | Тип | Причина классификации | Применённые правила |",
+    "| - | -------- | --- | --------------------- | ------------------- |",
+  ];
+
+  for (const row of rows) {
+    const link = uniqueTasks.find((t) => t.id === row.id)?.url;
+    const idCell = link
+      ? `[№${row.id}](${link})`
+      : `№${row.id}`;
+    lines.push(
+      `| ${idCell} | ${escapeTableCell(row.title)} | ${bucketLabel[row.bucket] ?? row.bucket} | ${escapeTableCell(row.reason)} | ${escapeTableCell(row.appliedRules)} |`,
+    );
+  }
+
+  lines.push("");
+  return lines;
+}
+
+export function formatTeamWorksheetGroup(findings: EntityFinding[]): string[] {
+  const violations = findings.filter((f) => f.status === "WARN" || f.status === "FAIL");
+  if (violations.length === 0) return [];
+
+  const lines: string[] = [
+    "",
+    `#### Проверка: ${humanLabel("team_worksheet_match")}`,
+    "",
+    `Условие: ${ruleCondition("team_worksheet_match")}.`,
+    `Результат: WARN — найдено ${violations.length} ${violations.length === 1 ? "участник" : "участников"}.`,
+    "",
+    "| Объект | Источник | Фактическое значение | Ожидаемое значение | Ссылка |",
+    "| ------ | -------- | -------------------- | ------------------ | ------ |",
+  ];
+
+  for (const f of violations) {
+    lines.push(
+      `| ${entityEvidenceCell(f.objectLabel, "участник")} | ${entityEvidenceCell(f.source, "AppTask + рабочая таблица + Discord")} | ${entityEvidenceCell(f.actualValue, f.reason)} | ${entityEvidenceCell(f.expectedValue, ruleCondition("team_worksheet_match"))} | ${f.link ? `[открыть](${f.link})` : "—"} |`,
+    );
+  }
+
+  return lines;
+}
+
 function expectedForRule(ruleId: string, _reason: string): string {
   const map: Record<string, string> = {
     assignee_present: "назначен исполнитель",
@@ -140,7 +241,7 @@ function formatTrackingAnomalyTable(findings: EntityFinding[]): string[] {
       })
       .join("; ");
     lines.push(
-      `| ${row.date} | ${escapeTableCell(row.userName)} | ${cardCol} | ${row.hours} ч | ${row.limitHours} ч |`,
+      `| ${row.date} | ${escapeTableCell(row.userName)} | ${cardCol} | ${row.hours} ч | > ${row.limitHours} ч |`,
     );
   }
   return lines;
@@ -177,7 +278,7 @@ export function formatEntityViolationBlock(finding: EntityFinding): string[] {
     "",
     "| Объект | Источник | Фактическое значение | Ожидаемое значение | Ссылка |",
     "| ------ | -------- | -------------------- | ------------------ | ------ |",
-    `| ${escapeTableCell(finding.objectLabel)} | ${escapeTableCell(finding.source ?? "—")} | ${escapeTableCell(finding.actualValue ?? "—")} | ${escapeTableCell(finding.expectedValue ?? "—")} | ${finding.link ? `[открыть](${finding.link})` : "—"} |`,
+    `| ${entityEvidenceCell(finding.objectLabel, "объект проверки")} | ${entityEvidenceCell(finding.source, ruleCondition(finding.ruleId))} | ${entityEvidenceCell(finding.actualValue, simplifyReasonText(finding.reason))} | ${entityEvidenceCell(finding.expectedValue, ruleCondition(finding.ruleId))} | ${finding.link ? `[открыть](${finding.link})` : "—"} |`,
   );
 
   if (finding.details && finding.details.length > 0) {
