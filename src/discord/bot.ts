@@ -528,7 +528,9 @@ async function deliverPagedAuditReport(
     pages,
     currentPage: 0,
     files: [
+      { path: out.output.humanSummaryPath, name: "human-summary.md" },
       { path: out.output.reportPath, name: "audit-report.md" },
+      { path: out.output.humanSummaryHtmlPath, name: "human-summary.html" },
       { path: out.output.jsonPath, name: "audit.json" },
     ],
   });
@@ -1252,6 +1254,14 @@ client.on("interactionCreate", async (interaction) => {
   } finally {
     auditInProgress = false;
   }
+});
+
+client.on("error", (err) => {
+  console.error("[discord] client error:", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[discord] unhandled rejection:", reason);
 });
 
 await client.login(token);

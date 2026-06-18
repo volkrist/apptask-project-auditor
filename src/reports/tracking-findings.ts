@@ -83,12 +83,6 @@ export function buildTrackingHoursMarkdown(result: AuditResult): string[] {
     return lines;
   }
 
-  lines.push(
-    "_actualHours = SUM(total_time) / 3_600_000. manualAppendHours = SUM(append_total_time) / 3_600_000 (отдельно, не в правилах)._",
-    `_Строк summaries: ${result.meta.trackingRowCount ?? "?"}`,
-    "",
-  );
-
   const counts = result.meta.issueCounts;
   if (counts) {
     lines.push(
@@ -151,6 +145,13 @@ export function buildTrackingHoursMarkdown(result: AuditResult): string[] {
   if (warnRows.length === 0) {
     lines.push("_Нарушений tracking-hours не найдено._");
   }
+
+  lines.push(
+    "",
+    "### Технические формулы",
+    "_actualHours = SUM(total_time) / 3_600_000. manualAppendHours = SUM(append_total_time) / 3_600_000 (отдельно, не в правилах)._",
+    `_Строк summaries: ${result.meta.trackingRowCount ?? "?"}`,
+  );
 
   return lines;
 }

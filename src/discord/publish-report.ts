@@ -147,10 +147,14 @@ export function buildReportAttachments(
     logReportFile("markdownPath", out.output.markdownPath);
     logReportFile("jsonPath", out.output.jsonPath);
     logReportFile("reportPath", out.output.reportPath);
+    logReportFile("humanSummaryPath", out.output.humanSummaryPath);
+    logReportFile("humanSummaryHtmlPath", out.output.humanSummaryHtmlPath);
   }
 
   const candidates = [
+    { path: out.output.humanSummaryPath, name: "human-summary.md" },
     { path: out.output.reportPath, name: "audit-report.md" },
+    { path: out.output.humanSummaryHtmlPath, name: "human-summary.html" },
   ];
 
   const files: AttachmentBuilder[] = [];

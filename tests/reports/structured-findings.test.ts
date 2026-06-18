@@ -120,7 +120,8 @@ test("markdown sections render structured headings", () => {
   assert.match(queueMd, /## Очередь тестирования/);
 
   const human = buildHumanAuditMarkdown(result);
-  assert.match(human, /### Сводка по новым проверкам/);
+  assert.match(human, /## Краткий вывод/);
+  assert.match(human, /## Техническое приложение: сводка счётчиков/);
   assert.match(human, /## Сроки и статусы/);
   assert.match(human, /## Очередь тестирования/);
 });

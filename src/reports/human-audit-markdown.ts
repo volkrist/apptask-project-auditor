@@ -7,6 +7,7 @@ import {
 } from "./structured-findings.js";
 import { buildScrumEstimateMarkdown } from "./scrum-findings.js";
 import { buildTrackingHoursMarkdown } from "./tracking-findings.js";
+import { buildManagementSummary } from "./management-summary.js";
 
 const RULE_LABELS: Record<string, string> = {
   deadline_present: "Нет дедлайна",
@@ -86,16 +87,41 @@ function cardFixLines(card: CardAudit): string[] {
   return lines;
 }
 
+function appendTechnicalAppendix(lines: string[], result: AuditResult): void {
+  if (!result.meta.issueCounts) return;
+  const c = result.meta.issueCounts;
+  lines.push(
+    "",
+    "## Техническое приложение: сводка счётчиков",
+    "",
+    `- Сроки/дедлайны: ${c.deadlineIssues}`,
+    `- В работе без обновлений: ${c.staleInProgressIssues}`,
+    `- На проверке без движения: ${c.staleReviewIssues}`,
+    `- Очередь тестирования (доски): ${c.testingQueueIssues}`,
+    `- Critical/high без движения: ${c.criticalNoMovementIssues}`,
+    `- Проблемы по комментариям: ${c.commentIssues}`,
+    `- Scrum: не в смете ${c.scrumEstimateMissing ?? 0} | название ${c.scrumNameMismatch ?? 0} | ПВ ${c.pvMissing ?? 0} | декомп. ${c.decompositionMissing ?? 0}`,
+    `- Tracking: done без часов ${c.doneWithoutTracking ?? 0} | in progress stale ${c.inProgressWithoutRecentTracking ?? 0} | факт>ПВ ${c.actualHoursExceededEstimate ?? 0} | без коммент. ${c.estimateExceededWithoutComment ?? 0} | вне статуса ${c.trackingOnNonWorkStatus ?? 0}`,
+    "",
+    "_Понятная сводка для руководителя — в human-summary.md._",
+  );
+}
+
 export function buildHumanAuditMarkdown(
   result: AuditResult,
   extras: { ignoredCount?: number; ignoredUrls?: string[] } = {},
 ): string {
   const status = getAuditStatusText(result.meta.failCount, result.meta.warnCount);
+  const mgmt = buildManagementSummary(result);
   const topIssues = result.topIssues.slice(0, 5);
   const recommendations = issueRecommendations(result.topIssues);
 
   const lines: string[] = [
     "# Отчёт аудита AppTask",
+    "",
+    "## Краткий вывод",
+    "",
+    mgmt.briefConclusion,
     "",
     "## 1. Общая сводка",
     `- Проект: ${result.meta.projectName}`,
@@ -121,22 +147,6 @@ export function buildHumanAuditMarkdown(
     `- Предупреждений: ${result.meta.warnCount}`,
     `- Общий статус: ${status}`,
   );
-
-  if (result.meta.issueCounts) {
-    const c = result.meta.issueCounts;
-    lines.push(
-      "",
-      "### Сводка по новым проверкам",
-      `- Сроки/дедлайны: ${c.deadlineIssues}`,
-      `- В работе без обновлений: ${c.staleInProgressIssues}`,
-      `- На проверке без движения: ${c.staleReviewIssues}`,
-      `- Очередь тестирования (доски): ${c.testingQueueIssues}`,
-      `- Critical/high без движения: ${c.criticalNoMovementIssues}`,
-      `- Проблемы по комментариям: ${c.commentIssues}`,
-      `- Scrum: не в смете ${c.scrumEstimateMissing ?? 0} | название ${c.scrumNameMismatch ?? 0} | ПВ ${c.pvMissing ?? 0} | декомп. ${c.decompositionMissing ?? 0}`,
-      `- Tracking: done без часов ${c.doneWithoutTracking ?? 0} | in progress stale ${c.inProgressWithoutRecentTracking ?? 0} | факт>ПВ ${c.actualHoursExceededEstimate ?? 0} | без коммент. ${c.estimateExceededWithoutComment ?? 0} | вне статуса ${c.trackingOnNonWorkStatus ?? 0}`,
-    );
-  }
 
   if (result.meta.boardSummaries && result.meta.boardSummaries.length > 0) {
     lines.push("", "## 1.1. Сводка по доскам");
@@ -187,6 +197,7 @@ export function buildHumanAuditMarkdown(
 
   if (problematicCards.length === 0) {
     lines.push("- Все карточки без нарушений");
+    appendTechnicalAppendix(lines, result);
     return `${lines.join("\n")}\n`;
   }
 
@@ -210,12 +221,15 @@ export function buildHumanAuditMarkdown(
         appendCardSection(lines, card);
       }
     }
+    appendTechnicalAppendix(lines, result);
     return `${lines.join("\n")}\n`;
   }
 
   for (const card of problematicCards) {
     appendCardSection(lines, card);
   }
+
+  appendTechnicalAppendix(lines, result);
 
   return `${lines.join("\n")}\n`;
 }

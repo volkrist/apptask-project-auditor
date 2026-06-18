@@ -44,7 +44,7 @@ test("comments status text is derived from markers", () => {
   assert.equal(getCommentsStatusText(0), "Маркеры не найдены");
 });
 
-test("buildAuditReportEmbed includes top issues and recommendations", () => {
+test("buildAuditReportEmbed includes management summary fields", () => {
   const auditOut = {
     totalOnBoard: 106,
     result: {
@@ -72,6 +72,8 @@ test("buildAuditReportEmbed includes top issues and recommendations", () => {
       markdownPath: "audit.md",
       jsonPath: "audit.json",
       reportPath: "audit-report.md",
+      humanSummaryPath: "human-summary.md",
+      humanSummaryHtmlPath: "human-summary.html",
     },
     discordPublished: false,
   } as RunAuditResult;
@@ -79,8 +81,10 @@ test("buildAuditReportEmbed includes top issues and recommendations", () => {
   const embed = buildAuditReportEmbed(auditOut);
   const json = embed.toJSON();
   assert.equal(json.title, "✅ Аудит AppFox завершён");
-  assert.ok(json.fields?.some((f) => f.name === "Общий статус" && f.value === "Требует доработки"));
-  assert.ok(json.fields?.some((f) => f.name === "Топ проблем" && String(f.value).includes("Нет дедлайна")));
+  assert.ok(json.fields?.some((f) => f.name === "Общая картина" && String(f.value).includes("Проверено задач")));
+  assert.ok(json.fields?.some((f) => f.name === "Что важно сейчас"));
+  assert.ok(json.fields?.some((f) => f.name === "Что сделать в первую очередь"));
+  assert.ok(json.fields?.some((f) => f.name === "Файлы" && String(f.value).includes("human-summary.md")));
 });
 
 test("buildCommentsReportEmbed includes status", () => {

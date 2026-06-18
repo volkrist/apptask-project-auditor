@@ -1,6 +1,7 @@
 import { EmbedBuilder } from "discord.js";
 import type { RunAuditResult } from "../app/run-audit.js";
 import type { RunCommentsCheckResult } from "../app/run-comments-check.js";
+import { buildManagementSummary, formatHighlightsList, formatPrioritiesList } from "../reports/management-summary.js";
 
 const RULE_LABELS: Record<string, string> = {
   deadline_present: "Нет дедлайна",
@@ -64,48 +65,39 @@ export function getCommentsStatusText(markersFound: number): string {
 export function buildAuditReportEmbed(
   out: RunAuditResult,
 ): EmbedBuilder {
-  const { meta, topIssues } = out.result;
+  const { meta } = out.result;
   const status = getAuditStatusText(meta.failCount, meta.warnCount);
-  const cardsLine =
-    out.totalOnBoard > meta.cardsChecked
-      ? `${meta.cardsChecked} из ${out.totalOnBoard}`
-      : String(meta.cardsChecked);
+  const mgmt = buildManagementSummary(out.result);
 
-  const topProblems = topIssues
-    .slice(0, 5)
-    .map((issue, idx) => {
-      const label = humanizeRuleLabel(issue.ruleId, issue.label);
-      return `${idx + 1}. ${label} — ${issue.count} карточек`;
-    })
-    .join("\n");
+  const overview = [
+    `• Проверено задач: ${meta.cardsChecked}`,
+    `• Критичных проблем: ${meta.failCount}`,
+    `• Предупреждений: ${meta.warnCount}`,
+    `• Статус: ${status}`,
+  ].join("\n");
 
-  const recommendations = buildRecommendations(topIssues)
-    .map((item) => `• ${item}`)
-    .join("\n");
+  const filesBlock = [
+    "• **human-summary.md** — понятный отчёт для руководителя",
+    "• **audit-report.md** — полный технический отчёт",
+  ].join("\n");
 
   const embed = new EmbedBuilder()
     .setTitle(`✅ Аудит ${meta.projectName} завершён`)
     .setColor(meta.failCount > 0 ? 0xed4245 : meta.warnCount > 0 ? 0xfee75c : 0x57f287)
     .addFields(
-      { name: "Доска", value: meta.boardUrl },
-      { name: "Проверено карточек", value: cardsLine, inline: true },
-      { name: "Исключено карточек", value: String(out.ignoredCount ?? 0), inline: true },
-      { name: "Критичных проблем", value: String(meta.failCount), inline: true },
-      { name: "Предупреждений", value: String(meta.warnCount), inline: true },
-      { name: "Общий статус", value: status, inline: false },
+      { name: "Общая картина", value: overview, inline: false },
+      {
+        name: "Что важно сейчас",
+        value: formatHighlightsList(mgmt.highlights).slice(0, 1024),
+        inline: false,
+      },
+      {
+        name: "Что сделать в первую очередь",
+        value: formatPrioritiesList(mgmt.priorities).slice(0, 1024),
+        inline: false,
+      },
+      { name: "Файлы", value: filesBlock, inline: false },
     );
-
-  if (topProblems) {
-    embed.addFields({ name: "Топ проблем", value: topProblems, inline: false });
-  }
-
-  if (recommendations) {
-    embed.addFields({
-      name: "Что исправить в первую очередь",
-      value: recommendations,
-      inline: false,
-    });
-  }
 
   return embed;
 }
