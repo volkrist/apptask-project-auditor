@@ -7,6 +7,7 @@ import {
 } from "./report-data.js";
 import { escHtml, linkOrText, formatStatusAssigneeLine } from "./report-html-utils.js";
 import { ruleLabel } from "./rule-labels.js";
+import { BANNED_USER_REPORT_TERMS } from "./rule-verification-methods.js";
 import { simplifyReasonText, humanizeDiscordInReportText } from "./report-presentation.js";
 import { isEntityRule } from "../rules/rule-scopes.js";
 
@@ -55,6 +56,8 @@ h3 { font-size: 1.05rem; margin: 20px 0 8px; }
 .toc a { text-decoration: none; }
 .toc a:hover { text-decoration: underline; }
 .toc-stats { color: var(--muted); font-size: 13px; margin-left: 6px; }
+.sub-sources { margin: 8px 0 0; padding-left: 20px; font-size: 13px; color: var(--muted); }
+.sub-sources li { margin: 4px 0; }
 .check {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -201,6 +204,7 @@ function renderCheckBlock(check: CheckBlockView): string {
   <div class="muted">Область: ${escHtml(check.entry.scope)} · Проверено: ${escHtml(check.registry.checked)} · Кандидатов: ${escHtml(check.registry.candidates)}</div>
   <div class="muted">Условие: ${escHtml(check.condition)}</div>
   <div class="muted">Метод проверки: ${escHtml(check.verificationMethod)}</div>
+  ${check.subSources?.length ? `<ul class="sub-sources">${check.subSources.map((s) => `<li><strong>${escHtml(s.label)}:</strong> ${escHtml(s.status)} — ${escHtml(s.detail)}</li>`).join("")}</ul>` : ""}
   ${countersHtml}
   ${failPanelHtml}
 </article>`;
@@ -307,7 +311,7 @@ export function buildContractAuditHtml(
           })
           .join("")}</ul>`;
 
-  return `<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
@@ -372,4 +376,12 @@ export function buildContractAuditHtml(
   <script>${REPORT_JS}</script>
 </body>
 </html>`;
+
+  for (const term of BANNED_USER_REPORT_TERMS) {
+    if (html.toLowerCase().includes(term)) {
+      throw new Error(`HTML report contains banned term: ${term}`);
+    }
+  }
+
+  return html;
 }

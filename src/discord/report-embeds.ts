@@ -1,6 +1,10 @@
 import { EmbedBuilder } from "discord.js";
 import type { RunAuditResult } from "../app/run-audit.js";
 import type { RunCommentsCheckResult } from "../app/run-comments-check.js";
+import {
+  buildRegistryTableRows,
+  summarizeRegistryOutcomes,
+} from "../reports/check-registry-stats.js";
 
 const RULE_LABELS: Record<string, string> = {
   deadline_present: "Нет дедлайна",
@@ -61,7 +65,7 @@ export function getCommentsStatusText(markersFound: number): string {
     : "Маркеры не найдены";
 }
 
-/** Короткое уведомление в Discord; полный отчёт — во вложении audit-report.md. */
+/** Короткое уведомление в Discord; полный отчёт — во вложении audit-report.html. */
 export function buildAuditReportEmbed(
   out: RunAuditResult,
 ): EmbedBuilder {
@@ -69,11 +73,16 @@ export function buildAuditReportEmbed(
   const status = getAuditStatusText(meta.failCount, meta.warnCount);
   const excluded = meta.excludedFlowTasks ?? 0;
   const profile = meta.auditProfile ?? "contract_turboweave_v1";
+  const registry = summarizeRegistryOutcomes(
+    buildRegistryTableRows(out.result),
+    out.result,
+  );
 
   const overview = [
     `Проверено: **${meta.cardsChecked}** карточек`,
     excluded > 0 ? `Исключено потоковых: **${excluded}**` : null,
     `FAIL: **${meta.failCount}** | WARN: **${meta.warnCount}**`,
+    `CHECKED: **${registry.checked}** | SKIP: **${registry.skip}**`,
     `Статус: **${status}**`,
     `Профиль: \`${profile}\``,
   ]
@@ -83,7 +92,7 @@ export function buildAuditReportEmbed(
   return new EmbedBuilder()
     .setTitle(`${meta.projectName} audit completed`)
     .setDescription(
-      "Полный отчёт: **audit-report.md** и интерактивный **audit-report.html** во вложениях.",
+      "Полный отчёт: **audit-report.html** во вложении.",
     )
     .setColor(meta.failCount > 0 ? 0xed4245 : meta.warnCount > 0 ? 0xfee75c : 0x57f287)
     .addFields({ name: "Сводка", value: overview, inline: false });

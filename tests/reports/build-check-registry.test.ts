@@ -7,8 +7,8 @@ import {
 } from "../../src/reports/build-check-registry.js";
 import type { AuditResult } from "../../src/rules/rule-types.js";
 
-test("contract check registry has 46 items", () => {
-  assert.equal(CONTRACT_CHECK_REGISTRY.length, 46);
+test("contract check registry has 45 items", () => {
+  assert.equal(CONTRACT_CHECK_REGISTRY.length, 45);
 });
 
 test("registry marks skipped entity rule", () => {
@@ -124,7 +124,7 @@ test("registry counts task-level violations", () => {
     ],
   };
 
-  const row = buildCheckRegistryRows(result).find((r) => r.entry.num === 19);
+  const row = buildCheckRegistryRows(result).find((r) => r.entry.num === 18);
   assert.equal(row?.executionStatus, "CHECKED");
   assert.equal(row?.failCount, 2);
   assert.equal(row?.violations, "2 FAIL");
@@ -154,6 +154,6 @@ test("summarizeCheckRegistry totals", () => {
     ],
   });
   const s = summarizeCheckRegistry(rows);
-  assert.equal(s.checked + s.notApplicable + s.skip, 46);
+  assert.equal(s.checked + s.notApplicable + s.skip, 45);
   assert.equal(s.notApplicable, 0);
 });

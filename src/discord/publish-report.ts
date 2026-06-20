@@ -226,10 +226,7 @@ export function buildReportAttachments(
     logReportFile("humanSummaryPath", out.output.humanSummaryPath);
   }
 
-  const candidates = [
-    { path: out.output.reportPath, name: "audit-report.md" },
-    { path: out.output.htmlPath, name: "audit-report.html" },
-  ];
+  const candidates = [{ path: out.output.htmlPath, name: "audit-report.html" }];
 
   const files: AttachmentBuilder[] = [];
   for (const { path: filePath, name } of candidates) {
@@ -356,7 +353,10 @@ export async function publishFullReportToChannel(
 ): Promise<string[]> {
   const embed = buildAuditReportEmbed(out);
   const files = buildReportAttachments(out, { verbose: true });
-  const registry = summarizeRegistryOutcomes(buildRegistryTableRows(out.result));
+  const registry = summarizeRegistryOutcomes(
+    buildRegistryTableRows(out.result),
+    out.result,
+  );
   const webUrl = buildReportWebUrl(out.output.runId);
   const contentLines = [
     `${out.result.meta.projectName} audit completed`,
@@ -366,7 +366,7 @@ export async function publishFullReportToChannel(
     `CHECKED: ${registry.checked}`,
     `SKIP: ${registry.skip}`,
     "",
-    "Файлы: audit-report.md, audit-report.html",
+    "Файл: audit-report.html",
   ];
   if (webUrl) {
     contentLines.push("", `Открыть web report: ${webUrl}`);

@@ -1,18 +1,22 @@
 import type { AuditResult, CardAudit, EntityFinding } from "../rules/rule-types.js";
 import { getAuditProfile } from "../config/audit-profiles.js";
 import { isEntityRule } from "../rules/rule-scopes.js";
-import { formatCheckRegistryMarkdown } from "./check-registry-stats.js";
+import {
+  formatCheckRegistryMarkdown,
+  buildRegistryTableRows,
+  summarizeRegistryOutcomes,
+} from "./check-registry-stats.js";
 import {
   formatEntityViolationBlock,
   formatTaskViolationBlock,
   formatTrackingDailyAnomalyGroup,
   formatTeamWorksheetGroup,
-  formatTeamDiscordGroup,
   formatTaskClassificationDebugTable,
   type TaskViolationGroup,
 } from "./evidence-markdown.js";
 import { ruleCondition } from "./rule-conditions.js";
 import { ruleLabel } from "./rule-labels.js";
+import { BANNED_USER_REPORT_TERMS } from "./rule-verification-methods.js";
 import {
   filterSourceUnavailableSkips,
   formatAuditedAt,
@@ -120,6 +124,8 @@ export function buildContractAuditMarkdown(
   const excludedFlow = meta.excludedFlowTasks ?? 0;
   const totalOnBoard = meta.totalTasksOnBoard ?? meta.cardsChecked + excludedFlow;
   const ignoredManual = extras.ignoredCount ?? 0;
+  const registryRows = buildRegistryTableRows(result);
+  const registrySummary = summarizeRegistryOutcomes(registryRows, result);
   const sourceSkips = filterSourceUnavailableSkips(meta.skipRuleSummaries ?? []);
   const taskFail = meta.taskLevelFailCount ?? 0;
   const taskWarn = meta.taskLevelWarnCount ?? 0;
@@ -146,7 +152,8 @@ export function buildContractAuditMarkdown(
   lines.push(
     `- FAIL: ${meta.failCount} (карточки: ${taskFail}, объекты: ${entityFail})`,
     `- WARN: ${meta.warnCount} (карточки: ${taskWarn}, объекты: ${entityWarn})`,
-    `- SKIP из-за отсутствия источников: ${sourceSkips.length}`,
+    `- CHECKED: ${registrySummary.checked}`,
+    `- SKIP: ${registrySummary.skip}`,
     `- Статус: ${overallStatus(meta.failCount, meta.warnCount)}`,
     "",
     "## Область проверки",
@@ -189,19 +196,24 @@ export function buildContractAuditMarkdown(
   for (const group of profile.reportGroups) {
     const taskGroups = taskSections.get(group.section) ?? [];
     const entityGroups = entityFindingsForSection(result, group.ruleIds);
-    if (taskGroups.length === 0 && entityGroups.length === 0) continue;
+    const hasTeamRules = group.ruleIds.some(
+      (id) => id === "team_worksheet_match" || id === "team_discord_match",
+    );
+    const teamBlock = hasTeamRules ? formatTeamWorksheetGroup(result) : [];
+
+    if (
+      taskGroups.length === 0 &&
+      entityGroups.length === 0 &&
+      teamBlock.length === 0
+    ) {
+      continue;
+    }
 
     hasAnyResults = true;
     lines.push("", `### ${group.section}`);
 
     const trackingAnomalies = entityGroups.filter(
       (f) => f.ruleId === "tracking_daily_anomaly",
-    );
-    const teamViolations = entityGroups.filter(
-      (f) => f.ruleId === "team_worksheet_match",
-    );
-    const teamDiscord = entityGroups.filter(
-      (f) => f.ruleId === "team_discord_match",
     );
     const otherEntities = entityGroups.filter(
       (f) =>
@@ -213,11 +225,8 @@ export function buildContractAuditMarkdown(
     if (trackingAnomalies.length > 0) {
       lines.push(...formatTrackingDailyAnomalyGroup(trackingAnomalies));
     }
-    if (teamViolations.length > 0) {
-      lines.push(...formatTeamWorksheetGroup(teamViolations));
-    }
-    if (teamDiscord.length > 0) {
-      lines.push(...formatTeamDiscordGroup(teamDiscord));
+    if (teamBlock.length > 0) {
+      lines.push(...teamBlock);
     }
     for (const entity of otherEntities) {
       lines.push(...formatEntityViolationBlock(entity));
@@ -316,6 +325,11 @@ export function buildContractAuditMarkdown(
   for (const phrase of banned) {
     if (body.includes(phrase)) {
       throw new Error(`Report contains banned phrase: ${phrase}`);
+    }
+  }
+  for (const term of BANNED_USER_REPORT_TERMS) {
+    if (body.toLowerCase().includes(term)) {
+      throw new Error(`Report contains banned term: ${term}`);
     }
   }
 

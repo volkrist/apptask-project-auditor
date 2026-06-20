@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { buildReportAttachments } from "../../src/discord/publish-report.js";
 import type { RunAuditResult } from "../../src/app/run-audit.js";
 
-test("buildReportAttachments attaches audit-report.md and audit-report.html", () => {
+test("buildReportAttachments attaches audit-report.html only", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "audit-attach-"));
   const reportPath = path.join(dir, "audit-report.md");
   fs.writeFileSync(reportPath, "# report", "utf8");
@@ -32,7 +32,6 @@ test("buildReportAttachments attaches audit-report.md and audit-report.html", ()
   fs.writeFileSync(out.output.htmlPath, "<html></html>", "utf8");
 
   const files = buildReportAttachments(out);
-  assert.equal(files.length, 2);
-  assert.equal(files[0]?.name, "audit-report.md");
-  assert.equal(files[1]?.name, "audit-report.html");
+  assert.equal(files.length, 1);
+  assert.equal(files[0]?.name, "audit-report.html");
 });

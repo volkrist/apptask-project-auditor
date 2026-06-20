@@ -9,6 +9,10 @@ import {
   buildBoardClassification,
   formatClassificationSummaryLine,
 } from "./board-classification.js";
+import {
+  isTeamDiscordSkipped,
+  describeTeamCompositeRegistry,
+} from "./team-check-composite.js";
 import { escapeTableCell } from "./report-links.js";
 import {
   isSourceMissingSkip,
@@ -326,6 +330,19 @@ function buildRegistryRow(
     };
   }
 
+  if (ruleId === "team_worksheet_match") {
+    const wsEntity = describeEntityRow("team_worksheet_match", result) ?? {
+      checked: "—",
+      candidates: "—",
+      violations: "—",
+      outcome: "SKIP" as RegistryOutcome,
+    };
+    return {
+      entry,
+      ...describeTeamCompositeRegistry(result, wsEntity),
+    };
+  }
+
   if (isRuleSkipped(result, ruleId)) {
     if (isEntityRule(ruleId)) {
       const entity = describeEntityRow(ruleId, result);
@@ -366,7 +383,10 @@ export function buildRegistryTableRows(result: AuditResult): RegistryTableRow[] 
   return CONTRACT_CHECK_REGISTRY.map((entry) => buildRegistryRow(entry, result));
 }
 
-export function summarizeRegistryOutcomes(rows: RegistryTableRow[]): {
+export function summarizeRegistryOutcomes(
+  rows: RegistryTableRow[],
+  result?: AuditResult,
+): {
   checked: number;
   notApplicable: number;
   skip: number;
@@ -379,12 +399,15 @@ export function summarizeRegistryOutcomes(rows: RegistryTableRow[]): {
     else if (row.outcome === "SKIP") skip++;
     else checked++;
   }
+  if (result && isTeamDiscordSkipped(result)) {
+    skip += 1;
+  }
   return { checked, notApplicable, skip };
 }
 
 export function formatCheckRegistryMarkdown(result: AuditResult): string[] {
   const rows = buildRegistryTableRows(result);
-  const summary = summarizeRegistryOutcomes(rows);
+  const summary = summarizeRegistryOutcomes(rows, result);
 
   const lines: string[] = [
     "## Реестр выполненных проверок",

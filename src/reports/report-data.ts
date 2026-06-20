@@ -27,6 +27,7 @@ import {
 import { ruleCondition } from "./rule-conditions.js";
 import { ruleLabel } from "./rule-labels.js";
 import { ruleVerificationMethod } from "./rule-verification-methods.js";
+import { buildTeamSubSources, type TeamSubSourceView } from "./team-check-composite.js";
 import {
   formatAuditedAt,
   humanizeProfileLabel,
@@ -57,6 +58,7 @@ export type CheckBlockView = {
   okBrief: string;
   violations: TaskViolationRow[];
   entityFindings: EntityFinding[];
+  subSources?: TeamSubSourceView[];
 };
 
 export type SectionTocView = {
@@ -184,9 +186,16 @@ function buildCheckBlock(
     ? null
     : getTaskRuleStats(result, ruleId);
   const entity = entityFindingsForRule(result, ruleId);
-  const entityViolations = entity.filter(
-    (f) => f.status === "FAIL" || f.status === "WARN",
-  );
+  const discordEntity =
+    registry.entry.num === 8
+      ? entityFindingsForRule(result, "team_discord_match").filter(
+          (f) => f.status === "FAIL" || f.status === "WARN",
+        )
+      : [];
+  const entityViolations = [
+    ...entity.filter((f) => f.status === "FAIL" || f.status === "WARN"),
+    ...discordEntity,
+  ];
   const violations = violationsForRule(result, ruleId);
   const zeroCandidates = registryHasZeroCandidates(registry);
   const violationCount = violations.length + entityViolations.length;
@@ -208,6 +217,8 @@ function buildCheckBlock(
     okBrief: buildOkBrief(registry, zeroCandidates, violationCount),
     violations,
     entityFindings: entityViolations,
+    subSources:
+      registry.entry.num === 8 ? buildTeamSubSources(result) : undefined,
   };
 }
 
@@ -271,7 +282,7 @@ export function buildReportViewModel(
 ): ReportViewModel {
   const { meta } = result;
   const registryRows = buildRegistryTableRows(result);
-  const registrySummary = summarizeRegistryOutcomes(registryRows);
+  const registrySummary = summarizeRegistryOutcomes(registryRows, result);
   const checks = registryRows
     .filter((r) => r.outcome !== "NOT_APPLICABLE")
     .map((r) => buildCheckBlock(r, result));

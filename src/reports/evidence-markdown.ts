@@ -3,6 +3,7 @@ import { buildBoardClassification } from "./board-classification.js";
 import { ruleCondition } from "./rule-conditions.js";
 import { ruleLabel } from "./rule-labels.js";
 import { ruleVerificationMethod } from "./rule-verification-methods.js";
+import { buildTeamSubSources } from "./team-check-composite.js";
 import { escapeTableCell } from "./report-links.js";
 import { simplifyReasonText, humanizeDiscordInReportText } from "./report-presentation.js";
 
@@ -136,67 +137,42 @@ export function formatTaskClassificationDebugTable(
   return lines;
 }
 
-export function formatTeamWorksheetGroup(findings: EntityFinding[]): string[] {
-  const violations = findings.filter((f) => f.status === "WARN" || f.status === "FAIL");
-  if (violations.length === 0) return [];
+export function formatTeamWorksheetGroup(result: AuditResult): string[] {
+  const allFindings = result.entityFindings ?? result.meta.entityFindings ?? [];
+  const violations = allFindings.filter(
+    (f) =>
+      (f.ruleId === "team_worksheet_match" || f.ruleId === "team_discord_match") &&
+      (f.status === "WARN" || f.status === "FAIL"),
+  );
+  const subs = buildTeamSubSources(result);
+  const hasIssue =
+    violations.length > 0 || subs.some((s) => s.status !== "OK");
+  if (!hasIssue) return [];
 
   const lines: string[] = [
     "",
-    `#### Проверка: Состав команды сверен с рабочей таблицей`,
+    `#### Проверка: Состав команды сверен с рабочей таблицей и Discord`,
     "",
     `Условие: ${ruleCondition("team_worksheet_match")}.`,
     `Метод проверки: ${ruleVerificationMethod("team_worksheet_match")}.`,
-    `Результат: WARN — найдено ${violations.length} ${violations.length === 1 ? "участник" : "участников"}.`,
     "",
-    "| Объект | Источник | Фактическое значение | Ожидаемое значение | Ссылка |",
-    "| ------ | -------- | -------------------- | ------------------ | ------ |",
+    "Подисточники:",
+    ...subs.map((s) => `- ${s.label}: ${s.status} — ${s.detail}`),
   ];
 
-  for (const f of violations) {
+  if (violations.length > 0) {
     lines.push(
-      `| ${entityEvidenceCell(f.objectLabel, "участник")} | ${entityEvidenceCell(f.source, "AppTask + рабочая таблица")} | ${entityEvidenceCell(f.actualValue, f.reason)} | ${entityEvidenceCell(f.expectedValue, ruleCondition("team_worksheet_match"))} | ${f.link ? `[открыть](${f.link})` : "—"} |`,
+      "",
+      `Результат: WARN — найдено ${violations.length} ${violations.length === 1 ? "участник" : "участников"}.`,
+      "",
+      "| Объект | Источник | Фактическое значение | Ожидаемое значение | Ссылка |",
+      "| ------ | -------- | -------------------- | ------------------ | ------ |",
     );
-  }
-
-  return lines;
-}
-
-export function formatTeamDiscordGroup(findings: EntityFinding[]): string[] {
-  const skipped = findings.filter((f) => f.status === "SKIP");
-  const violations = findings.filter((f) => f.status === "WARN" || f.status === "FAIL");
-
-  if (skipped.length > 0 && violations.length === 0) {
-    const f = skipped[0]!;
-    return [
-      "",
-      `#### Проверка: Состав команды сверен с Discord`,
-      "",
-      `Условие: ${ruleCondition("team_discord_match")}.`,
-      `Метод проверки: ${ruleVerificationMethod("team_discord_match")}.`,
-      `Результат: SKIP — Discord: доступ к списку участников не предоставлен.`,
-      "",
-      `Источник: Discord: доступ к списку участников не предоставлен`,
-    ];
-  }
-
-  if (violations.length === 0) return [];
-
-  const lines: string[] = [
-    "",
-    `#### Проверка: Состав команды сверен с Discord`,
-    "",
-    `Условие: ${ruleCondition("team_discord_match")}.`,
-    `Метод проверки: ${ruleVerificationMethod("team_discord_match")}.`,
-    `Результат: WARN — найдено ${violations.length} ${violations.length === 1 ? "участник" : "участников"}.`,
-    "",
-    "| Объект | Источник | Фактическое значение | Ожидаемое значение | Ссылка |",
-    "| ------ | -------- | -------------------- | ------------------ | ------ |",
-  ];
-
-  for (const f of violations) {
-    lines.push(
-      `| ${entityEvidenceCell(f.objectLabel, "участник")} | ${entityEvidenceCell(f.source, "AppTask + Discord")} | ${entityEvidenceCell(f.actualValue, f.reason)} | ${entityEvidenceCell(f.expectedValue, ruleCondition("team_discord_match"))} | ${f.link ? `[открыть](${f.link})` : "—"} |`,
-    );
+    for (const f of violations) {
+      lines.push(
+        `| ${entityEvidenceCell(f.objectLabel, "участник")} | ${entityEvidenceCell(f.source, "AppTask + рабочая таблица")} | ${entityEvidenceCell(f.actualValue, f.reason)} | ${entityEvidenceCell(f.expectedValue, ruleCondition("team_worksheet_match"))} | ${f.link ? `[открыть](${f.link})` : "—"} |`,
+      );
+    }
   }
 
   return lines;
