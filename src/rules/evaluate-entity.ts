@@ -39,17 +39,19 @@ function worksheetSourceLabel(ws: NonNullable<RuleContext["worksheet"]>): string
   return base;
 }
 
-function teamSourceLabel(ctx: RuleContext): string {
+function teamWorksheetSourceLabel(ctx: RuleContext): string {
   const parts = ["AppTask BoardTaskUsers"];
   const ws = ctx.worksheet;
   if (ws?.loaded) parts.push(worksheetSourceLabel(ws));
+  return parts.join(" + ");
+}
+
+function teamDiscordSourceLabel(ctx: RuleContext): string {
   const discord = ctx.discordTeam;
   if (discord?.loaded) {
-    parts.push(`Discord guild ${discord.guildId}`);
-  } else if (discord?.guildId) {
-    parts.push(`Discord: ${discord.loadError ?? "недоступен"}`);
+    return `AppTask BoardTaskUsers + Discord guild ${discord.guildId}`;
   }
-  return parts.join(" + ");
+  return "AppTask BoardTaskUsers + Discord: доступ к списку участников не предоставлен";
 }
 
 function primaryAssignee(task: RawTask): string | null {
@@ -433,12 +435,11 @@ function taskTypeClassificationFindings(
   ];
 }
 
-function teamFindings(
+function teamWorksheetFindings(
   auditable: RawTask[],
   ctx: RuleContext,
 ): EntityFinding[] {
   const ws = ctx.worksheet;
-  const discord = ctx.discordTeam;
   if (!ws?.loaded) {
     return [
       {
@@ -449,7 +450,7 @@ function teamFindings(
         objectLabel: "команда проекта",
         source: "AppTask BoardTaskUsers + рабочая таблица",
         actualValue: ws?.loadError ?? "рабочая таблица не загружена",
-        expectedValue: "состав команды сверен с Discord и рабочей таблицей",
+        expectedValue: "состав команды сверен с рабочей таблицей",
       },
     ];
   }
@@ -463,7 +464,7 @@ function teamFindings(
         reason: "в рабочей таблице не найден список участников",
         scope: "team",
         objectLabel: "команда проекта",
-        source: teamSourceLabel(ctx),
+        source: teamWorksheetSourceLabel(ctx),
         actualValue: "лист участников пуст или не распознан",
         expectedValue: "активные участники перечислены в рабочей таблице",
       },
@@ -480,40 +481,93 @@ function teamFindings(
   const sheetLink = ws.spreadsheetId
     ? googleSpreadsheetUrl(ws.spreadsheetId)
     : undefined;
-  const source = teamSourceLabel(ctx);
+  const source = teamWorksheetSourceLabel(ctx);
   const expected =
-    "участник назначен в AppTask, найден в Discord проекта и в рабочей таблице активных участников";
+    "участник назначен в AppTask и найден в рабочей таблице активных участников";
 
   for (const assignee of [...assignees].sort()) {
     const inWorksheet = participantNameMatches(assignee, active);
-    const inDiscord =
-      discord?.loaded === true
-        ? discordMemberMatches(assignee, discord.memberDisplayNames)
-        : null;
-
-    const problems: string[] = [];
-    if (!inWorksheet) problems.push("не найден в рабочей таблице");
-    if (inDiscord === false) problems.push("не найден в Discord");
-
-    if (problems.length === 0) continue;
-
-    const discordFact =
-      inDiscord === null
-        ? "Discord: сверка пропущена"
-        : inDiscord
-          ? "Discord: найден"
-          : "Discord: не найден";
+    if (inWorksheet) continue;
 
     findings.push({
       ruleId: "team_worksheet_match",
       status: "WARN",
-      reason: problems.join("; "),
+      reason: "не найден в рабочей таблице",
       scope: "team",
       objectLabel: `участник — ${assignee}`,
       source,
-      actualValue: `${assignee} назначен в AppTask; таблица: ${inWorksheet ? "найден" : "не найден"}; ${discordFact}`,
+      actualValue: `${assignee} назначен в AppTask; таблица: не найден`,
       expectedValue: expected,
       link: sheetLink,
+    });
+  }
+
+  return findings;
+}
+
+function teamDiscordFindings(
+  auditable: RawTask[],
+  ctx: RuleContext,
+): EntityFinding[] {
+  const discord = ctx.discordTeam;
+  const discordDenied = "Discord: доступ к списку участников не предоставлен";
+
+  if (!discord?.guildId) {
+    return [
+      {
+        ruleId: "team_discord_match",
+        status: "SKIP",
+        reason: "Discord guild id не задан",
+        scope: "team",
+        objectLabel: "команда проекта (Discord)",
+        source: discordDenied,
+        actualValue: discordDenied,
+        expectedValue: "каждый исполнитель найден в Discord проекта",
+      },
+    ];
+  }
+
+  if (!discord.loaded) {
+    return [
+      {
+        ruleId: "team_discord_match",
+        status: "SKIP",
+        reason: "нет доступа к списку участников сервера",
+        scope: "team",
+        objectLabel: "команда проекта (Discord)",
+        source: discordDenied,
+        actualValue: discordDenied,
+        expectedValue: "каждый исполнитель найден в Discord проекта",
+      },
+    ];
+  }
+
+  const assignees = new Set<string>();
+  for (const task of auditable) {
+    const name = primaryAssignee(task);
+    if (name) assignees.add(name);
+  }
+
+  const findings: EntityFinding[] = [];
+  const source = teamDiscordSourceLabel(ctx);
+  const expected = "участник назначен в AppTask и найден в Discord проекта";
+
+  for (const assignee of [...assignees].sort()) {
+    const inDiscord = discordMemberMatches(
+      assignee,
+      discord.memberDisplayNames,
+    );
+    if (inDiscord) continue;
+
+    findings.push({
+      ruleId: "team_discord_match",
+      status: "WARN",
+      reason: "не найден в Discord",
+      scope: "team",
+      objectLabel: `участник — ${assignee}`,
+      source,
+      actualValue: `${assignee} назначен в AppTask; Discord: не найден`,
+      expectedValue: expected,
     });
   }
 
@@ -711,7 +765,8 @@ export function evaluateEntityFindings(
     }
   }
 
-  findings.push(...teamFindings(auditable, ctx));
+  findings.push(...teamWorksheetFindings(auditable, ctx));
+  findings.push(...teamDiscordFindings(auditable, ctx));
   findings.push(...teamRoleRateFindings(auditable, ctx));
   findings.push(...sprintFindings(ctx));
   findings.push(...trackingDailyFindings(ctx, flowTaskIds, taskById));

@@ -2,6 +2,7 @@ import type { AuditResult, CardAudit, EntityFinding } from "../rules/rule-types.
 import { buildBoardClassification } from "./board-classification.js";
 import { ruleCondition } from "./rule-conditions.js";
 import { ruleLabel } from "./rule-labels.js";
+import { ruleVerificationMethod } from "./rule-verification-methods.js";
 import { escapeTableCell } from "./report-links.js";
 import { simplifyReasonText, humanizeDiscordInReportText } from "./report-presentation.js";
 
@@ -141,9 +142,10 @@ export function formatTeamWorksheetGroup(findings: EntityFinding[]): string[] {
 
   const lines: string[] = [
     "",
-    `#### Проверка: ${humanLabel("team_worksheet_match")}`,
+    `#### Проверка: Состав команды сверен с рабочей таблицей`,
     "",
     `Условие: ${ruleCondition("team_worksheet_match")}.`,
+    `Метод проверки: ${ruleVerificationMethod("team_worksheet_match")}.`,
     `Результат: WARN — найдено ${violations.length} ${violations.length === 1 ? "участник" : "участников"}.`,
     "",
     "| Объект | Источник | Фактическое значение | Ожидаемое значение | Ссылка |",
@@ -152,7 +154,48 @@ export function formatTeamWorksheetGroup(findings: EntityFinding[]): string[] {
 
   for (const f of violations) {
     lines.push(
-      `| ${entityEvidenceCell(f.objectLabel, "участник")} | ${entityEvidenceCell(f.source, "AppTask + рабочая таблица + Discord")} | ${entityEvidenceCell(f.actualValue, f.reason)} | ${entityEvidenceCell(f.expectedValue, ruleCondition("team_worksheet_match"))} | ${f.link ? `[открыть](${f.link})` : "—"} |`,
+      `| ${entityEvidenceCell(f.objectLabel, "участник")} | ${entityEvidenceCell(f.source, "AppTask + рабочая таблица")} | ${entityEvidenceCell(f.actualValue, f.reason)} | ${entityEvidenceCell(f.expectedValue, ruleCondition("team_worksheet_match"))} | ${f.link ? `[открыть](${f.link})` : "—"} |`,
+    );
+  }
+
+  return lines;
+}
+
+export function formatTeamDiscordGroup(findings: EntityFinding[]): string[] {
+  const skipped = findings.filter((f) => f.status === "SKIP");
+  const violations = findings.filter((f) => f.status === "WARN" || f.status === "FAIL");
+
+  if (skipped.length > 0 && violations.length === 0) {
+    const f = skipped[0]!;
+    return [
+      "",
+      `#### Проверка: Состав команды сверен с Discord`,
+      "",
+      `Условие: ${ruleCondition("team_discord_match")}.`,
+      `Метод проверки: ${ruleVerificationMethod("team_discord_match")}.`,
+      `Результат: SKIP — Discord: доступ к списку участников не предоставлен.`,
+      "",
+      `Источник: Discord: доступ к списку участников не предоставлен`,
+    ];
+  }
+
+  if (violations.length === 0) return [];
+
+  const lines: string[] = [
+    "",
+    `#### Проверка: Состав команды сверен с Discord`,
+    "",
+    `Условие: ${ruleCondition("team_discord_match")}.`,
+    `Метод проверки: ${ruleVerificationMethod("team_discord_match")}.`,
+    `Результат: WARN — найдено ${violations.length} ${violations.length === 1 ? "участник" : "участников"}.`,
+    "",
+    "| Объект | Источник | Фактическое значение | Ожидаемое значение | Ссылка |",
+    "| ------ | -------- | -------------------- | ------------------ | ------ |",
+  ];
+
+  for (const f of violations) {
+    lines.push(
+      `| ${entityEvidenceCell(f.objectLabel, "участник")} | ${entityEvidenceCell(f.source, "AppTask + Discord")} | ${entityEvidenceCell(f.actualValue, f.reason)} | ${entityEvidenceCell(f.expectedValue, ruleCondition("team_discord_match"))} | ${f.link ? `[открыть](${f.link})` : "—"} |`,
     );
   }
 
@@ -182,6 +225,7 @@ export function formatTaskViolationBlock(group: TaskViolationGroup): string[] {
     `#### Проверка: ${humanLabel(group.ruleId)}`,
     "",
     `Условие: ${ruleCondition(group.ruleId)}.`,
+    `Метод проверки: ${ruleVerificationMethod(group.ruleId)}.`,
     `Результат: ${group.status} — найдено ${count} ${count === 1 ? "карточка" : "карточек"}.`,
   ];
 
@@ -227,6 +271,7 @@ export function formatEntityViolationBlock(finding: EntityFinding): string[] {
     `#### Проверка: ${humanLabel(finding.ruleId)}`,
     "",
     `Условие: ${ruleCondition(finding.ruleId)}.`,
+    `Метод проверки: ${ruleVerificationMethod(finding.ruleId)}.`,
     `Результат: ${finding.status} — ${simplifyReasonText(finding.reason)}.`,
   ];
 

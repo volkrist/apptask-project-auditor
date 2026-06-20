@@ -161,7 +161,12 @@ function buildOkBrief(
   zeroCandidates: boolean,
   violationCount: number,
 ): string {
-  if (registry.outcome === "SKIP") return "Проверка пропущена (SKIP)";
+  if (registry.outcome === "SKIP") {
+    if (registry.candidates.includes("нет доступа к списку участников")) {
+      return "Discord: доступ к списку участников не предоставлен";
+    }
+    return "Проверка пропущена (SKIP)";
+  }
   if (zeroCandidates && violationCount === 0) {
     return "Кандидатов для проверки нет";
   }
@@ -192,7 +197,7 @@ function buildCheckBlock(
     entry: registry.entry,
     registry,
     ruleId,
-    label: ruleLabel(ruleId),
+    label: registry.entry.title,
     condition: ruleCondition(ruleId),
     verificationMethod: ruleVerificationMethod(ruleId),
     failCount,

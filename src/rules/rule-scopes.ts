@@ -7,6 +7,7 @@ export const RULE_SCOPES: Record<string, RuleScope> = {
   board_tz_summary: "board",
   project_worksheet_match: "project",
   team_worksheet_match: "team",
+  team_discord_match: "team",
   team_role_rate_match: "team",
   task_type_classification: "project",
   sprint_dates_match: "sprint",

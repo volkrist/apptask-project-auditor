@@ -218,7 +218,10 @@ function describeEntityRow(
     (f) => f.ruleId === ruleId,
   );
 
-  if (findings.some((f) => f.status === "SKIP")) {
+  if (
+    findings.some((f) => f.status === "SKIP") &&
+    ruleId !== "team_discord_match"
+  ) {
     return {
       checked: "—",
       candidates: "—",
@@ -259,11 +262,30 @@ function describeEntityRow(
       };
     case "team_worksheet_match":
       return {
-        checked: `${result.meta.cardsChecked} задач / исполнители`,
-        candidates: `${warn} участников не в таблице`,
+        checked: "исполнители AppTask + рабочая таблица",
+        candidates:
+          warn > 0 ? `${warn} участников не в таблице` : "состав сверен",
         violations: formatViolations(fail, warn),
         outcome: outcomeFrom("CHECKED", fail, warn),
       };
+    case "team_discord_match": {
+      const skipped = findings.every((f) => f.status === "SKIP");
+      if (skipped) {
+        return {
+          checked: "—",
+          candidates: "нет доступа к списку участников сервера",
+          violations: "—",
+          outcome: "SKIP",
+        };
+      }
+      return {
+        checked: "исполнители AppTask + Discord",
+        candidates:
+          warn > 0 ? `${warn} участников не в Discord` : "состав сверен",
+        violations: formatViolations(fail, warn),
+        outcome: outcomeFrom("CHECKED", fail, warn),
+      };
+    }
     case "team_role_rate_match":
       return {
         checked: "участники рабочей таблицы",
@@ -305,6 +327,10 @@ function buildRegistryRow(
   }
 
   if (isRuleSkipped(result, ruleId)) {
+    if (isEntityRule(ruleId)) {
+      const entity = describeEntityRow(ruleId, result);
+      if (entity) return { entry, ...entity };
+    }
     return {
       entry,
       checked: "—",

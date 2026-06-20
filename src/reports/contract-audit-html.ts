@@ -7,7 +7,7 @@ import {
 } from "./report-data.js";
 import { escHtml, linkOrText, formatStatusAssigneeLine } from "./report-html-utils.js";
 import { ruleLabel } from "./rule-labels.js";
-import { simplifyReasonText } from "./report-presentation.js";
+import { simplifyReasonText, humanizeDiscordInReportText } from "./report-presentation.js";
 import { isEntityRule } from "../rules/rule-scopes.js";
 
 const REPORT_CSS = `
@@ -147,9 +147,15 @@ function renderViolationRow(v: TaskViolationRow): string {
 }
 
 function renderEntityFinding(f: import("../rules/rule-types.js").EntityFinding): string {
-  const actual = f.actualValue?.trim() || simplifyReasonText(f.reason);
-  const expected = f.expectedValue?.trim() || f.reason;
-  const source = f.source?.trim() || "AppTask / рабочая таблица";
+  const actual = humanizeDiscordInReportText(
+    f.actualValue?.trim() || simplifyReasonText(f.reason),
+  );
+  const expected = humanizeDiscordInReportText(
+    f.expectedValue?.trim() || f.reason,
+  );
+  const source = humanizeDiscordInReportText(
+    f.source?.trim() || "AppTask / рабочая таблица",
+  );
   const link = f.link ? linkOrText(f.link, "открыть источник") : "";
   return `<article class="violation-card">
   <div><strong>${escHtml(ruleLabel(f.ruleId))}</strong> <span class="badge ${f.status === "FAIL" ? "fail" : "warn"}">${escHtml(f.status)}</span></div>

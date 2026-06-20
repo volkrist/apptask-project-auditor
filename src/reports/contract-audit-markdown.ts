@@ -7,6 +7,7 @@ import {
   formatTaskViolationBlock,
   formatTrackingDailyAnomalyGroup,
   formatTeamWorksheetGroup,
+  formatTeamDiscordGroup,
   formatTaskClassificationDebugTable,
   type TaskViolationGroup,
 } from "./evidence-markdown.js";
@@ -199,10 +200,14 @@ export function buildContractAuditMarkdown(
     const teamViolations = entityGroups.filter(
       (f) => f.ruleId === "team_worksheet_match",
     );
+    const teamDiscord = entityGroups.filter(
+      (f) => f.ruleId === "team_discord_match",
+    );
     const otherEntities = entityGroups.filter(
       (f) =>
         f.ruleId !== "tracking_daily_anomaly" &&
-        f.ruleId !== "team_worksheet_match",
+        f.ruleId !== "team_worksheet_match" &&
+        f.ruleId !== "team_discord_match",
     );
 
     if (trackingAnomalies.length > 0) {
@@ -210,6 +215,9 @@ export function buildContractAuditMarkdown(
     }
     if (teamViolations.length > 0) {
       lines.push(...formatTeamWorksheetGroup(teamViolations));
+    }
+    if (teamDiscord.length > 0) {
+      lines.push(...formatTeamDiscordGroup(teamDiscord));
     }
     for (const entity of otherEntities) {
       lines.push(...formatEntityViolationBlock(entity));

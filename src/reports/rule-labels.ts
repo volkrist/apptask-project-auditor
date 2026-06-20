@@ -52,8 +52,9 @@ export const RULE_LABELS: Record<string, string> = {
   board_tz_summary: "Нет краткого описания проекта из ТЗ",
   project_worksheet_match:
     "Название и описание проекта не сверены с рабочей таблицей",
-  team_worksheet_match: "Состав команды не сверен с рабочей таблицей",
-  team_role_rate_match: "Роль и ставка не сверены с рабочей таблицей",
+  team_worksheet_match: "Участник не найден в рабочей таблице",
+  team_discord_match: "Участник не найден в Discord",
+  team_role_rate_match: "Роль или ставка не заполнены в рабочей таблице",
   task_type_classification: "Задачи не классифицированы по типам",
   sprint_dates_match: "Даты спринтов не сверены со Scrum",
   ui_has_mockup_link: "Нет ссылки на макет (UI)",

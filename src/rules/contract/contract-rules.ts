@@ -150,6 +150,14 @@ export const teamWorksheetMatchRule: Rule = {
   },
 };
 
+export const teamDiscordMatchRule: Rule = {
+  id: "team_discord_match",
+  severity: "soft",
+  evaluate() {
+    return notApplicable("team_discord_match", "Проверка уровня команды");
+  },
+};
+
 export const projectWorksheetMatchRule: Rule = {
   id: "project_worksheet_match",
   severity: "soft",
@@ -416,6 +424,7 @@ export const contractRules: Rule[] = [
   boardFolderLinkRule,
   boardTzSummaryRule,
   teamWorksheetMatchRule,
+  teamDiscordMatchRule,
   projectWorksheetMatchRule,
   teamRoleRateMatchRule,
   taskTypeClassificationRule,

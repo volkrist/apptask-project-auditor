@@ -19,6 +19,7 @@ import { computeIssueCounts } from "./structured-findings.js";
 import { evaluateProject } from "../rules/evaluate.js";
 import type { AuditResult, RuleStatus } from "../rules/rule-types.js";
 import { ruleLabel } from "./rule-labels.js";
+import { humanizeDiscordTeamNote } from "./report-presentation.js";
 
 export type AuditMetaInput = {
   projectName: string;
@@ -96,7 +97,9 @@ export async function buildAuditResult(
   const discordTeamNote = discordTeam.loaded
     ? `guild ${discordTeam.guildId}, участников ${discordTeam.memberDisplayNames.length}`
     : discordTeam.guildId
-      ? `недоступна (${discordTeam.loadError ?? "ошибка загрузки"})`
+      ? humanizeDiscordTeamNote(
+          `недоступна (${discordTeam.loadError ?? "ошибка загрузки"})`,
+        )
       : "guild id не задан";
   let boardMetadata: Awaited<ReturnType<typeof loadBoardMetadataById>> = {};
   if (boardIds.length > 0) {

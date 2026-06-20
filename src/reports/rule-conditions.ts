@@ -64,7 +64,9 @@ export const RULE_CONDITIONS: Record<string, string> = {
   project_worksheet_match:
     "название и описание проекта в AppTask должны соответствовать рабочей таблице",
   team_worksheet_match:
-    "исполнители из AppTask должны присутствовать в Discord-гильдии проекта и в рабочей таблице активных участников",
+    "исполнители из AppTask должны присутствовать в рабочей таблице активных участников",
+  team_discord_match:
+    "исполнители из AppTask должны присутствовать в Discord-гильдии проекта",
   team_role_rate_match:
     "роль и ставка участников должны быть заполнены и соответствовать рабочей таблице",
   task_type_classification:

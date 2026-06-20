@@ -163,6 +163,6 @@ test("contract report includes check registry with all contract items", () => {
   assert.match(md, /\| № \| Проверка \| Область \| Проверено \| Кандидатов \| Нарушения \| Итог \|/);
   assert.match(md, /CHECKED:/);
   assert.match(md, /\| 1 \| До дедлайна меньше 1 дня/);
-  assert.match(md, /\| 45 \| Названия задач и время готовы к актам/);
+  assert.match(md, /\| 46 \| Названия задач и время готовы к актам/);
   assert.doesNotMatch(md, /Статус выполнения: NOT_APPLICABLE/);
 });

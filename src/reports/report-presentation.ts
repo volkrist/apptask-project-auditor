@@ -14,6 +14,7 @@ export const SOURCE_UNAVAILABLE_RULE_IDS = new Set([
   "board_tz_summary",
   "project_worksheet_match",
   "team_worksheet_match",
+  "team_discord_match",
   "team_role_rate_match",
   "sprint_dates_match",
   "tracking_daily_anomaly",
@@ -41,6 +42,7 @@ const SKIP_USER_EXPLANATIONS: Record<string, string> = {
     "описание доски недоступно — нельзя проверить краткое описание из ТЗ",
   project_worksheet_match: "рабочая таблица проекта не подключена",
   team_worksheet_match: "рабочая таблица проекта не подключена",
+  team_discord_match: "нет доступа к списку участников Discord сервера",
   team_role_rate_match: "рабочая таблица проекта не подключена",
   sprint_dates_match: "в Scrum-портале или рабочей таблице не найдены даты спринтов",
   tracking_daily_anomaly: "учёт времени по дням недоступен",
@@ -132,12 +134,18 @@ export function humanizeDiscordTeamNote(note: string): string {
   return note;
 }
 
+const DISCORD_ACCESS_DENIED =
+  "Discord: доступ к списку участников не предоставлен";
+
 /** Убирает тех. формулировки Discord из текста отчёта. */
 export function humanizeDiscordInReportText(text: string): string {
   return text
     .replace(/Used disallowed intents/gi, "доступ к списку участников не предоставлен")
+    .replace(/disallowed intents/gi, "доступ к списку участников не предоставлен")
+    .replace(/Discord:\s*сверка пропущена/gi, DISCORD_ACCESS_DENIED)
+    .replace(/Discord:\s*недоступен/gi, DISCORD_ACCESS_DENIED)
     .replace(
-      /Discord:\s*сверка пропущена/gi,
-      "Discord: доступ к списку участников не предоставлен",
+      /Discord:\s*[^\n;]+(?:ошибка загрузки|load error)/gi,
+      DISCORD_ACCESS_DENIED,
     );
 }
