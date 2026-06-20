@@ -5,7 +5,7 @@ import {
   type CheckBlockView,
   type TaskViolationRow,
 } from "./report-data.js";
-import { escHtml, linkOrText } from "./report-html-utils.js";
+import { escHtml, linkOrText, formatStatusAssigneeLine } from "./report-html-utils.js";
 import { ruleLabel } from "./rule-labels.js";
 import { simplifyReasonText } from "./report-presentation.js";
 import { isEntityRule } from "../rules/rule-scopes.js";
@@ -76,6 +76,7 @@ h3 { font-size: 1.05rem; margin: 20px 0 8px; }
 .badge.warn { background: rgba(245,185,66,.15); color: var(--warn); }
 .badge.skip { background: rgba(139,147,167,.15); color: var(--skip); }
 .counters { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 0; }
+.ok-brief { margin: 10px 0 0; font-size: 13px; }
 .counter-btn {
   background: transparent;
   border: 1px solid var(--border);
@@ -134,26 +135,15 @@ function renderViolationRow(v: TaskViolationRow): string {
   const id = t.id ? `№${t.id}` : "без номера";
   const title = t.title ?? "(без названия)";
   const cardLine = linkOrText(t.url, `${id} — ${title}`);
-  const status = escHtml(t.status ?? "не указан");
-  const assignee = escHtml(t.assignees[0] ?? "не назначен");
+  const statusLine = formatStatusAssigneeLine(t.status, t.assignees);
   return `<article class="violation-card" data-search="${escHtml(`${id} ${title} ${v.actual}`)}">
   <div><strong>${escHtml(ruleLabel(v.rule.ruleId))}</strong> <span class="badge ${v.rule.status === "FAIL" ? "fail" : "warn"}">${escHtml(v.rule.status)}</span></div>
   <div>Карточка: ${cardLine}</div>
-  <div class="meta">Статус: ${status} · Исполнитель: ${assignee}</div>
+  <div class="meta">${escHtml(statusLine)}</div>
   <div class="meta"><strong>Факт:</strong> ${escHtml(v.actual)}</div>
   <div class="meta"><strong>Ожидание:</strong> ${escHtml(v.expected)}</div>
   <div class="meta"><strong>Источник:</strong> ${escHtml(v.source)}</div>
 </article>`;
-}
-
-function renderPassCard(card: CardAudit, ruleId: string): string {
-  const t = card.task;
-  const id = t.id ? `№${t.id}` : "без номера";
-  const title = t.title ?? "(без названия)";
-  return `<div class="violation-card" data-search="${escHtml(`${id} ${title}`)}">
-  ${linkOrText(t.url, `${id} — ${title}`)}
-  <div class="meta">${escHtml(t.status ?? "")} · ${escHtml(t.assignees[0] ?? "")}</div>
-</div>`;
 }
 
 function renderEntityFinding(f: import("../rules/rule-types.js").EntityFinding): string {
@@ -173,23 +163,15 @@ function renderEntityFinding(f: import("../rules/rule-types.js").EntityFinding):
 
 function renderCheckBlock(check: CheckBlockView): string {
   const id = `check-${check.entry.num}`;
-  const passPanel = `${id}-pass`;
   const failPanel = `${id}-fail`;
-  const violationCount = check.violations.length + check.entityFindings.length;
 
-  const counters: string[] = [
-    `<button type="button" class="counter-btn ok" data-toggle="${passPanel}">Успешно: ${check.passCount}</button>`,
-  ];
-  if (check.failCount + check.warnCount > 0 || violationCount > 0) {
-    counters.push(
-      `<button type="button" class="counter-btn ${check.failCount > 0 ? "fail" : "warn"}" data-toggle="${failPanel}">Нарушения: ${Math.max(violationCount, check.failCount + check.warnCount)}</button>`,
-    );
+  let countersHtml = "";
+  if (check.showViolationsPanel) {
+    const btnClass = check.failCount > 0 ? "fail" : "warn";
+    countersHtml = `<div class="counters"><button type="button" class="counter-btn ${btnClass}" data-toggle="${failPanel}">Нарушения: ${check.violationCount}</button></div>`;
+  } else {
+    countersHtml = `<div class="ok-brief muted">${escHtml(check.okBrief)}</div>`;
   }
-
-  const passHtml =
-    check.passes.length > 0
-      ? check.passes.map((c) => renderPassCard(c, check.ruleId)).join("")
-      : `<p class="muted">Нет карточек со статусом PASS по этой проверке.</p>`;
 
   const failParts = [
     ...check.violations.map(renderViolationRow),
@@ -198,7 +180,11 @@ function renderCheckBlock(check: CheckBlockView): string {
   const failHtml =
     failParts.length > 0
       ? failParts.join("")
-      : `<p class="muted">Нет детализированных нарушений (агрегат entity-level).</p>`;
+      : `<p class="muted">Нет детализированных нарушений.</p>`;
+
+  const failPanelHtml = check.showViolationsPanel
+    ? `<div class="panel" id="${failPanel}">${failHtml}</div>`
+    : "";
 
   return `<article class="check section-anchor" id="${id}" data-search="${escHtml(`${check.entry.num} ${check.entry.title} ${check.label}`)}">
   <div class="check-head">
@@ -208,9 +194,9 @@ function renderCheckBlock(check: CheckBlockView): string {
   <div class="muted">Проверка: ${escHtml(check.label)}</div>
   <div class="muted">Область: ${escHtml(check.entry.scope)} · Проверено: ${escHtml(check.registry.checked)} · Кандидатов: ${escHtml(check.registry.candidates)}</div>
   <div class="muted">Условие: ${escHtml(check.condition)}</div>
-  <div class="counters">${counters.join("")}</div>
-  <div class="panel" id="${passPanel}">${passHtml}</div>
-  <div class="panel" id="${failPanel}">${failHtml}</div>
+  <div class="muted">Метод проверки: ${escHtml(check.verificationMethod)}</div>
+  ${countersHtml}
+  ${failPanelHtml}
 </article>`;
 }
 
@@ -252,9 +238,10 @@ function renderCardDetails(cards: CardAudit[]): string {
             `<li><strong>${escHtml(ruleLabel(r.ruleId))}</strong> (${escHtml(r.status)}): ${escHtml(simplifyReasonText(r.reason))}</li>`,
         )
         .join("");
+      const statusLine = formatStatusAssigneeLine(t.status, t.assignees);
       return `<article class="check" data-search="${escHtml(`${id} ${title}`)}">
   <h3>${linkOrText(t.url, `${id} — ${title}`)}</h3>
-  <div class="muted">Статус: ${escHtml(t.status ?? "не указан")} · Исполнитель: ${escHtml(t.assignees[0] ?? "не назначен")}</div>
+  <div class="muted">${escHtml(statusLine)}</div>
   <ul>${vHtml}</ul>
 </article>`;
     })
@@ -271,7 +258,7 @@ export function buildContractAuditHtml(
   const tocSections = vm.sections
     .map(
       (sec, i) => `<li><a href="#section-${sec.sectionId}">${i + 1}. ${escHtml(sec.section)}</a>
-  <span class="toc-stats">· Успешно: <span style="color:var(--ok)">${sec.passCount}</span> · Нарушения: <span style="color:var(--fail)">${sec.violationCount}</span></span></li>`,
+  <span class="toc-stats">· Проверок OK: <span style="color:var(--ok)">${sec.checksOk}</span> · Проверок с нарушениями: <span style="color:var(--fail)">${sec.checksWithViolations}</span></span></li>`,
     )
     .join("");
 
@@ -334,6 +321,10 @@ export function buildContractAuditHtml(
       <div class="summary-card"><div class="label">Карточек на доске</div><div class="value">${s.totalOnBoard}</div></div>
       <div class="summary-card"><div class="label">Проверено</div><div class="value">${s.cardsChecked}</div></div>
       <div class="summary-card"><div class="label">Исключено потоковых</div><div class="value">${s.excludedFlow}</div></div>
+      <div class="summary-card"><div class="label">Потоковые / сервисные</div><div class="value">${vm.classificationCounts.flow}</div></div>
+      <div class="summary-card"><div class="label">UI / front</div><div class="value">${vm.classificationCounts.ui}</div></div>
+      <div class="summary-card"><div class="label">Обычные</div><div class="value">${vm.classificationCounts.regular}</div></div>
+      <div class="summary-card"><div class="label">Неизвестно</div><div class="value">${vm.classificationCounts.unknown}</div></div>
       ${s.ignoredManual > 0 ? `<div class="summary-card"><div class="label">Исключено вручную</div><div class="value">${s.ignoredManual}</div></div>` : ""}
       <div class="summary-card"><div class="label">FAIL</div><div class="value" style="color:var(--fail)">${s.failCount}</div></div>
       <div class="summary-card"><div class="label">WARN</div><div class="value" style="color:var(--warn)">${s.warnCount}</div></div>

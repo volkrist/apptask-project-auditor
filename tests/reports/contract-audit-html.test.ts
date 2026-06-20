@@ -57,17 +57,20 @@ function baseResult(overrides: Partial<AuditResult["meta"]> = {}): AuditResult {
   };
 }
 
-test("buildContractAuditHtml includes toc, registry and interactive counters", () => {
+test("buildContractAuditHtml includes toc, registry and violation toggles", () => {
   const html = buildContractAuditHtml(baseResult());
   assert.match(html, /<title>AppTask Audit Report — TurboWeave<\/title>/);
   assert.match(html, /id="toc"/);
   assert.match(html, /Оглавление/);
+  assert.match(html, /Проверок OK:/);
+  assert.match(html, /Проверок с нарушениями:/);
   assert.match(html, /data-toggle=/);
-  assert.match(html, /counter-btn ok/);
   assert.match(html, /counter-btn fail/);
+  assert.match(html, /Метод проверки:/);
   assert.match(html, /id="classification"/);
   assert.match(html, /Классификация задач/);
   assert.match(html, /Реестр проверок/);
+  assert.doesNotMatch(html, /counter-btn ok/);
   assert.doesNotMatch(html, /Рекомендация/);
 });
 

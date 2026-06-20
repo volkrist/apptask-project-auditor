@@ -32,3 +32,20 @@ export function displayOrFallback(
   const v = value?.trim();
   return v && v !== "—" ? v : fallback;
 }
+
+export function formatAssignee(
+  assignees: string[] | null | undefined,
+  fallback = "исполнитель не назначен",
+): string {
+  const name = assignees?.[0]?.trim();
+  return name ? name : fallback;
+}
+
+export function formatStatusAssigneeLine(
+  status: string | null | undefined,
+  assignees: string[] | null | undefined,
+): string {
+  const st = displayOrFallback(status, "статус не указан");
+  const asg = formatAssignee(assignees);
+  return `${st} · ${asg}`;
+}

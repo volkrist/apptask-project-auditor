@@ -5,6 +5,10 @@ import {
 import { getAuditProfile } from "../config/audit-profiles.js";
 import { isEntityRule } from "../rules/rule-scopes.js";
 import type { AuditResult, RuleResult } from "../rules/rule-types.js";
+import {
+  buildBoardClassification,
+  formatClassificationSummaryLine,
+} from "./board-classification.js";
 import { escapeTableCell } from "./report-links.js";
 import {
   isSourceMissingSkip,
@@ -78,6 +82,14 @@ export function getTaskRuleStats(
   ruleId: string,
 ): TaskRuleStats {
   return computeTaskRuleStats(result, ruleId);
+}
+
+/** Кандидатов нет (0 задач в области правила) — не показывать «Успешно 64». */
+export function registryHasZeroCandidates(row: RegistryTableRow): boolean {
+  const c = row.candidates.trim();
+  if (/^0\s/.test(c)) return true;
+  if (c === "0 в области правила") return true;
+  return false;
 }
 
 function isRuleSkipped(result: AuditResult, ruleId: string): boolean {
@@ -221,14 +233,10 @@ function describeEntityRow(
 
   switch (ruleId) {
     case "task_type_classification": {
-      const detail = findings[0]?.details ?? [];
-      const flow = detail.find((d) => d.includes("потоковые"))?.match(/:\s*(\d+)/)?.[1] ?? "?";
-      const ui = detail.find((d) => d.includes("UI / front"))?.match(/:\s*(\d+)/)?.[1] ?? "?";
-      const regular = detail.find((d) => d.includes("обычные"))?.match(/:\s*(\d+)/)?.[1] ?? "?";
-      const unknown = detail.find((d) => d.includes("не удалось"))?.match(/:\s*(\d+)/)?.[1] ?? "0";
+      const { counts } = buildBoardClassification(result);
       return {
-        checked: `${total} карточек`,
-        candidates: `классифицировано: потоковые ${flow}, UI ${ui}, обычные ${regular}, неизвестно ${unknown}`,
+        checked: `${counts.total} карточек`,
+        candidates: `классифицировано: ${formatClassificationSummaryLine(counts)}`,
         violations: formatViolations(fail, warn),
         outcome: outcomeFrom("CHECKED", fail, warn),
       };

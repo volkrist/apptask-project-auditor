@@ -1,6 +1,5 @@
 import type { AuditResult, CardAudit, EntityFinding } from "../rules/rule-types.js";
-import { getAuditProfile, resolveAuditProfileId } from "../config/audit-profiles.js";
-import { buildTaskClassificationRows } from "../tasks/task-type-classification.js";
+import { buildBoardClassification } from "./board-classification.js";
 import { ruleCondition } from "./rule-conditions.js";
 import { ruleLabel } from "./rule-labels.js";
 import { escapeTableCell } from "./report-links.js";
@@ -113,50 +112,7 @@ function entityEvidenceCell(value: string | undefined, fallback: string): string
 export function formatTaskClassificationDebugTable(
   result: AuditResult,
 ): string[] {
-  const profileId = resolveAuditProfileId(
-    result.meta.auditProfile as string | undefined,
-  );
-  const profile = getAuditProfile(profileId);
-  const allTasks = [
-    ...result.cards.map((c) => c.task),
-    ...(result.meta.excludedFlowCards ?? []).map((ex) => ({
-      id: ex.id,
-      title: ex.title,
-      url: ex.url,
-      status: ex.status,
-      assignees: ex.assignee ? [ex.assignee] : [],
-      descriptionText: null,
-      createdAt: null,
-      startDate: null,
-      dueDate: null,
-      priority: null,
-      tags: [],
-      creator: null,
-      assigneeRefs: [],
-      category: null,
-      stage: null,
-      plannedTime: null,
-      actualTime: null,
-      links: [],
-      attachments: [],
-      comments: [],
-      boardId: null,
-    })),
-  ];
-  const seen = new Set<string>();
-  const uniqueTasks = allTasks.filter((t) => {
-    if (!t.id || seen.has(t.id)) return false;
-    seen.add(t.id);
-    return true;
-  });
-
-  const rows = buildTaskClassificationRows(uniqueTasks, profile);
-  const bucketLabel: Record<string, string> = {
-    flow: "потоковая",
-    ui: "UI/front",
-    regular: "обычная",
-    unknown: "неизвестно",
-  };
+  const { rows } = buildBoardClassification(result);
 
   const lines = [
     "",
@@ -167,12 +123,11 @@ export function formatTaskClassificationDebugTable(
   ];
 
   for (const row of rows) {
-    const link = uniqueTasks.find((t) => t.id === row.id)?.url;
-    const idCell = link
-      ? `[№${row.id}](${link})`
+    const idCell = row.url
+      ? `[№${row.id}](${row.url})`
       : `№${row.id}`;
     lines.push(
-      `| ${idCell} | ${escapeTableCell(row.title)} | ${bucketLabel[row.bucket] ?? row.bucket} | ${escapeTableCell(row.reason)} | ${escapeTableCell(row.appliedRules)} |`,
+      `| ${idCell} | ${escapeTableCell(row.title)} | ${escapeTableCell(row.bucketLabel)} | ${escapeTableCell(row.reason)} | ${escapeTableCell(row.appliedRules)} |`,
     );
   }
 

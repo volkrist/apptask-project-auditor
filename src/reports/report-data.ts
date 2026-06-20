@@ -7,10 +7,14 @@ import type {
   EntityFinding,
   RuleResult,
 } from "../rules/rule-types.js";
-import { buildTaskClassificationRows } from "../tasks/task-type-classification.js";
+import {
+  buildBoardClassification,
+  type BoardClassificationRow,
+} from "./board-classification.js";
 import {
   buildRegistryTableRows,
   getTaskRuleStats,
+  registryHasZeroCandidates,
   summarizeRegistryOutcomes,
   type RegistryOutcome,
   type RegistryTableRow,
@@ -22,6 +26,7 @@ import {
 } from "./evidence-markdown.js";
 import { ruleCondition } from "./rule-conditions.js";
 import { ruleLabel } from "./rule-labels.js";
+import { ruleVerificationMethod } from "./rule-verification-methods.js";
 import {
   formatAuditedAt,
   humanizeProfileLabel,
@@ -43,19 +48,22 @@ export type CheckBlockView = {
   ruleId: string;
   label: string;
   condition: string;
-  passCount: number;
+  verificationMethod: string;
   failCount: number;
   warnCount: number;
+  violationCount: number;
+  zeroCandidates: boolean;
+  showViolationsPanel: boolean;
+  okBrief: string;
   violations: TaskViolationRow[];
-  passes: CardAudit[];
   entityFindings: EntityFinding[];
 };
 
 export type SectionTocView = {
   section: string;
   sectionId: string;
-  passCount: number;
-  violationCount: number;
+  checksOk: number;
+  checksWithViolations: number;
   checkNums: number[];
 };
 
@@ -96,6 +104,7 @@ export type ReportViewModel = {
     ui: number;
     regular: number;
     unknown: number;
+    total: number;
   };
   sections: SectionTocView[];
   checks: CheckBlockView[];
@@ -114,13 +123,6 @@ function overallStatus(failCount: number, warnCount: number): string {
   if (failCount > 0) return "Требует исправлений (есть FAIL)";
   if (warnCount > 0) return "Есть предупреждения (WARN)";
   return "Нарушений не выявлено";
-}
-
-function profileFor(result: AuditResult) {
-  const profileId =
-    (result.meta.auditProfile as "contract_turboweave_v1" | "legacy_generic") ??
-    "contract_turboweave_v1";
-  return getAuditProfile(profileId);
 }
 
 function violationsForRule(result: AuditResult, ruleId: string): TaskViolationRow[] {
@@ -142,13 +144,6 @@ function violationsForRule(result: AuditResult, ruleId: string): TaskViolationRo
   return rows;
 }
 
-function passesForRule(result: AuditResult, ruleId: string): CardAudit[] {
-  return result.cards.filter((card) => {
-    const r = card.results.find((x) => x.ruleId === ruleId);
-    return r?.status === "PASS";
-  });
-}
-
 function entityFindingsForRule(
   result: AuditResult,
   ruleId: string,
@@ -161,6 +156,20 @@ function entityFindingsForRule(
   );
 }
 
+function buildOkBrief(
+  registry: RegistryTableRow,
+  zeroCandidates: boolean,
+  violationCount: number,
+): string {
+  if (registry.outcome === "SKIP") return "Проверка пропущена (SKIP)";
+  if (zeroCandidates && violationCount === 0) {
+    return "Кандидатов для проверки нет";
+  }
+  if (registry.outcome === "OK") return "OK — нарушений нет";
+  if (registry.outcome === "NOT_APPLICABLE") return "Не применяется";
+  return registry.outcome;
+}
+
 function buildCheckBlock(
   registry: RegistryTableRow,
   result: AuditResult,
@@ -170,8 +179,14 @@ function buildCheckBlock(
     ? null
     : getTaskRuleStats(result, ruleId);
   const entity = entityFindingsForRule(result, ruleId);
-  const entityFail = entity.filter((f) => f.status === "FAIL").length;
-  const entityWarn = entity.filter((f) => f.status === "WARN").length;
+  const entityViolations = entity.filter(
+    (f) => f.status === "FAIL" || f.status === "WARN",
+  );
+  const violations = violationsForRule(result, ruleId);
+  const zeroCandidates = registryHasZeroCandidates(registry);
+  const violationCount = violations.length + entityViolations.length;
+  const failCount = stats?.fail ?? entityViolations.filter((f) => f.status === "FAIL").length;
+  const warnCount = stats?.warn ?? entityViolations.filter((f) => f.status === "WARN").length;
 
   return {
     entry: registry.entry,
@@ -179,34 +194,40 @@ function buildCheckBlock(
     ruleId,
     label: ruleLabel(ruleId),
     condition: ruleCondition(ruleId),
-    passCount: stats?.pass ?? (entity.some((f) => f.status === "PASS") ? 1 : 0),
-    failCount: stats?.fail ?? entityFail,
-    warnCount: stats?.warn ?? entityWarn,
-    violations: violationsForRule(result, ruleId),
-    passes: passesForRule(result, ruleId),
-    entityFindings: entity.filter((f) => f.status === "FAIL" || f.status === "WARN"),
+    verificationMethod: ruleVerificationMethod(ruleId),
+    failCount,
+    warnCount,
+    violationCount,
+    zeroCandidates,
+    showViolationsPanel: violationCount > 0,
+    okBrief: buildOkBrief(registry, zeroCandidates, violationCount),
+    violations,
+    entityFindings: entityViolations,
   };
 }
 
-function buildSections(
-  result: AuditResult,
-  checks: CheckBlockView[],
-): SectionTocView[] {
-  const profile = profileFor(result);
+function buildSections(checks: CheckBlockView[], result: AuditResult): SectionTocView[] {
+  const profileId =
+    (result.meta.auditProfile as "contract_turboweave_v1" | "legacy_generic") ??
+    "contract_turboweave_v1";
+  const profile = getAuditProfile(profileId);
+
   return profile.reportGroups.map((group) => {
     const ruleSet = new Set(group.ruleIds);
     const sectionChecks = checks.filter((c) => ruleSet.has(c.ruleId));
-    let passCount = 0;
-    let violationCount = 0;
+    let checksOk = 0;
+    let checksWithViolations = 0;
     for (const c of sectionChecks) {
-      passCount += c.passCount;
-      violationCount += c.failCount + c.warnCount + c.entityFindings.length;
+      if (c.registry.outcome === "OK") checksOk++;
+      if (c.registry.outcome === "FAIL" || c.registry.outcome === "WARN") {
+        checksWithViolations++;
+      }
     }
     return {
       section: group.section,
       sectionId: slugSection(group.section),
-      passCount,
-      violationCount,
+      checksOk,
+      checksWithViolations,
       checkNums: sectionChecks.map((c) => c.entry.num),
     };
   });
@@ -219,64 +240,15 @@ function slugSection(section: string): string {
     .replace(/^-|-$/g, "");
 }
 
-function buildClassification(result: AuditResult): {
-  rows: ClassificationRowView[];
-  counts: ReportViewModel["classificationCounts"];
-} {
-  const profile = profileFor(result);
-  const allTasks = [
-    ...result.cards.map((c) => c.task),
-    ...(result.meta.excludedFlowCards ?? []).map((ex) => ({
-      id: ex.id,
-      title: ex.title,
-      url: ex.url,
-      status: ex.status,
-      assignees: ex.assignee ? [ex.assignee] : [],
-      descriptionText: null,
-      createdAt: null,
-      startDate: null,
-      dueDate: null,
-      priority: null,
-      tags: [],
-      creator: null,
-      assigneeRefs: [],
-      category: null,
-      stage: null,
-      plannedTime: null,
-      actualTime: null,
-      links: [],
-      attachments: [],
-      comments: [],
-      boardId: null,
-    })),
-  ];
-  const seen = new Set<string>();
-  const uniqueTasks = allTasks.filter((t) => {
-    if (!t.id || seen.has(t.id)) return false;
-    seen.add(t.id);
-    return true;
-  });
-  const bucketLabel: Record<string, string> = {
-    flow: "потоковая / сервисная",
-    ui: "UI/front",
-    regular: "обычная",
-    unknown: "неизвестно",
-  };
-  const rows = buildTaskClassificationRows(uniqueTasks, profile).map((row) => ({
+function mapClassificationRow(row: BoardClassificationRow): ClassificationRowView {
+  return {
     id: row.id,
     title: row.title,
-    url: uniqueTasks.find((t) => t.id === row.id)?.url ?? null,
-    bucketLabel: bucketLabel[row.bucket] ?? row.bucket,
+    url: row.url,
+    bucketLabel: row.bucketLabel,
     reason: row.reason,
     appliedRules: row.appliedRules,
-  }));
-  const counts = { flow: 0, ui: 0, regular: 0, unknown: 0 };
-  for (const row of buildTaskClassificationRows(uniqueTasks, profile)) {
-    if (row.bucket in counts) {
-      counts[row.bucket as keyof typeof counts]++;
-    }
-  }
-  return { rows, counts };
+  };
 }
 
 function problematicCards(result: AuditResult): CardAudit[] {
@@ -298,14 +270,10 @@ export function buildReportViewModel(
   const checks = registryRows
     .filter((r) => r.outcome !== "NOT_APPLICABLE")
     .map((r) => buildCheckBlock(r, result));
-  const classification = buildClassification(result);
+  const boardClass = buildBoardClassification(result);
   const excluded = meta.excludedFlowCards ?? meta.excludedFlowExamples ?? [];
-  const excludedFlow = meta.excludedFlowTasks ?? 0;
+  const excludedFlow = meta.excludedFlowTasks ?? excluded.length;
   const totalOnBoard = meta.totalTasksOnBoard ?? meta.cardsChecked + excludedFlow;
-  const taskFail = meta.taskLevelFailCount ?? 0;
-  const taskWarn = meta.taskLevelWarnCount ?? 0;
-  const entityFail = meta.entityLevelFailCount ?? 0;
-  const entityWarn = meta.entityLevelWarnCount ?? 0;
 
   return {
     title: `AppTask Audit Report — ${meta.projectName}`,
@@ -319,10 +287,10 @@ export function buildReportViewModel(
       ignoredManual: extras.ignoredCount ?? 0,
       failCount: meta.failCount,
       warnCount: meta.warnCount,
-      taskFail,
-      taskWarn,
-      entityFail,
-      entityWarn,
+      taskFail: meta.taskLevelFailCount ?? 0,
+      taskWarn: meta.taskLevelWarnCount ?? 0,
+      entityFail: meta.entityLevelFailCount ?? 0,
+      entityWarn: meta.entityLevelWarnCount ?? 0,
       registryChecked: registrySummary.checked,
       registrySkip: registrySummary.skip,
       registryNotApplicable: registrySummary.notApplicable,
@@ -330,10 +298,10 @@ export function buildReportViewModel(
       profile: humanizeProfileLabel(meta.auditProfile),
       sources: humanizeSourcesUsed(meta.sourcesUsed),
     },
-    classificationCounts: classification.counts,
-    sections: buildSections(result, checks),
+    classificationCounts: boardClass.counts,
+    sections: buildSections(checks, result),
     checks,
-    classificationRows: classification.rows,
+    classificationRows: boardClass.rows.map(mapClassificationRow),
     excludedCards: excluded.map((ex) => ({
       id: ex.id,
       title: ex.title,
