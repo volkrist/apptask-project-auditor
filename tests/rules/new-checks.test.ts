@@ -80,14 +80,14 @@ test("unresolved_question: keyword в comments[].text → FAIL", async () => {
   assert.match(reasonOf(results, RULE_UNRESOLVED) ?? "", /комментарии/i);
 });
 
-test("unresolved_question: без keyword → PASS", async () => {
+test("unresolved_question: без keyword → NOT_APPLICABLE", async () => {
   const t = task({
     title: "Задача",
     descriptionText: "Цель: сделать отчёт. Ожидаемый результат — файл в папке.",
     assignees: ["Иван"],
   });
   const results = await evaluateTask(t, baseConfig, [t]);
-  assert.equal(statusOf(results, RULE_UNRESOLVED), "PASS");
+  assert.equal(statusOf(results, RULE_UNRESOLVED), "NOT_APPLICABLE");
 });
 
 test("unresolved_question: «ждём ответ» и «ждем ответ» → FAIL", async () => {
@@ -210,7 +210,7 @@ test("review_stage: userId Backend → FAIL при users API с QA roles", async
   assert.equal(statusOf(results, RULE_REVIEW), "FAIL");
 });
 
-test("review_stage: status не review → PASS", async () => {
+test("review_stage: status не review → NOT_APPLICABLE", async () => {
   const config = loadAuditConfig({
     linkCheckEnabled: false,
     qaTesters: ["Петр"],
@@ -222,5 +222,5 @@ test("review_stage: status не review → PASS", async () => {
     assignees: [],
   });
   const results = await evaluateTask(t, config, [t], sampleUsers);
-  assert.equal(statusOf(results, RULE_REVIEW), "PASS");
+  assert.equal(statusOf(results, RULE_REVIEW), "NOT_APPLICABLE");
 });

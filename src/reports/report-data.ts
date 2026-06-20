@@ -169,6 +169,9 @@ function buildOkBrief(
     }
     return "Проверка пропущена (SKIP)";
   }
+  if (registry.outcome === "PARTIAL") {
+    return "Проверено частично — см. «Не проверено»";
+  }
   if (zeroCandidates && violationCount === 0) {
     return "Кандидатов для проверки нет";
   }
@@ -340,6 +343,8 @@ export function outcomeClass(outcome: RegistryOutcome): string {
       return "warn";
     case "SKIP":
       return "skip";
+    case "PARTIAL":
+      return "partial";
     default:
       return "muted";
   }

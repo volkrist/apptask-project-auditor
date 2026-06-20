@@ -160,7 +160,7 @@ test("source skip block uses SKIP reason format", () => {
 test("contract report includes check registry with all contract items", () => {
   const md = buildContractAuditMarkdown(baseResult());
   assert.match(md, /## Реестр выполненных проверок/);
-  assert.match(md, /\| № \| Проверка \| Область \| Проверено \| Кандидатов \| Нарушения \| Итог \|/);
+  assert.match(md, /\| № \| Проверка \| Область \| Проверено \| Кандидатов \| Не проверено \| Нарушения \| Итог \|/);
   assert.match(md, /CHECKED:/);
   assert.match(md, /\| 1 \| До дедлайна меньше 1 дня/);
   assert.match(md, /\| 45 \| Названия задач и время готовы к актам/);

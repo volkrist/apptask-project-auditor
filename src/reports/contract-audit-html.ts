@@ -78,6 +78,7 @@ h3 { font-size: 1.05rem; margin: 20px 0 8px; }
 .badge.fail { background: rgba(242,85,90,.15); color: var(--fail); }
 .badge.warn { background: rgba(245,185,66,.15); color: var(--warn); }
 .badge.skip { background: rgba(139,147,167,.15); color: var(--skip); }
+.badge.partial { background: rgba(120,140,255,.15); color: #a8b8ff; }
 .counters { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 0; }
 .ok-brief { margin: 10px 0 0; font-size: 13px; }
 .counter-btn {
@@ -201,7 +202,7 @@ function renderCheckBlock(check: CheckBlockView): string {
     <span class="badge ${outcomeClass(check.registry.outcome)}">${escHtml(check.registry.outcome)}</span>
   </div>
   <div class="muted">Проверка: ${escHtml(check.label)}</div>
-  <div class="muted">Область: ${escHtml(check.entry.scope)} · Проверено: ${escHtml(check.registry.checked)} · Кандидатов: ${escHtml(check.registry.candidates)}</div>
+  <div class="muted">Область: ${escHtml(check.entry.scope)} · Проверено: ${escHtml(check.registry.checked)} · Кандидатов: ${escHtml(check.registry.candidates)}${check.registry.unavailable && check.registry.unavailable !== "—" ? ` · Не проверено: ${escHtml(check.registry.unavailable)}` : ""}</div>
   <div class="muted">Условие: ${escHtml(check.condition)}</div>
   <div class="muted">Метод проверки: ${escHtml(check.verificationMethod)}</div>
   ${check.subSources?.length ? `<ul class="sub-sources">${check.subSources.map((s) => `<li><strong>${escHtml(s.label)}:</strong> ${escHtml(s.status)} — ${escHtml(s.detail)}</li>`).join("")}</ul>` : ""}
@@ -219,13 +220,14 @@ function renderRegistryTable(checks: CheckBlockView[]): string {
   <td>${escHtml(c.entry.scope)}</td>
   <td>${escHtml(c.registry.checked)}</td>
   <td>${escHtml(c.registry.candidates)}</td>
+  <td>${escHtml(c.registry.unavailable)}</td>
   <td>${escHtml(c.registry.violations)}</td>
   <td><span class="badge ${outcomeClass(c.registry.outcome)}">${escHtml(c.registry.outcome)}</span></td>
 </tr>`,
     )
     .join("");
   return `<table class="registry-table"><thead><tr>
-  <th>№</th><th>Проверка</th><th>Область</th><th>Проверено</th><th>Кандидатов</th><th>Нарушения</th><th>Итог</th>
+  <th>№</th><th>Проверка</th><th>Область</th><th>Проверено</th><th>Кандидатов</th><th>Не проверено</th><th>Нарушения</th><th>Итог</th>
 </tr></thead><tbody>${rows}</tbody></table>`;
 }
 

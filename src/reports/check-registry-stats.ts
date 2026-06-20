@@ -15,16 +15,24 @@ import {
 } from "./team-check-composite.js";
 import { escapeTableCell } from "./report-links.js";
 import {
-  isSourceMissingSkip,
-  type SkipRuleSummary,
-} from "./report-presentation.js";
+  buildRuleCandidateAccount,
+  isZeroCandidatesLabel,
+} from "./rule-candidate-accounting.js";
+import { isSourceMissingSkip } from "./report-presentation.js";
 
-export type RegistryOutcome = "OK" | "FAIL" | "WARN" | "SKIP" | "NOT_APPLICABLE";
+export type RegistryOutcome =
+  | "OK"
+  | "FAIL"
+  | "WARN"
+  | "SKIP"
+  | "PARTIAL"
+  | "NOT_APPLICABLE";
 
 export type RegistryTableRow = {
   entry: ContractCheckRegistryEntry;
   checked: string;
   candidates: string;
+  unavailable: string;
   violations: string;
   outcome: RegistryOutcome;
 };
@@ -88,12 +96,9 @@ export function getTaskRuleStats(
   return computeTaskRuleStats(result, ruleId);
 }
 
-/** Кандидатов нет (0 задач в области правила) — не показывать «Успешно 64». */
+/** Кандидатов нет — не показывать ложное «все прошли». */
 export function registryHasZeroCandidates(row: RegistryTableRow): boolean {
-  const c = row.candidates.trim();
-  if (/^0\s/.test(c)) return true;
-  if (c === "0 в области правила") return true;
-  return false;
+  return isZeroCandidatesLabel(row.candidates);
 }
 
 function isRuleSkipped(result: AuditResult, ruleId: string): boolean {
@@ -142,82 +147,21 @@ function outcomeFrom(
   return "OK";
 }
 
-function countBlockedTaskCandidates(result: AuditResult, ruleId: string): number {
-  return taskResultsForRule(result, ruleId).filter(
-    (r) =>
-      r.status !== "SKIP" &&
-      r.status !== "NOT_APPLICABLE" &&
-      !r.reason.includes("не заблокирована"),
-  ).length;
-}
-
-function describeTaskCandidates(
-  ruleId: string,
-  s: TaskRuleStats,
-  result: AuditResult,
-): string {
-  const v = s.fail + s.warn;
-  switch (ruleId) {
-    case "blocked_tag_present":
-    case "blocked_task_reason": {
-      const blocked = countBlockedTaskCandidates(result, ruleId);
-      return blocked === 0 ? "0 заблокированных задач" : `${blocked} заблокированных задач`;
-    }
-    case "deadline_less_than_one_day":
-      return v > 0
-        ? `${v} задач с дедлайном < 1 дня`
-        : "0 задач с дедлайном < 1 дня";
-    case "assignee_present":
-      return v > 0 ? `${v} карточек без исполнителя` : "0 карточек без исполнителя";
-    case "verified_success_comment":
-      return v > 0
-        ? `${v} завершённых без комментария «проверено»`
-        : "0 завершённых без комментария «проверено»";
-    case "open_questions_closed":
-      return v > 0
-        ? `${v} карточек с открытым вопросом в комментариях`
-        : "0 открытых вопросов без ответа";
-    case "scrum_decomposition_over_20h":
-      return v > 0 ? `${v} задач с ПВ >20 ч без декомпозиции` : "0 задач с ПВ >20 ч";
-    case "review_queue_over_limit": {
-      const queue =
-        result.meta.boardMetrics?.reviewQueueCount ??
-        Object.values(result.meta.boardMetrics?.byBoard ?? {}).reduce(
-          (sum, b) => sum + b.testingQueueCount,
-          0,
-        );
-      return `${queue} задач на проверке`;
-    }
-    case "developer_active_tasks_limit":
-      return v > 0
-        ? `${v} исполнителей с >3 активными задачами`
-        : "0 исполнителей сверх лимита";
-    case "in_progress_stale":
-      return v > 0 ? `${v} задач в работе без обновлений` : "0 задач без обновлений";
-    case "review_stale":
-      return v > 0 ? `${v} задач на проверке без движения` : "0 задач на проверке";
-    case "vague_done_comment":
-      return v > 0 ? `${v} коротких done-комментариев` : "0 коротких done-комментариев";
-    case "ui_has_mockup_link":
-    case "ui_mockup_approved":
-    case "ui_adaptive_requirements":
-    case "ui_browser_device_requirements":
-      return s.applicable === 0
-        ? "0 UI/front задач"
-        : v > 0
-          ? `${v} UI/front с нарушением`
-          : `${s.applicable} UI/front — все прошли`;
-    default:
-      if (v > 0) return `${v} с нарушениями`;
-      if (s.applicable === 0) return "0 в области правила";
-      return `${s.applicable} в области — все прошли`;
-  }
-}
-
 function describeEntityRow(
   ruleId: string,
   result: AuditResult,
 ): Omit<RegistryTableRow, "entry"> | null {
+  if (ruleId === "team_role_rate_match") {
+    const account = buildRuleCandidateAccount(ruleId, result);
+    return {
+      checked: account.scopeLabel,
+      candidates: account.candidatesLabel,
+      unavailable: account.unavailableLabel,
+      violations: formatViolations(account.fail, account.warn),
+      outcome: account.outcome,
+    };
+  }
+
   const findings = (result.entityFindings ?? result.meta.entityFindings ?? []).filter(
     (f) => f.ruleId === ruleId,
   );
@@ -229,6 +173,7 @@ function describeEntityRow(
     return {
       checked: "—",
       candidates: "—",
+      unavailable: "—",
       violations: "—",
       outcome: "SKIP",
     };
@@ -244,6 +189,7 @@ function describeEntityRow(
       return {
         checked: `${counts.total} карточек`,
         candidates: `классифицировано: ${formatClassificationSummaryLine(counts)}`,
+        unavailable: "—",
         violations: formatViolations(fail, warn),
         outcome: outcomeFrom("CHECKED", fail, warn),
       };
@@ -253,6 +199,7 @@ function describeEntityRow(
       return {
         checked: "учёт времени по дням",
         candidates: `${rows.length} случаев > лимита`,
+        unavailable: "—",
         violations: formatViolations(fail, warn),
         outcome: outcomeFrom("CHECKED", fail, warn),
       };
@@ -261,6 +208,7 @@ function describeEntityRow(
       return {
         checked: "майлстоуны рабочей таблицы",
         candidates: `${warn} спринтов без дат`,
+        unavailable: "—",
         violations: formatViolations(fail, warn),
         outcome: outcomeFrom("CHECKED", fail, warn),
       };
@@ -269,6 +217,7 @@ function describeEntityRow(
         checked: "исполнители AppTask + рабочая таблица",
         candidates:
           warn > 0 ? `${warn} участников не в таблице` : "состав сверен",
+        unavailable: "—",
         violations: formatViolations(fail, warn),
         outcome: outcomeFrom("CHECKED", fail, warn),
       };
@@ -278,6 +227,7 @@ function describeEntityRow(
         return {
           checked: "—",
           candidates: "нет доступа к списку участников сервера",
+          unavailable: "—",
           violations: "—",
           outcome: "SKIP",
         };
@@ -286,21 +236,16 @@ function describeEntityRow(
         checked: "исполнители AppTask + Discord",
         candidates:
           warn > 0 ? `${warn} участников не в Discord` : "состав сверен",
+        unavailable: "—",
         violations: formatViolations(fail, warn),
         outcome: outcomeFrom("CHECKED", fail, warn),
       };
     }
-    case "team_role_rate_match":
-      return {
-        checked: "участники рабочей таблицы",
-        candidates: warn > 0 ? `${warn} без роли/ставки` : "роли и ставки заполнены",
-        violations: formatViolations(fail, warn),
-        outcome: outcomeFrom("CHECKED", fail, warn),
-      };
     case "project_worksheet_match":
       return {
         checked: "доска + рабочая таблица",
         candidates: warn > 0 ? `${warn} расхождений` : "данные сверены",
+        unavailable: "—",
         violations: formatViolations(fail, warn),
         outcome: outcomeFrom("CHECKED", fail, warn),
       };
@@ -308,6 +253,7 @@ function describeEntityRow(
       return {
         checked: findings.length > 0 ? "1 объект" : "доска",
         candidates: warn + fail > 0 ? `${warn + fail} нарушений` : "соответствует",
+        unavailable: "—",
         violations: formatViolations(fail, warn),
         outcome: outcomeFrom("CHECKED", fail, warn),
       };
@@ -325,6 +271,7 @@ function buildRegistryRow(
       entry,
       checked: "—",
       candidates: "—",
+      unavailable: "—",
       violations: "—",
       outcome: "NOT_APPLICABLE",
     };
@@ -334,6 +281,7 @@ function buildRegistryRow(
     const wsEntity = describeEntityRow("team_worksheet_match", result) ?? {
       checked: "—",
       candidates: "—",
+      unavailable: "—",
       violations: "—",
       outcome: "SKIP" as RegistryOutcome,
     };
@@ -352,6 +300,7 @@ function buildRegistryRow(
       entry,
       checked: "—",
       candidates: "источник недоступен",
+      unavailable: "—",
       violations: "—",
       outcome: "SKIP",
     };
@@ -362,20 +311,14 @@ function buildRegistryRow(
     if (entity) return { entry, ...entity };
   }
 
-  const s = computeTaskRuleStats(result, ruleId);
-  const checkedLabel =
-    ruleId === "review_queue_over_limit"
-      ? "очередь проверки"
-      : s.skipped === s.total
-        ? "—"
-        : `${s.total - s.skipped} ${s.total - s.skipped === 1 ? "задача" : "задачи"}`;
-
+  const account = buildRuleCandidateAccount(ruleId, result);
   return {
     entry,
-    checked: checkedLabel,
-    candidates: describeTaskCandidates(ruleId, s, result),
-    violations: formatViolations(s.fail, s.warn),
-    outcome: outcomeFrom("CHECKED", s.fail, s.warn),
+    checked: account.scopeLabel,
+    candidates: account.candidatesLabel,
+    unavailable: account.unavailableLabel,
+    violations: formatViolations(account.fail, account.warn),
+    outcome: account.outcome,
   };
 }
 
@@ -416,14 +359,14 @@ export function formatCheckRegistryMarkdown(result: AuditResult): string[] {
     `- NOT_APPLICABLE: ${summary.notApplicable}`,
     `- SKIP: ${summary.skip}`,
     "",
-    "| № | Проверка | Область | Проверено | Кандидатов | Нарушения | Итог |",
-    "| - | -------- | ------- | --------- | ---------- | --------- | ---- |",
+    "| № | Проверка | Область | Проверено | Кандидатов | Не проверено | Нарушения | Итог |",
+    "| - | -------- | ------- | --------- | ---------- | ------------ | --------- | ---- |",
   ];
 
   for (const row of rows) {
     const { entry } = row;
     lines.push(
-      `| ${entry.num} | ${escapeTableCell(entry.title)} | ${entry.scope} | ${escapeTableCell(row.checked)} | ${escapeTableCell(row.candidates)} | ${escapeTableCell(row.violations)} | ${row.outcome} |`,
+      `| ${entry.num} | ${escapeTableCell(entry.title)} | ${entry.scope} | ${escapeTableCell(row.checked)} | ${escapeTableCell(row.candidates)} | ${escapeTableCell(row.unavailable)} | ${escapeTableCell(row.violations)} | ${row.outcome} |`,
     );
   }
 

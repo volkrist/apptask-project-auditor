@@ -1,7 +1,7 @@
 import type { RawTask } from "../../adapters/apptask/types.js";
 import type { Rule, RuleContext, RuleResult } from "../rule-types.js";
 import { commentPlainTextForRules } from "../helpers.js";
-import { pass, warn, skip } from "../helpers.js";
+import { pass, warn, skip, notApplicable } from "../helpers.js";
 import {
   isCompletedStatus,
   isInProgressStatus,
@@ -250,7 +250,10 @@ export const trackingOnNonWorkStatusRule: Rule = {
     if ("ruleId" in tracking) return tracking;
     const metrics = metricsForTask(ctx, task);
     if (!metrics?.hasTrackingInLast24Hours) {
-      return pass(TRACKING_ON_NON_WORK_STATUS_RULE, "Нет трекинга за 24 ч");
+      return notApplicable(
+        TRACKING_ON_NON_WORK_STATUS_RULE,
+        "Нет трекинга за 24 ч",
+      );
     }
     if (isInProgressStatus(task.status) || isReviewStatus(task.status)) {
       return pass(

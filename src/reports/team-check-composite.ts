@@ -72,12 +72,14 @@ export function describeTeamCompositeRegistry(
   wsRow: {
     checked: string;
     candidates: string;
+    unavailable: string;
     violations: string;
     outcome: RegistryOutcome;
   },
 ): {
   checked: string;
   candidates: string;
+  unavailable: string;
   violations: string;
   outcome: RegistryOutcome;
 } {
@@ -89,6 +91,7 @@ export function describeTeamCompositeRegistry(
   return {
     checked: "AppTask + рабочая таблица; Discord",
     candidates: subSummary || wsRow.candidates,
+    unavailable: wsRow.unavailable,
     violations: wsRow.violations,
     outcome: wsRow.outcome,
   };

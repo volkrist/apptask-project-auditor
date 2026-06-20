@@ -2,6 +2,7 @@ import type { Rule } from "../rule-types.js";
 import {
   fail,
   findUnresolvedQuestionInCard,
+  notApplicable,
   pass,
   unresolvedQuestionSourceLabel,
 } from "../helpers.js";
@@ -21,6 +22,9 @@ export const unresolvedQuestionKeywordsInCardRule: Rule = {
         `В ${where} карточки есть признак незакрытого вопроса: ${hit.keyword}`,
       );
     }
-    return pass("unresolved_question_keywords_in_card");
+    return notApplicable(
+      "unresolved_question_keywords_in_card",
+      "Маркеры незакрытого вопроса не найдены",
+    );
   },
 };

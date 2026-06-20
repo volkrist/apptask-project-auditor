@@ -129,7 +129,7 @@ test("blocked_assignee: assignee not in users → not FAIL", async () => {
   assert.equal(findAssigneesMissingFromUsers(t, sampleUsers).length, 1);
 });
 
-test("blocked_assignee: empty users API → PASS (audit not broken)", async () => {
+test("blocked_assignee: empty users API → SKIP", async () => {
   const t = task({
     title: "Задача",
     descriptionText: "Цель: тест.",
@@ -137,5 +137,5 @@ test("blocked_assignee: empty users API → PASS (audit not broken)", async () =
     assignees: ["Заблокированный Петр"],
   });
   const results = await evaluateTask(t, baseConfig, [t], []);
-  assert.equal(statusOf(results, "blocked_assignee_not_allowed"), "PASS");
+  assert.equal(statusOf(results, "blocked_assignee_not_allowed"), "SKIP");
 });

@@ -36,7 +36,7 @@ export const blockedTagPresentRule: Rule = {
   severity: "soft",
   evaluate(task) {
     if (!isBlockedTask(task)) {
-      return pass("blocked_tag_present", "Задача не заблокирована");
+      return notApplicable("blocked_tag_present", "Задача не заблокирована");
     }
     const tags = task.tags ?? [];
     const hasTag = tags.some((t) => /blocked|блок/i.test(t));
@@ -56,7 +56,7 @@ export const developerActiveTasksLimitRule: Rule = {
   evaluate(task, ctx) {
     const assignee = primaryAssignee(task);
     if (!assignee || !isInProgressStatus(task.status)) {
-      return pass("developer_active_tasks_limit", "Не активная задача исполнителя");
+      return notApplicable("developer_active_tasks_limit", "Не активная задача исполнителя");
     }
     const profile = getAuditProfile(
       resolveAuditProfileId(ctx.auditProfileId),
@@ -81,20 +81,20 @@ export const neverStartedTaskRule: Rule = {
   severity: "soft",
   evaluate(task, ctx) {
     if (isCompletedStatus(task.status)) {
-      return pass("never_started_task", "Завершена");
+      return notApplicable("never_started_task", "Завершена");
     }
     if (isInProgressStatus(task.status) || isTestingStatus(task.status)) {
-      return pass("never_started_task", "Уже в работе или на проверке");
+      return notApplicable("never_started_task", "Уже в работе или на проверке");
     }
     const createdAt = task.createdAt ?? null;
     const ageHours = hoursSince(createdAt);
     if (ageHours == null || ageHours < NEVER_STARTED_DAYS * 24) {
-      return pass("never_started_task", "Недавно создана или нет даты");
+      return notApplicable("never_started_task", "Недавно создана или нет даты");
     }
     const resolve = makeStateNameResolver(ctx.stateNameByKey);
     const started = findInProgressStartedAt(task, resolve);
     if (started) {
-      return pass("never_started_task", "Была в работе");
+      return notApplicable("never_started_task", "Была в работе");
     }
     return warn(
       "never_started_task",
@@ -295,7 +295,7 @@ export const verifiedSuccessCommentRule: Rule = {
   severity: "soft",
   evaluate(task) {
     if (!isCompletedStatus(task.status)) {
-      return pass("verified_success_comment", "Не завершена");
+      return notApplicable("verified_success_comment", "Не завершена");
     }
     const comments = task.comments ?? [];
     const ok = comments.some((c) =>
@@ -323,7 +323,7 @@ export const testerFeedbackHasProofRule: Rule = {
       /баг|ошибк|не работ|замечан|вернуть|rework/i.test(c.text ?? ""),
     );
     if (feedback.length === 0) {
-      return pass("tester_feedback_has_proof", "Нет замечаний тестировщика");
+      return notApplicable("tester_feedback_has_proof", "Нет замечаний тестировщика");
     }
     const withProof = feedback.some((c) =>
       /https?:\/\/|скрин|screenshot|видео|\.png|\.jpg|attachment/i.test(
@@ -346,7 +346,7 @@ export const massStartWithoutCompletionRule: Rule = {
   evaluate(task, ctx) {
     const assignee = primaryAssignee(task);
     if (!assignee || !isInProgressStatus(task.status)) {
-      return pass("mass_start_without_completion", "Не применимо");
+      return notApplicable("mass_start_without_completion", "Не применимо");
     }
     const profile = getAuditProfile(
       resolveAuditProfileId(ctx.auditProfileId),
@@ -376,7 +376,7 @@ export const openQuestionsClosedRule: Rule = {
   evaluate(task) {
     const comments = task.comments ?? [];
     if (comments.length === 0) {
-      return pass("open_questions_closed", "Комментариев нет");
+      return notApplicable("open_questions_closed", "Комментариев нет");
     }
     const snippet = findOpenQuestionWithoutReply(task);
     if (snippet) {
@@ -385,7 +385,7 @@ export const openQuestionsClosedRule: Rule = {
         `Открытый вопрос в комментарии без ответа: «${snippet}»`,
       );
     }
-    return pass("open_questions_closed", "Открытых вопросов без ответа не найдено");
+    return notApplicable("open_questions_closed", "Открытых вопросов без ответа не найдено");
   },
 };
 
@@ -394,7 +394,7 @@ export const actReadyNamingRule: Rule = {
   severity: "soft",
   evaluate(task) {
     if (!isCompletedStatus(task.status)) {
-      return pass("act_ready_naming", "Не завершена");
+      return notApplicable("act_ready_naming", "Не завершена");
     }
     const title = task.title?.trim() ?? "";
     if (title.length < 12) {

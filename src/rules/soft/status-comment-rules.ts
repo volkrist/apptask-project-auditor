@@ -19,7 +19,7 @@ import {
   findReworkTransitions,
 } from "../history/history-parser.js";
 import { makeStateNameResolver } from "../../collectors/state-map.js";
-import { pass, warn, fail } from "../helpers.js";
+import { pass, warn, fail, notApplicable } from "../helpers.js";
 
 const IN_PROGRESS_STALE_HOURS =
   Number(process.env.IN_PROGRESS_STALE_BUSINESS_HOURS ?? "48") || 48;
@@ -60,7 +60,7 @@ export const blockedTaskReasonRule: Rule = {
   severity: "soft",
   evaluate(task) {
     if (!isBlockedTask(task)) {
-      return pass("blocked_task_reason", "Задача не заблокирована");
+      return notApplicable("blocked_task_reason", "Задача не заблокирована");
     }
     if (hasAdequateBlockReason(task)) {
       return pass("blocked_task_reason", "Причина блокировки указана");
@@ -100,7 +100,7 @@ export const inProgressStaleRule: Rule = {
   severity: "soft",
   evaluate(task) {
     if (!isInProgressStatus(task.status)) {
-      return pass("in_progress_stale", "Не в работе");
+      return notApplicable("in_progress_stale", "Не в работе");
     }
     const lastAt = computeLastActivityAt(task);
     const hours = businessHoursSince(lastAt);
@@ -119,7 +119,7 @@ export const reviewStaleRule: Rule = {
   severity: "soft",
   evaluate(task, ctx) {
     if (!isTestingStatus(task.status)) {
-      return pass("review_stale", "Не на проверке");
+      return notApplicable("review_stale", "Не на проверке");
     }
     const resolve = makeStateNameResolver(ctx.stateNameByKey);
     const review = findReviewStartedAt(task, resolve);
@@ -142,7 +142,7 @@ export const vagueDoneCommentRule: Rule = {
   evaluate(task) {
     const vague = findVagueDoneComments(task);
     if (vague.length === 0) {
-      return pass("vague_done_comment", "OK");
+      return notApplicable("vague_done_comment", "Маркеры не найдены");
     }
     const c = vague[0]!;
     return warn(
@@ -158,7 +158,7 @@ export const highPriorityStaleRule: Rule = {
   evaluate(task) {
     const hp = isHighPriorityOrCriticalBug(task);
     if (!hp.match) {
-      return pass("high_priority_stale", "Не high/critical/bug");
+      return notApplicable("high_priority_stale", "Не high/critical/bug");
     }
     const lastAt = computeLastActivityAt(task);
     const hours = hoursSince(lastAt);

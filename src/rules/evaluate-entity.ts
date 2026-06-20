@@ -358,7 +358,20 @@ function teamRoleRateFindings(
 
   for (const assignee of [...assignees].sort()) {
     const participant = findWorksheetParticipant(assignee, active);
-    if (!participant) continue;
+    if (!participant) {
+      findings.push({
+        ruleId: "team_role_rate_match",
+        status: "WARN",
+        reason: "участник не найден в рабочей таблице — роль и ставку сверить нельзя",
+        scope: "team",
+        objectLabel: `участник — ${assignee}`,
+        source: teamWorksheetSourceLabel(ctx),
+        actualValue: `${assignee}: не найден в рабочей таблице`,
+        expectedValue: "участник найден в рабочей таблице для сверки роли и ставки",
+        link: sheetLink,
+      });
+      continue;
+    }
     if (ws.participantColumns.role && !participant.role?.trim()) {
       findings.push({
         ruleId: "team_role_rate_match",

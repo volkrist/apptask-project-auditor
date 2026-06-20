@@ -7,7 +7,7 @@ import {
 } from "../status/status-helpers.js";
 import { matchTaskToEstimate } from "../../scrum/estimate-matcher.js";
 import { isScrumAuditBoard } from "../../scrum/scrum-estimate-config.js";
-import { pass, warn } from "../helpers.js";
+import { pass, warn, skip } from "../helpers.js";
 
 export const SCRUM_ESTIMATE_MISSING_RULE = "scrum_task_in_estimate";
 export const SCRUM_NAME_MISMATCH_RULE = "scrum_title_matches_estimate";
@@ -113,11 +113,14 @@ export const scrumPlannedHoursInPortalRule: Rule = {
   id: SCRUM_PV_MISSING_RULE,
   severity: "soft",
   evaluate(task, ctx) {
-    const skip = requireScrumForTask(task, ctx, SCRUM_PV_MISSING_RULE);
-    if (skip) return skip;
+    const boardSkip = requireScrumForTask(task, ctx, SCRUM_PV_MISSING_RULE);
+    if (boardSkip) return boardSkip;
     const match = matchTaskToEstimate(task, ctx.scrum!.rows);
     if (match.kind !== "ok" && match.kind !== "title_mismatch") {
-      return pass(SCRUM_PV_MISSING_RULE, "Нет строки сметы для проверки ПВ");
+      return skip(
+        SCRUM_PV_MISSING_RULE,
+        "Нет строки сметы — ПВ не проверялось",
+      );
     }
     const row = match.row;
     const col = ctx.scrum!.config.pvColumn;

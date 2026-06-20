@@ -7,8 +7,9 @@ import type { ContractCheckRegistryEntry } from "../../src/config/contract-check
 function row(candidates: string): RegistryTableRow {
   return {
     entry: { num: 1, title: "t", scope: "s", ruleIds: ["deadline_less_than_one_day"] } as ContractCheckRegistryEntry,
-    checked: "64 карточки",
+    checked: "64 задачи",
     candidates,
+    unavailable: "—",
     violations: "0",
     outcome: "OK",
   };

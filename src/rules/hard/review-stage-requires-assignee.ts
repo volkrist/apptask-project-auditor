@@ -5,6 +5,7 @@ import {
   findQaAssignee,
   hasAnyAssignee,
   isReviewStage,
+  notApplicable,
   pass,
 } from "../helpers.js";
 
@@ -13,7 +14,7 @@ export const reviewStageRequiresAssigneeRule: Rule = {
   severity: "hard",
   evaluate(task, { config, appTaskUsers }) {
     if (!isReviewStage(task, config.reviewStageKeywords)) {
-      return pass("review_stage_requires_assignee");
+      return notApplicable("review_stage_requires_assignee", "Не на этапе проверки");
     }
 
     if (!hasAnyAssignee(task)) {
