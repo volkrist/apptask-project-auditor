@@ -60,6 +60,29 @@ export async function loadBoardMetadataById(
   return indexBoardMetadata(rows);
 }
 
+/** Все доски с заполненным discord_link (для авто-привязки каналов). */
+export async function fetchBoardsWithDiscordLinks(
+  config: DbConfig,
+): Promise<BoardMetadata[]> {
+  const rows = await querySelect<DbBoardMetadataRow>(
+    config,
+    `
+SELECT id, name, description, comment, discord_link
+FROM dbo.Boards
+WHERE ISNULL(removed, 0) = 0
+  AND discord_link IS NOT NULL
+  AND LTRIM(RTRIM(discord_link)) <> ''
+`,
+  );
+  return rows.map((r) => ({
+    boardId: r.id,
+    name: r.name?.trim() || null,
+    description: r.description?.trim() || null,
+    comment: r.comment?.trim() || null,
+    discordLink: r.discord_link?.trim() || null,
+  }));
+}
+
 const FOLDER_LINK_RE =
   /https?:\/\/(?:drive\.google\.com\/(?:drive\/folders|file\/d)|disk\.yandex\.ru|dropbox\.com|1drv\.ms|sharepoint\.com)[^\s)>\]"']*/i;
 

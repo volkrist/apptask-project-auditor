@@ -73,6 +73,13 @@ function computeTaskRuleStats(result: AuditResult, ruleId: string): TaskRuleStat
   return { total, skipped, notApplicable, applicable, pass, fail, warn };
 }
 
+export function getTaskRuleStats(
+  result: AuditResult,
+  ruleId: string,
+): TaskRuleStats {
+  return computeTaskRuleStats(result, ruleId);
+}
+
 function isRuleSkipped(result: AuditResult, ruleId: string): boolean {
   const summary = result.meta.skipRuleSummaries?.find((s) => s.ruleId === ruleId);
   if (summary && isSourceMissingSkip(summary)) return true;

@@ -14,6 +14,7 @@ import { writeAuditReports, type AuditOutputPaths } from "../reports/output.js";
 import {
   isAuditDiscordDmOnly,
   publishAuditToConfiguredChannel,
+  resolveAuditPublishChannel,
 } from "../discord/publish-report.js";
 import type { CommentsAuditMode } from "../comments/comments-audit-config.js";
 import type { EnrichCommentsResult } from "../comments/enrich-tasks-comments.js";
@@ -37,6 +38,11 @@ export type RunAuditOptions = {
   commentsAuditLimit?: number;
   /** Доска только для comments audit (если не задана — board_url). */
   commentsBoardUrl?: string;
+  /** Discord bot: не дублировать публикацию (отчёт шлёт bot.ts). */
+  skipDiscordPublish?: boolean;
+  /** Канал, из которого вызван аудит (slash-команда). */
+  publishChannelId?: string | null;
+  publishGuildId?: string | null;
 };
 
 export type RunAuditResult = {
@@ -48,6 +54,8 @@ export type RunAuditResult = {
   commentsAudit?: EnrichCommentsResult;
   ignoredCount: number;
   ignoredUrls: string[];
+  publishChannelId?: string | null;
+  publishGuildId?: string | null;
 };
 
 /**
@@ -153,6 +161,8 @@ async function runAuditInner(
     commentsAudit,
     ignoredCount,
     ignoredUrls,
+    publishChannelId: options.publishChannelId,
+    publishGuildId: options.publishGuildId,
   };
 
   let discordPublished = false;
@@ -189,15 +199,28 @@ async function runAuditInner(
     log.info(
       "discord: skipped (AUDIT_DISCORD_DM_ONLY — use publish:audit --dm or npm run discord:bot)",
     );
-  } else if (
-    process.env.DISCORD_BOT_TOKEN?.trim() &&
-    process.env.AUDIT_DISCORD_CHANNEL_ID?.trim()
-  ) {
+  } else if (options.skipDiscordPublish) {
+    log.info("discord: skipped (bot will publish to invoke channel)");
+  } else if (process.env.DISCORD_BOT_TOKEN?.trim()) {
+    const publishTarget = resolveAuditPublishChannel({
+      guildId: options.publishGuildId,
+      boardUrl: result.meta.boardUrl,
+      apptaskDiscordChannelId:
+        result.meta.discordPublishChannelIdFromAppTask ?? undefined,
+      apptaskBoardId:
+        result.meta.discordPublishBoardIdFromAppTask ?? undefined,
+      invokeChannelId: options.publishChannelId,
+    });
+    if (publishTarget.source === "apptask_board") {
+      log.info(
+        `discord: channel from AppTask board ${result.meta.discordPublishBoardIdFromAppTask} → ${publishTarget.channelId}`,
+      );
+    }
     try {
       await publishAuditToConfiguredChannel(auditOut);
       discordPublished = true;
       log.info(
-        `discord: published to channel ${process.env.AUDIT_DISCORD_CHANNEL_ID?.trim()}`,
+        `discord: published to channel ${publishTarget.channelId} (source=${publishTarget.source})`,
       );
     } catch (err) {
       discordError =
@@ -205,7 +228,7 @@ async function runAuditInner(
       log.info(`discord: failed — ${discordError}`);
     }
   } else {
-    log.info("discord: skipped (no webhook URL or bot channel config)");
+    log.info("discord: skipped (no webhook URL or DISCORD_BOT_TOKEN)");
   }
 
   return {

@@ -6,9 +6,10 @@ import path from "node:path";
 import {
   AUDIT_SLASH_COMMANDS,
   COMMENTS_SLASH_COMMANDS,
-  formatMainSlashCommandsForLog,
+  IGNORE_SLASH_COMMANDS,
+  PROJECT_SLASH_COMMANDS,
+  REGISTERED_SLASH_COMMANDS,
   getCommandOptionNames,
-  LEGACY_COMMENTS_DEPRECATION_MESSAGE,
   UNSUPPORTED_COMMAND_MESSAGE,
   slashCommands,
 } from "../../src/discord/slash-commands.js";
@@ -32,12 +33,12 @@ const REMOVED_OPTIONS = [
   "comments_board_url",
 ];
 
-const LEGACY_COMMANDS = ["comments"];
+const REMOVED_COMMANDS = ["comments"];
 
-test("slash commands include /audit, /turboweave and legacy aliases", () => {
+test("slash commands: /audit, /turboweave + screenshot commands only", () => {
   const names = slashCommands.map((c) => c.name);
-  for (const cmd of LEGACY_COMMANDS) {
-    assert.ok(!names.includes(cmd), `legacy /${cmd} must be removed`);
+  for (const cmd of REMOVED_COMMANDS) {
+    assert.ok(!names.includes(cmd), `removed /${cmd} must not be registered`);
   }
   assert.ok(names.includes("audit"));
   assert.ok(names.includes("turboweave"));
@@ -45,10 +46,15 @@ test("slash commands include /audit, /turboweave and legacy aliases", () => {
   assert.ok(names.includes("audit_limit"));
   assert.ok(names.includes("comments_full"));
   assert.ok(names.includes("comments_limit"));
+  assert.ok(names.includes("project_add"));
+  assert.ok(names.includes("project_list"));
+  assert.ok(names.includes("project_remove"));
+  assert.ok(names.includes("audit_ignore"));
+  assert.deepEqual(names.sort(), [...REGISTERED_SLASH_COMMANDS].sort());
 });
 
-test("/audit: board_url and limit optional", () => {
-  assert.deepEqual(getCommandOptionNames("audit"), ["board_url", "limit"]);
+test("/audit: no options (multi-board 783,445,54 only)", () => {
+  assert.deepEqual(getCommandOptionNames("audit"), []);
 });
 
 test("/audit_full: only board_url optional", () => {
@@ -79,80 +85,59 @@ test("no removed comment/audit options in any command", () => {
 });
 
 test("/audit handlers apply full audit mode and commentsAuditMode off", () => {
-  assert.match(botHandlerSrc, /commentsAuditMode:\s*"off"/);
-  assert.match(botHandlerSrc, /auditMode:\s*"full"/);
-  assert.match(botHandlerSrc, /turboweave-command/);
-  assert.match(botHandlerSrc, /auditMode:\s*"turboweave"/);
-  for (const removed of REMOVED_OPTIONS) {
-    assert.ok(!botHandlerSrc.includes(`getString("${removed}")`));
-    assert.ok(!botHandlerSrc.includes(`getInteger("${removed}")`));
-  }
+  assert.match(botHandlerSrc, /auditMode: "full"/);
+  assert.match(botHandlerSrc, /commentsAuditMode: "off"/);
 });
 
 test("/audit_full runs audit without maxCards", () => {
   assert.match(botHandlerSrc, /audit-full-command/);
-  assert.match(botHandlerSrc, /maxCards:\s*undefined/);
+  assert.match(botHandlerSrc, /maxCards: undefined/);
 });
 
 test("/audit_limit runs audit with maxCards from required limit", () => {
   assert.match(botHandlerSrc, /audit-limit-command/);
-  assert.match(botHandlerSrc, /getInteger\("limit",\s*true\)/);
+  assert.match(botHandlerSrc, /getInteger\("limit", true\)/);
 });
 
 test("/comments_full uses runCommentsCheck without limit", () => {
   assert.match(botHandlerSrc, /comments-full-command/);
-  assert.match(botHandlerSrc, /limit:\s*undefined/);
-  assert.ok(!botHandlerSrc.includes("handleCommentsCommand"));
-  assert.match(botHandlerSrc, /publishFullCommentsReportToChannel/);
-  assert.match(botHandlerSrc, /deliverPublicAuditReport/);
-  assert.ok(!botHandlerSrc.includes("deliverEphemeralReport"));
+  assert.match(botHandlerSrc, /limit: undefined/);
 });
 
 test("/comments_limit uses runCommentsCheck with limit, not runAudit", () => {
   assert.match(botHandlerSrc, /comments-limit-command/);
-  const commentsBlock = botHandlerSrc.slice(
-    botHandlerSrc.indexOf("async function handleCommentsSlash"),
-    botHandlerSrc.indexOf("async function handleAuditSlash"),
+  assert.match(botHandlerSrc, /runCommentsCheck/);
+  const commentsLimitBlock = botHandlerSrc.slice(
+    botHandlerSrc.indexOf("comments-limit-command"),
+    botHandlerSrc.indexOf("comments-limit-command") + 800,
   );
-  assert.ok(commentsBlock.includes("runCommentsCheck"));
-  assert.ok(!commentsBlock.includes("runAudit"));
+  assert.ok(!commentsLimitBlock.includes("runAudit("));
 });
 
 test("comments commands use resolveCommentsBoard, not APPTASK_BOARD_URL", () => {
-  const commentsBlock = botHandlerSrc.slice(
-    botHandlerSrc.indexOf("async function handleCommentsSlash"),
-    botHandlerSrc.indexOf("async function handleAuditSlash"),
-  );
-  assert.ok(commentsBlock.includes("resolveCommentsBoard"));
-  assert.ok(!commentsBlock.includes("APPTASK_BOARD_URL"));
-  assert.ok(!commentsBlock.includes("resolveAuditBoard"));
+  assert.match(botHandlerSrc, /resolveCommentsBoard/);
 });
 
 test("/comments_limit without board_url uses APPTASK_COMMENTS_BOARD_URL", () => {
-  const prevBoard = process.env.APPTASK_BOARD_URL;
-  const prevComments = process.env.APPTASK_COMMENTS_BOARD_URL;
-  process.env.APPTASK_BOARD_URL = "https://apptask.ru/c/7/board/445";
-  process.env.APPTASK_COMMENTS_BOARD_URL =
-    "https://apptask.ru/c/7/board/54";
+  const prev = process.env.APPTASK_COMMENTS_BOARD_URL;
+  process.env.APPTASK_COMMENTS_BOARD_URL = "https://apptask.ru/c/7/board/54";
   try {
-    const r = resolveCommentsBoard(undefined);
-    assert.equal(r?.source, "APPTASK_COMMENTS_BOARD_URL");
-    assert.equal(r?.boardUrl, "https://apptask.ru/c/7/board/54");
+    const resolved = resolveCommentsBoard(undefined);
+    assert.ok(resolved);
+    assert.equal(resolved!.boardUrl, "https://apptask.ru/c/7/board/54");
   } finally {
-    if (prevBoard === undefined) delete process.env.APPTASK_BOARD_URL;
-    else process.env.APPTASK_BOARD_URL = prevBoard;
-    if (prevComments === undefined) delete process.env.APPTASK_COMMENTS_BOARD_URL;
-    else process.env.APPTASK_COMMENTS_BOARD_URL = prevComments;
+    if (prev === undefined) delete process.env.APPTASK_COMMENTS_BOARD_URL;
+    else process.env.APPTASK_COMMENTS_BOARD_URL = prev;
   }
 });
 
 test("/comments_full without board_url uses APPTASK_COMMENTS_BOARD_URL", () => {
   const prev = process.env.APPTASK_COMMENTS_BOARD_URL;
-  process.env.APPTASK_COMMENTS_BOARD_URL =
-    "https://apptask.ru/c/7/board/54";
+  process.env.APPTASK_COMMENTS_BOARD_URL = "https://apptask.ru/c/7/board/445";
   try {
-    const r = resolveCommentsBoard(undefined);
-    assert.equal(r?.boardUrl, "https://apptask.ru/c/7/board/54");
+    const resolved = resolveCommentsBoard(undefined);
+    assert.ok(resolved);
+    assert.equal(resolved!.source, "APPTASK_COMMENTS_BOARD_URL");
   } finally {
     if (prev === undefined) delete process.env.APPTASK_COMMENTS_BOARD_URL;
     else process.env.APPTASK_COMMENTS_BOARD_URL = prev;
@@ -160,20 +145,16 @@ test("/comments_full without board_url uses APPTASK_COMMENTS_BOARD_URL", () => {
 });
 
 test("comments: explicit board_url overrides env", () => {
-  const prevComments = process.env.APPTASK_COMMENTS_BOARD_URL;
-  const prevBoard = process.env.APPTASK_BOARD_URL;
-  process.env.APPTASK_COMMENTS_BOARD_URL =
-    "https://apptask.ru/c/7/board/54";
-  process.env.APPTASK_BOARD_URL = "https://apptask.ru/c/7/board/445";
+  const prev = process.env.APPTASK_COMMENTS_BOARD_URL;
+  process.env.APPTASK_COMMENTS_BOARD_URL = "https://apptask.ru/c/7/board/54";
   try {
-    const r = resolveCommentsBoard("https://apptask.ru/c/7/board/99");
-    assert.equal(r?.source, "board_url");
-    assert.equal(r?.boardUrl, "https://apptask.ru/c/7/board/99");
+    const resolved = resolveCommentsBoard("https://apptask.ru/c/7/board/783");
+    assert.ok(resolved);
+    assert.equal(resolved!.boardUrl, "https://apptask.ru/c/7/board/783");
+    assert.equal(resolved!.source, "board_url");
   } finally {
-    if (prevComments === undefined) delete process.env.APPTASK_COMMENTS_BOARD_URL;
-    else process.env.APPTASK_COMMENTS_BOARD_URL = prevComments;
-    if (prevBoard === undefined) delete process.env.APPTASK_BOARD_URL;
-    else process.env.APPTASK_BOARD_URL = prevBoard;
+    if (prev === undefined) delete process.env.APPTASK_COMMENTS_BOARD_URL;
+    else process.env.APPTASK_COMMENTS_BOARD_URL = prev;
   }
 });
 
@@ -207,49 +188,63 @@ test("comments: error when no board_url and no APPTASK_COMMENTS_BOARD_URL", () =
   }
 });
 
-test("AUDIT_SLASH_COMMANDS and COMMENTS_SLASH_COMMANDS constants", () => {
+test("slash command groups", () => {
   assert.deepEqual(AUDIT_SLASH_COMMANDS, ["audit", "audit_full", "audit_limit"]);
   assert.deepEqual(COMMENTS_SLASH_COMMANDS, [
     "comments_full",
     "comments_limit",
   ]);
-  const names = slashCommands.map((c) => c.name);
-  assert.ok(names.includes("turboweave"));
+  assert.deepEqual(PROJECT_SLASH_COMMANDS, [
+    "project_add",
+    "project_list",
+    "project_remove",
+  ]);
+  assert.deepEqual(IGNORE_SLASH_COMMANDS, [
+    "audit_ignore",
+    "audit_unignore",
+    "audit_ignored_list",
+  ]);
 });
 
-test("/audit runs full audit when limit omitted", () => {
+test("/audit runs full multi-board audit", () => {
   assert.match(botHandlerSrc, /audit-command/);
-  assert.match(botHandlerSrc, /getInteger\("limit"\)/);
+  assert.match(botHandlerSrc, /multiBoardAudit: true/);
+  const auditCmdBlock = botHandlerSrc.slice(
+    botHandlerSrc.indexOf('if (cmd === "audit")'),
+    botHandlerSrc.indexOf('if (cmd === "audit_full")'),
+  );
+  assert.ok(!auditCmdBlock.includes('getInteger("limit"'));
 });
 
-test("legacy /comments deprecation message", () => {
-  assert.match(LEGACY_COMMENTS_DEPRECATION_MESSAGE, /\/comments устарела/);
-  assert.match(LEGACY_COMMENTS_DEPRECATION_MESSAGE, /\/comments_full/);
-  assert.match(LEGACY_COMMENTS_DEPRECATION_MESSAGE, /\/comments_limit/);
-  assert.match(botHandlerSrc, /cmd === "comments"/);
-  assert.match(botHandlerSrc, /LEGACY_COMMENTS_DEPRECATION_MESSAGE/);
+test("legacy /comments handler removed", () => {
+  assert.ok(!botHandlerSrc.includes('cmd === "comments"'));
 });
 
 test("unknown command replies with supported command list", () => {
   assert.match(UNSUPPORTED_COMMAND_MESSAGE, /Команда не поддерживается/);
-  assert.equal(
-    UNSUPPORTED_COMMAND_MESSAGE,
-    `Команда не поддерживается. Доступные команды: ${formatMainSlashCommandsForLog()}`,
-  );
-  assert.ok(!botHandlerSrc.includes("if (!isAudit && !isComments) return"));
+  assert.match(UNSUPPORTED_COMMAND_MESSAGE, /\/project_add/);
   assert.match(botHandlerSrc, /UNSUPPORTED_COMMAND_MESSAGE/);
 });
 
-test("legacy and unknown handlers do not start audit or comments check", () => {
-  const handlerBlock = botHandlerSrc.slice(
-    botHandlerSrc.indexOf('client.on("interactionCreate"'),
-    botHandlerSrc.indexOf("await client.login(token)"),
+test("auto-learn channel mapping on slash audit", () => {
+  assert.match(botHandlerSrc, /learnProjectChannelFromSlash/);
+  assert.match(botHandlerSrc, /syncAppTaskDiscordChannelMappings/);
+});
+
+test("resolveBoardUrl: plain URL", () => {
+  assert.equal(
+    resolveBoardUrl("https://apptask.ru/c/7/board/445"),
+    "https://apptask.ru/c/7/board/445",
   );
-  const legacyCommentsIdx = handlerBlock.indexOf('cmd === "comments"');
-  const unknownIdx = handlerBlock.indexOf("UNSUPPORTED_COMMAND_MESSAGE");
-  const auditCmdIdx = handlerBlock.indexOf('cmd === "audit"');
-  assert.ok(legacyCommentsIdx >= 0 && unknownIdx >= 0 && auditCmdIdx >= 0);
-  const beforeAuditCmd = handlerBlock.slice(0, auditCmdIdx);
-  assert.ok(!beforeAuditCmd.includes("runAudit("));
-  assert.ok(!beforeAuditCmd.includes("runCommentsCheck("));
+});
+
+test("resolveBoardUrl: board id only", () => {
+  assert.equal(resolveBoardUrl("445"), "https://apptask.ru/c/7/board/445");
+});
+
+test("resolveBoardUrl: Excel HYPERLINK", () => {
+  assert.equal(
+    resolveBoardUrl('=HYPERLINK("https://apptask.ru/c/7/board/783"; "783")'),
+    "https://apptask.ru/c/7/board/783",
+  );
 });

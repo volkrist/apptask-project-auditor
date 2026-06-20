@@ -37,14 +37,17 @@ import {
   resolveCommentsBoard,
 } from "./resolve-board-url.js";
 import {
+  learnProjectChannelFromSlash,
+  syncAppTaskDiscordChannelMappings,
+} from "./auto-project-from-channel.js";
+import {
   AUDIT_SLASH_COMMANDS,
   COMMENTS_SLASH_COMMANDS,
   formatMainSlashCommandsForLog,
   formatSlashCommandsDetailForLog,
   formatSlashCommandsForLog,
-  LEGACY_COMMENTS_DEPRECATION_MESSAGE,
-  UNSUPPORTED_COMMAND_MESSAGE,
   slashCommands,
+  UNSUPPORTED_COMMAND_MESSAGE,
 } from "./slash-commands.js";
 import {
   addProject,
@@ -482,11 +485,22 @@ async function deliverFullReportViaDm(
   }
 }
 
-/** Канал для публичного отчёта: всегда AUDIT_DISCORD_CHANNEL_ID / #аудитор. */
+/** Канал для публичного отчёта: projects.json → AppTask → канал команды → env. */
 async function resolveReportChannel(
   interaction: ChatInputCommandInteraction,
+  publish?: {
+    boardUrl?: string | null;
+    apptaskDiscordChannelId?: string | null;
+    apptaskBoardId?: string | null;
+  },
 ): Promise<SendableChannels | null> {
-  const channelId = getAuditPublishChannelId();
+  const channelId = getAuditPublishChannelId({
+    guildId: interaction.guildId,
+    boardUrl: publish?.boardUrl,
+    apptaskDiscordChannelId: publish?.apptaskDiscordChannelId,
+    apptaskBoardId: publish?.apptaskBoardId,
+    invokeChannelId: interaction.channelId,
+  });
   return resolveAuditChannel(client, channelId);
 }
 
@@ -519,6 +533,7 @@ async function deliverPagedAuditReport(
     files: [
       { path: out.output.humanSummaryPath, name: "human-summary.md" },
       { path: out.output.reportPath, name: "audit-report.md" },
+      { path: out.output.htmlPath, name: "audit-report.html" },
       { path: out.output.jsonPath, name: "audit.json" },
     ],
   });
@@ -561,7 +576,12 @@ async function deliverPublicAuditReport(
   interaction: ChatInputCommandInteraction,
   out: RunAuditResult,
 ): Promise<void> {
-  const channel = await resolveReportChannel(interaction);
+  const channel = await resolveReportChannel(interaction, {
+    boardUrl: out.result.meta.boardUrl,
+    apptaskDiscordChannelId:
+      out.result.meta.discordPublishChannelIdFromAppTask,
+    apptaskBoardId: out.result.meta.discordPublishBoardIdFromAppTask,
+  });
   if (!channel) {
     console.warn("[audit-channel] no channel for public report");
     await safeEditReply(
@@ -762,6 +782,7 @@ async function handleAuditSlash(
     logTag: string;
     maxCards: number | undefined;
     auditMode?: AuditModePreset;
+    multiBoardAudit?: boolean;
   },
 ): Promise<void> {
   logInteraction(options.logTag, interaction);
@@ -852,6 +873,17 @@ async function handleAuditSlash(
           : options.auditMode === "full"
             ? FULL_AUDIT_CONFIG.projectName
             : undefined,
+      skipDiscordPublish: true,
+      publishChannelId: interaction.channelId,
+      publishGuildId: interaction.guildId,
+    });
+    learnProjectChannelFromSlash(interaction, {
+      boardUrl,
+      projectName:
+        options.auditMode === "turboweave"
+          ? TURBOWEAVE_AUDIT_CONFIG.projectName
+          : FULL_AUDIT_CONFIG.projectName,
+      multiBoardAudit: options.multiBoardAudit,
     });
     logInteraction(options.logTag, interaction, {
       status: "done",
@@ -1062,6 +1094,12 @@ client.once("clientReady", async (readyClient) => {
 
   if (guildId) {
     await registerGuildCommands(guildId, `guild ${guildId}`);
+    const synced = await syncAppTaskDiscordChannelMappings(readyClient, {
+      guildId,
+    });
+    if (synced > 0) {
+      console.log(`[audit-channel] synced ${synced} AppTask board→channel mapping(s)`);
+    }
     return;
   }
 
@@ -1072,8 +1110,16 @@ client.once("clientReady", async (readyClient) => {
     return;
   }
 
+  try {
+    await rest.put(Routes.applicationCommands(readyClient.user.id), { body: [] });
+    console.log("[discord] cleared global slash commands (guild-only mode)");
+  } catch (err) {
+    console.warn("[discord] failed to clear global commands:", err);
+  }
+
   for (const guild of readyClient.guilds.cache.values()) {
     await registerGuildCommands(guild.id, `${guild.name} (${guild.id})`);
+    await syncAppTaskDiscordChannelMappings(readyClient, { guildId: guild.id });
   }
 });
 
@@ -1176,12 +1222,6 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
-  if (cmd === "comments") {
-    logDiscord(`[discord] legacy command=/${cmd} user=${interaction.user.id}`);
-    await replyEphemeralHelp(interaction, LEGACY_COMMENTS_DEPRECATION_MESSAGE);
-    return;
-  }
-
   const isAudit = isActiveAuditCommand(cmd);
   const isComments = isActiveCommentsCommand(cmd);
   const isTurboWeave = cmd === "turboweave";
@@ -1223,15 +1263,16 @@ client.on("interactionCreate", async (interaction) => {
         logTag: "turboweave-command",
         maxCards: undefined,
         auditMode: "turboweave",
+        multiBoardAudit: false,
       });
       return;
     }
     if (cmd === "audit") {
-      const limit = interaction.options.getInteger("limit");
       await handleAuditSlash(interaction, {
         logTag: "audit-command",
-        maxCards: limit != null ? Math.min(500, limit) : undefined,
+        maxCards: undefined,
         auditMode: "full",
+        multiBoardAudit: true,
       });
       return;
     }
@@ -1240,6 +1281,7 @@ client.on("interactionCreate", async (interaction) => {
         logTag: "audit-full-command",
         maxCards: undefined,
         auditMode: "full",
+        multiBoardAudit: !interaction.options.getString("board_url"),
       });
       return;
     }
@@ -1248,6 +1290,7 @@ client.on("interactionCreate", async (interaction) => {
         logTag: "audit-limit-command",
         maxCards: Math.min(500, interaction.options.getInteger("limit", true)),
         auditMode: "full",
+        multiBoardAudit: !interaction.options.getString("board_url"),
       });
     }
   } catch (err) {

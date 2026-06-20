@@ -9,6 +9,7 @@ import { isScrumAuditBoard } from "../scrum/scrum-estimate-config.js";
 import { buildBoardAuditMetrics } from "./board-metrics.js";
 import { loadTrackingAuditContext } from "../tracking/load-tracking-context.js";
 import { loadBoardMetadataById } from "../collectors/board-metadata.js";
+import { resolveAppTaskDiscordChannelForAudit } from "../collectors/board-discord-channel.js";
 import { loadDbConfig } from "../collectors/db-config.js";
 import { closeDb } from "../collectors/db-client.js";
 import { loadWorksheetAuditContext } from "../worksheet/worksheet-reader.js";
@@ -133,6 +134,11 @@ export async function buildAuditResult(
       : meta.boardUrl;
 
   const issueCounts = computeIssueCounts(project.cards, boardMetrics);
+  const appTaskDiscord = resolveAppTaskDiscordChannelForAudit(
+    boardMetadata,
+    meta.boardUrl,
+    boardSummaries,
+  );
   const scrumMatchStats =
     scrum?.loaded && scrum.rows.length > 0
       ? computeScrumMatchStats(
@@ -185,6 +191,9 @@ export async function buildAuditResult(
       trackingRowCount: tracking.rowCount,
       trackingByTaskKey: tracking.byTaskKey,
       discordTeamNote,
+      discordPublishChannelIdFromAppTask: appTaskDiscord.channelId,
+      discordPublishBoardIdFromAppTask: appTaskDiscord.boardId,
+      discordPublishLinkFromAppTask: appTaskDiscord.rawLink,
     },
     topIssues: [],
     cards: project.cards,

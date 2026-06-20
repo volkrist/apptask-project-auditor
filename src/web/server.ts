@@ -1,6 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
 import { createServer, type IncomingMessage } from "node:http";
 import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAudit } from "../app/run-audit.js";
 import { loadEnv } from "../config/env.js";
@@ -17,7 +18,30 @@ const ROOT = path.resolve(__dirname, "../..");
 const PORT = Number(process.env.PORT ?? 3000);
 const HOST = process.env.HOST ?? "127.0.0.1";
 
-const REPORT_FILE_NAMES = new Set(["audit.json", "audit.md", "summary.md"]);
+const REPORT_FILE_NAMES = new Set([
+  "audit.json",
+  "audit.md",
+  "summary.md",
+  "audit-report.md",
+  "audit-report.html",
+]);
+
+function findLatestAuditRunId(): string | null {
+  const outputDir = path.join(ROOT, "output");
+  if (!fs.existsSync(outputDir)) return null;
+  const dirs = fs
+    .readdirSync(outputDir)
+    .filter(auditFolderSafe)
+    .sort()
+    .reverse();
+  return dirs[0] ?? null;
+}
+
+function contentTypeForReportFile(fileName: string): string {
+  if (fileName.endsWith(".json")) return "application/json; charset=utf-8";
+  if (fileName.endsWith(".html")) return "text/html; charset=utf-8";
+  return "text/markdown; charset=utf-8";
+}
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -116,6 +140,51 @@ export function startWebServer(): void {
         return;
       }
 
+      if (req.method === "GET" && url.pathname === "/reports/latest") {
+        const latest = findLatestAuditRunId();
+        if (!latest) {
+          res.writeHead(404);
+          res.end("No audit reports yet");
+          return;
+        }
+        res.writeHead(302, { Location: `/reports/${latest}` });
+        res.end();
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/reports") {
+        const latest = findLatestAuditRunId();
+        if (!latest) {
+          sendJson(res, 200, { runs: [], latest: null });
+          return;
+        }
+        sendJson(res, 200, {
+          latest,
+          webUrl: `/reports/${latest}`,
+          htmlUrl: `/reports/${latest}/audit-report.html`,
+        });
+        return;
+      }
+
+      const runOnlyMatch = url.pathname.match(/^\/reports\/([^/]+)$/);
+      if (req.method === "GET" && runOnlyMatch) {
+        const runId = runOnlyMatch[1]!;
+        if (!auditFolderSafe(runId)) {
+          res.writeHead(404);
+          res.end("Not found");
+          return;
+        }
+        const htmlPath = path.join(ROOT, "output", runId, "audit-report.html");
+        if (!fs.existsSync(htmlPath)) {
+          res.writeHead(404);
+          res.end("Report HTML not found");
+          return;
+        }
+        res.writeHead(302, { Location: `/reports/${runId}/audit-report.html` });
+        res.end();
+        return;
+      }
+
       const reportMatch = url.pathname.match(/^\/reports\/([^/]+)\/([^/]+)$/);
       if (req.method === "GET" && reportMatch) {
         const [, folder, fileName] = reportMatch;
@@ -125,12 +194,13 @@ export function startWebServer(): void {
           return;
         }
         const filePath = path.join(ROOT, "output", folder, fileName);
+        if (!fs.existsSync(filePath)) {
+          res.writeHead(404);
+          res.end("Not found");
+          return;
+        }
         const content = await readFile(filePath);
-        const type =
-          fileName.endsWith(".json")
-            ? "application/json; charset=utf-8"
-            : "text/markdown; charset=utf-8";
-        res.writeHead(200, { "Content-Type": type });
+        res.writeHead(200, { "Content-Type": contentTypeForReportFile(fileName) });
         res.end(content);
         return;
       }
@@ -156,7 +226,7 @@ export function startWebServer(): void {
 
   server.listen(PORT, HOST, () => {
     console.log(`Web UI: http://${HOST}:${PORT}/`);
-    console.log(`         http://localhost:${PORT}/`);
+    console.log(`Reports: http://localhost:${PORT}/reports/latest`);
     console.log("Оставьте этот терминал открытым, пока работаете с UI.");
   });
 }

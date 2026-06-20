@@ -63,19 +63,23 @@ test("buildAuditReportEmbed is short notification with single file hint", () => 
     },
     output: {
       dir: "output/audit",
+      runId: "audit-2026-01-01-00-00-00",
       summaryPath: "summary.md",
       markdownPath: "audit.md",
       jsonPath: "audit.json",
       reportPath: "audit-report.md",
+      htmlPath: "audit-report.html",
       humanSummaryPath: "human-summary.md",
     },
     discordPublished: false,
+    ignoredCount: 0,
+    ignoredUrls: [],
   } as RunAuditResult;
 
   const embed = buildAuditReportEmbed(auditOut);
   const json = embed.toJSON();
-  assert.equal(json.title, "Аудит TurboWeave");
-  assert.ok(String(json.description).includes("audit-report.md"));
+  assert.equal(json.title, "TurboWeave audit completed");
+  assert.ok(String(json.description).includes("audit-report.html"));
   assert.ok(json.fields?.some((f) => f.name === "Сводка" && String(f.value).includes("Исключено потоковых")));
   assert.ok(!json.fields?.some((f) => f.name === "Главные проблемы"));
 });

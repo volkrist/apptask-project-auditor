@@ -81,8 +81,10 @@ export function buildAuditReportEmbed(
     .join("\n");
 
   return new EmbedBuilder()
-    .setTitle(`Аудит ${meta.projectName}`)
-    .setDescription("Полный отчёт в прикреплённом файле **audit-report.md**.")
+    .setTitle(`${meta.projectName} audit completed`)
+    .setDescription(
+      "Полный отчёт: **audit-report.md** и интерактивный **audit-report.html** во вложениях.",
+    )
     .setColor(meta.failCount > 0 ? 0xed4245 : meta.warnCount > 0 ? 0xfee75c : 0x57f287)
     .addFields({ name: "Сводка", value: overview, inline: false });
 }

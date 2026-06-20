@@ -158,6 +158,10 @@ export type AuditResult = {
     entityLevelWarnCount?: number;
     /** Статус Discord-сверки команды для отчёта. */
     discordTeamNote?: string;
+    /** Канал из Boards.discord_link (AppTask), если задан на доске. */
+    discordPublishChannelIdFromAppTask?: string | null;
+    discordPublishBoardIdFromAppTask?: string | null;
+    discordPublishLinkFromAppTask?: string | null;
   };
   entityFindings?: EntityFinding[];
   topIssues: Array<{ ruleId: string; label: string; count: number }>;

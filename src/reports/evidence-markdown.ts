@@ -204,7 +204,7 @@ export function formatTeamWorksheetGroup(findings: EntityFinding[]): string[] {
   return lines;
 }
 
-function expectedForRule(ruleId: string, _reason: string): string {
+export function expectedForRule(ruleId: string, _reason: string): string {
   const map: Record<string, string> = {
     assignee_present: "назначен исполнитель",
     description_present: "описание заполнено (≥80 символов)",

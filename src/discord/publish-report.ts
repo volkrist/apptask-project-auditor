@@ -13,32 +13,81 @@ import {
 import type { RunAuditResult } from "../app/run-audit.js";
 import type { EnrichCommentsResult } from "../comments/enrich-tasks-comments.js";
 import { ATAEV_AUDIT_DISCORD_CHANNEL_ID } from "../config/audit-modes.js";
-import { findProjectByGuildAndBoard } from "../config/projects.js";
+import { findProjectByBoard, findProjectByGuildAndBoard } from "../config/projects.js";
 import { buildAuditReportEmbed } from "./report-embeds.js";
+import { buildReportWebUrl } from "../reports/report-web-url.js";
+import { summarizeRegistryOutcomes, buildRegistryTableRows } from "../reports/check-registry-stats.js";
 
 export function isAuditDiscordDmOnly(): boolean {
   const v = process.env.AUDIT_DISCORD_DM_ONLY?.trim().toLowerCase();
   return v === "1" || v === "true" || v === "yes";
 }
 
-/** Канал публикации: project mapping по guild → env fallback → #аудитор. */
+export type AuditPublishChannelSource =
+  | "projects_json"
+  | "apptask_board"
+  | "invoke_channel"
+  | "env"
+  | "default";
+
+export type AuditPublishChannelResolution = {
+  channelId: string;
+  source: AuditPublishChannelSource;
+  boardId?: string;
+};
+
+/** Канал публикации: projects.json → AppTask discord_link → канал команды → env → #аудитор. */
+export function resolveAuditPublishChannel(options?: {
+  guildId?: string | null;
+  boardUrl?: string | null;
+  apptaskDiscordChannelId?: string | null;
+  apptaskBoardId?: string | null;
+  invokeChannelId?: string | null;
+  fallback?: string | null;
+}): AuditPublishChannelResolution {
+  const mapped =
+    findProjectByGuildAndBoard(options?.guildId, options?.boardUrl) ??
+    findProjectByBoard(options?.boardUrl);
+  if (mapped?.discordChannelId) {
+    return {
+      channelId: mapped.discordChannelId,
+      source: "projects_json",
+    };
+  }
+
+  const fromAppTask = options?.apptaskDiscordChannelId?.trim();
+  if (fromAppTask) {
+    return {
+      channelId: fromAppTask,
+      source: "apptask_board",
+      boardId: options?.apptaskBoardId ?? undefined,
+    };
+  }
+
+  const fromInvoke = options?.invokeChannelId?.trim();
+  if (fromInvoke) {
+    return { channelId: fromInvoke, source: "invoke_channel" };
+  }
+
+  const fromEnv = process.env.AUDIT_DISCORD_CHANNEL_ID?.trim();
+  if (fromEnv) {
+    return { channelId: fromEnv, source: "env" };
+  }
+
+  const fallback =
+    options?.fallback?.trim() || ATAEV_AUDIT_DISCORD_CHANNEL_ID;
+  return { channelId: fallback, source: "default" };
+}
+
 export function getAuditPublishChannelId(options?: {
   guildId?: string | null;
   boardUrl?: string | null;
+  apptaskDiscordChannelId?: string | null;
+  apptaskBoardId?: string | null;
+  invokeChannelId?: string | null;
   fallback?: string | null;
 }): string {
-  const mapped = findProjectByGuildAndBoard(
-    options?.guildId,
-    options?.boardUrl,
-  );
-  if (mapped?.discordChannelId) {
-    return mapped.discordChannelId;
-  }
-  return (
-    process.env.AUDIT_DISCORD_CHANNEL_ID?.trim() ||
-    options?.fallback?.trim() ||
-    ATAEV_AUDIT_DISCORD_CHANNEL_ID
-  );
+  return resolveAuditPublishChannel(options).channelId;
 }
 
 async function waitForDiscordClient(client: DiscordClient): Promise<void> {
@@ -54,10 +103,23 @@ export async function publishAuditToConfiguredChannel(
   out: RunAuditResult,
 ): Promise<string[]> {
   const token = process.env.DISCORD_BOT_TOKEN?.trim();
-  const channelId = getAuditPublishChannelId();
+  const resolved = resolveAuditPublishChannel({
+    guildId: out.publishGuildId,
+    boardUrl: out.result.meta.boardUrl,
+    apptaskDiscordChannelId:
+      out.result.meta.discordPublishChannelIdFromAppTask ?? undefined,
+    apptaskBoardId:
+      out.result.meta.discordPublishBoardIdFromAppTask ?? undefined,
+    invokeChannelId: out.publishChannelId,
+  });
+  const channelId = resolved.channelId;
   if (!token || !channelId) {
-    throw new Error("DISCORD_BOT_TOKEN or AUDIT_DISCORD_CHANNEL_ID is not set");
+    throw new Error("DISCORD_BOT_TOKEN or publish channel id is not set");
   }
+
+  console.log(
+    `[audit-channel] publish source=${resolved.source}${resolved.boardId ? ` board=${resolved.boardId}` : ""} channel=${channelId}`,
+  );
 
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
   try {
@@ -164,7 +226,10 @@ export function buildReportAttachments(
     logReportFile("humanSummaryPath", out.output.humanSummaryPath);
   }
 
-  const candidates = [{ path: out.output.reportPath, name: "audit-report.md" }];
+  const candidates = [
+    { path: out.output.reportPath, name: "audit-report.md" },
+    { path: out.output.htmlPath, name: "audit-report.html" },
+  ];
 
   const files: AttachmentBuilder[] = [];
   for (const { path: filePath, name } of candidates) {
@@ -291,8 +356,24 @@ export async function publishFullReportToChannel(
 ): Promise<string[]> {
   const embed = buildAuditReportEmbed(out);
   const files = buildReportAttachments(out, { verbose: true });
+  const registry = summarizeRegistryOutcomes(buildRegistryTableRows(out.result));
+  const webUrl = buildReportWebUrl(out.output.runId);
+  const contentLines = [
+    `${out.result.meta.projectName} audit completed`,
+    "",
+    `FAIL: ${out.result.meta.failCount}`,
+    `WARN: ${out.result.meta.warnCount}`,
+    `CHECKED: ${registry.checked}`,
+    `SKIP: ${registry.skip}`,
+    "",
+    "Файлы: audit-report.md, audit-report.html",
+  ];
+  if (webUrl) {
+    contentLines.push("", `Открыть web report: ${webUrl}`);
+  }
+
   await channel.send({
-    content: "Готово. Отчёт сформирован.",
+    content: contentLines.join("\n"),
     embeds: [embed],
     files: files.length > 0 ? files : undefined,
   });

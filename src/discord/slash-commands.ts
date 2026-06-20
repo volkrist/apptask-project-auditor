@@ -3,32 +3,16 @@ import {
   ChannelType,
 } from "discord.js";
 
-/** Guild slash commands — PUT полностью заменяет команды гильдии (старые /comments исчезнут). */
+/** Guild slash commands — PUT полностью заменяет команды гильдии. */
 export const slashCommands = [
   {
     name: "audit",
-    description: "Полный аудит всех досок (783,445,54) — ручной режим",
-    options: [
-      {
-        name: "board_url",
-        description: "URL доски AppTask (необязательно; иначе APPTASK_BOARD_URL / multi)",
-        type: ApplicationCommandOptionType.String,
-        required: false,
-      },
-      {
-        name: "limit",
-        description: "Лимит карточек (необязательно; без limit — полный аудит)",
-        type: ApplicationCommandOptionType.Integer,
-        required: false,
-        min_value: 1,
-        max_value: 500,
-      },
-    ],
+    description: "Полный аудит досок 783, 445, 54 (без комментариев)",
   },
   {
     name: "turboweave",
     description:
-      "Запустить аудит TurboWeave: AppTask board 783 + Scrum + tracking",
+      "Аудит TurboWeave: доска 783 + Scrum + tracking",
   },
   {
     name: "audit_full",
@@ -184,26 +168,36 @@ export const slashCommands = [
 export const TURBOWEAVE_SLASH_COMMANDS = ["turboweave"] as const;
 export const AUDIT_SLASH_COMMANDS = ["audit", "audit_full", "audit_limit"] as const;
 export const COMMENTS_SLASH_COMMANDS = ["comments_full", "comments_limit"] as const;
+export const PROJECT_SLASH_COMMANDS = [
+  "project_add",
+  "project_list",
+  "project_remove",
+] as const;
+export const IGNORE_SLASH_COMMANDS = [
+  "audit_ignore",
+  "audit_unignore",
+  "audit_ignored_list",
+] as const;
 
-export const MAIN_SLASH_COMMANDS = [
+/** Все зарегистрированные команды бота (единственный список для Discord API). */
+export const REGISTERED_SLASH_COMMANDS = [
   ...AUDIT_SLASH_COMMANDS,
   ...TURBOWEAVE_SLASH_COMMANDS,
   ...COMMENTS_SLASH_COMMANDS,
+  ...PROJECT_SLASH_COMMANDS,
+  ...IGNORE_SLASH_COMMANDS,
 ] as const;
 
-export const LEGACY_SLASH_COMMANDS = ["audit", "comments"] as const;
+export const MAIN_SLASH_COMMANDS = [
+  "audit",
+  "turboweave",
+] as const;
 
 export function formatMainSlashCommandsForLog(): string {
   return MAIN_SLASH_COMMANDS.map((name) => `/${name}`).join(", ");
 }
 
-export const LEGACY_AUDIT_DEPRECATION_MESSAGE = `Команда /audit устарела. Используйте /audit или /audit_full.`;
-
-export const LEGACY_COMMENTS_DEPRECATION_MESSAGE = `Команда /comments устарела. Используйте:
-• /comments_full — полная проверка комментариев
-• /comments_limit — проверка комментариев с лимитом`;
-
-export const UNSUPPORTED_COMMAND_MESSAGE = `Команда не поддерживается. Доступные команды: ${formatMainSlashCommandsForLog()}`;
+export const UNSUPPORTED_COMMAND_MESSAGE = `Команда не поддерживается. Доступные: ${REGISTERED_SLASH_COMMANDS.map((n) => `/${n}`).join(", ")}`;
 
 export function getCommandOptionNames(commandName: string): string[] {
   const cmd = slashCommands.find((c) => c.name === commandName);

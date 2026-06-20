@@ -48,6 +48,7 @@ async function main(): Promise<void> {
   const markdownPath = path.join(auditDir, "audit.md");
   const summaryPath = path.join(auditDir, "summary.md");
   const reportPath = path.join(auditDir, "audit-report.md");
+  const htmlPath = path.join(auditDir, "audit-report.html");
   const humanSummaryPath = path.join(auditDir, "human-summary.md");
   for (const p of [jsonPath, markdownPath, summaryPath, reportPath]) {
     if (!fs.existsSync(p)) {
@@ -59,10 +60,12 @@ async function main(): Promise<void> {
   const result = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as AuditResult;
   const output: AuditOutputPaths = {
     dir: auditDir,
+    runId: path.basename(auditDir),
     jsonPath,
     markdownPath,
     summaryPath,
     reportPath,
+    htmlPath,
     humanSummaryPath,
   };
 

@@ -176,6 +176,20 @@ export function findProjectByGuildAndBoard(
   );
 }
 
+/** Привязка по доске (CLI / cron без guild context). */
+export function findProjectByBoard(
+  boardUrl?: string | null,
+): ProjectConfig | null {
+  const projects = loadProjects().filter((p) => p.enabled);
+  if (!boardUrl || projects.length === 0) return null;
+  const bid = extractBoardIdFromUrl(boardUrl);
+  return (
+    projects.find((p) => p.boardUrl === boardUrl) ??
+    projects.find((p) => bid && p.boardIds?.includes(bid)) ??
+    null
+  );
+}
+
 export function addProject(input: {
   name: string;
   boardUrl: string;
