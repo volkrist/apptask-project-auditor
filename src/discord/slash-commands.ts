@@ -15,6 +15,11 @@ export const slashCommands = [
       "Аудит TurboWeave: доска 783 + Scrum + tracking",
   },
   {
+    name: "ataev_market",
+    description:
+      "Аудит Атаев Маркет: доска 789 + tracking",
+  },
+  {
     name: "audit_full",
     description: "Полная проверка карточек по правилам (без комментариев)",
     options: [
@@ -166,6 +171,7 @@ export const slashCommands = [
 ] as const;
 
 export const TURBOWEAVE_SLASH_COMMANDS = ["turboweave"] as const;
+export const ATAEV_MARKET_SLASH_COMMANDS = ["ataev_market"] as const;
 export const AUDIT_SLASH_COMMANDS = ["audit", "audit_full", "audit_limit"] as const;
 export const COMMENTS_SLASH_COMMANDS = ["comments_full", "comments_limit"] as const;
 export const PROJECT_SLASH_COMMANDS = [
@@ -183,6 +189,7 @@ export const IGNORE_SLASH_COMMANDS = [
 export const REGISTERED_SLASH_COMMANDS = [
   ...AUDIT_SLASH_COMMANDS,
   ...TURBOWEAVE_SLASH_COMMANDS,
+  ...ATAEV_MARKET_SLASH_COMMANDS,
   ...COMMENTS_SLASH_COMMANDS,
   ...PROJECT_SLASH_COMMANDS,
   ...IGNORE_SLASH_COMMANDS,
@@ -191,6 +198,7 @@ export const REGISTERED_SLASH_COMMANDS = [
 export const MAIN_SLASH_COMMANDS = [
   "audit",
   "turboweave",
+  "ataev_market",
 ] as const;
 
 export function formatMainSlashCommandsForLog(): string {

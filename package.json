@@ -15,6 +15,7 @@
     "test:reports": "node --import tsx --test tests/reports/*.test.ts",
     "audit": "tsx src/app/run-audit.ts",
     "audit:turboweave": "tsx src/scripts/run-turboweave-audit.ts",
+    "audit:ataev-market": "tsx src/scripts/run-ataev-market-audit.ts",
     "audit:full": "tsx src/scripts/run-full-audit.ts",
     "audit:scheduled": "tsx src/scripts/run-scheduled-audit.ts",
     "comments:publish": "tsx src/scripts/run-comments-publish.ts",

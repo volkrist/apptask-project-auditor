@@ -35,13 +35,14 @@ const REMOVED_OPTIONS = [
 
 const REMOVED_COMMANDS = ["comments"];
 
-test("slash commands: /audit, /turboweave + screenshot commands only", () => {
+test("slash commands: /audit, /turboweave, /ataev_market + screenshot commands only", () => {
   const names = slashCommands.map((c) => c.name);
   for (const cmd of REMOVED_COMMANDS) {
     assert.ok(!names.includes(cmd), `removed /${cmd} must not be registered`);
   }
   assert.ok(names.includes("audit"));
   assert.ok(names.includes("turboweave"));
+  assert.ok(names.includes("ataev_market"));
   assert.ok(names.includes("audit_full"));
   assert.ok(names.includes("audit_limit"));
   assert.ok(names.includes("comments_full"));

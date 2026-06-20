@@ -21,8 +21,10 @@ import {
 import { loadAuditScope } from "../config/audit-scope.js";
 import {
   applyAuditModeEnv,
+  ATAEV_MARKET_AUDIT_CONFIG,
   describeAuditMode,
   FULL_AUDIT_CONFIG,
+  projectNameForAuditMode,
   restoreAuditModeEnv,
   TURBOWEAVE_AUDIT_CONFIG,
   type AuditModePreset,
@@ -118,6 +120,10 @@ function logDiscord(message: string): void {
 
 function isActiveAuditCommand(commandName: string): boolean {
   return (AUDIT_SLASH_COMMANDS as readonly string[]).includes(commandName);
+}
+
+function isPresetAuditCommand(commandName: string): boolean {
+  return commandName === "turboweave" || commandName === "ataev_market";
 }
 
 function isActiveCommentsCommand(commandName: string): boolean {
@@ -802,6 +808,9 @@ async function handleAuditSlash(
     if (options.auditMode === "turboweave") {
       boardUrl = TURBOWEAVE_AUDIT_CONFIG.boardUrl;
       boardSource = "turboweave";
+    } else if (options.auditMode === "ataev_market") {
+      boardUrl = ATAEV_MARKET_AUDIT_CONFIG.boardUrl;
+      boardSource = "ataev_market";
     } else if (options.auditMode === "full") {
       const resolved = boardUrlRaw
         ? resolveAuditBoard(boardUrlRaw, null, process.env.APPTASK_BOARD_URL)
@@ -868,11 +877,9 @@ async function handleAuditSlash(
       maxCards,
       commentsAuditMode: "off",
       projectName:
-        options.auditMode === "turboweave"
-          ? TURBOWEAVE_AUDIT_CONFIG.projectName
-          : options.auditMode === "full"
-            ? FULL_AUDIT_CONFIG.projectName
-            : undefined,
+        options.auditMode != null
+          ? projectNameForAuditMode(options.auditMode)
+          : undefined,
       skipDiscordPublish: true,
       publishChannelId: interaction.channelId,
       publishGuildId: interaction.guildId,
@@ -880,8 +887,8 @@ async function handleAuditSlash(
     learnProjectChannelFromSlash(interaction, {
       boardUrl,
       projectName:
-        options.auditMode === "turboweave"
-          ? TURBOWEAVE_AUDIT_CONFIG.projectName
+        options.auditMode != null
+          ? projectNameForAuditMode(options.auditMode)
           : FULL_AUDIT_CONFIG.projectName,
       multiBoardAudit: options.multiBoardAudit,
     });
@@ -1224,9 +1231,9 @@ client.on("interactionCreate", async (interaction) => {
 
   const isAudit = isActiveAuditCommand(cmd);
   const isComments = isActiveCommentsCommand(cmd);
-  const isTurboWeave = cmd === "turboweave";
+  const isPresetAudit = isPresetAuditCommand(cmd);
 
-  if (!isAudit && !isComments && !isTurboWeave) {
+  if (!isAudit && !isComments && !isPresetAudit) {
     logDiscord(`[discord] unknown command=/${cmd} user=${interaction.user.id}`);
     await replyEphemeralHelp(interaction, UNSUPPORTED_COMMAND_MESSAGE);
     return;
@@ -1263,6 +1270,15 @@ client.on("interactionCreate", async (interaction) => {
         logTag: "turboweave-command",
         maxCards: undefined,
         auditMode: "turboweave",
+        multiBoardAudit: false,
+      });
+      return;
+    }
+    if (cmd === "ataev_market") {
+      await handleAuditSlash(interaction, {
+        logTag: "ataev-market-command",
+        maxCards: undefined,
+        auditMode: "ataev_market",
         multiBoardAudit: false,
       });
       return;
