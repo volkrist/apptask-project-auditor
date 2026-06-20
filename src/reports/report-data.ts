@@ -7,6 +7,7 @@ import type {
   EntityFinding,
   RuleResult,
 } from "../rules/rule-types.js";
+import type { EvidenceResult } from "../rules/evidence-types.js";
 import {
   buildBoardClassification,
   type BoardClassificationRow,
@@ -55,9 +56,12 @@ export type CheckBlockView = {
   violationCount: number;
   zeroCandidates: boolean;
   showViolationsPanel: boolean;
+  showNotCheckedPanel: boolean;
+  notCheckedCount: number;
   okBrief: string;
   violations: TaskViolationRow[];
   entityFindings: EntityFinding[];
+  evidence?: EvidenceResult;
   subSources?: TeamSubSourceView[];
 };
 
@@ -162,7 +166,14 @@ function buildOkBrief(
   registry: RegistryTableRow,
   zeroCandidates: boolean,
   violationCount: number,
+  evidence?: EvidenceResult,
 ): string {
+  if (evidence?.automationLevel === "TEXT_MARKER" && zeroCandidates && violationCount === 0) {
+    return "по фиксированным маркерам не найдено";
+  }
+  if (evidence?.automationLevel === "PARTIAL" && registry.outcome === "OK" && violationCount === 0) {
+    return evidence.debug?.note?.toString() ?? "проверено частично";
+  }
   if (registry.outcome === "SKIP") {
     if (registry.candidates.includes("нет доступа к списку участников")) {
       return "Discord: доступ к списку участников не предоставлен";
@@ -200,10 +211,18 @@ function buildCheckBlock(
     ...discordEntity,
   ];
   const violations = violationsForRule(result, ruleId);
+  const evidence = registry.evidence;
   const zeroCandidates = registryHasZeroCandidates(registry);
-  const violationCount = violations.length + entityViolations.length;
+  const violationCount =
+    evidence != null
+      ? evidence.violationCount
+      : violations.length + entityViolations.length;
   const failCount = stats?.fail ?? entityViolations.filter((f) => f.status === "FAIL").length;
   const warnCount = stats?.warn ?? entityViolations.filter((f) => f.status === "WARN").length;
+  const notCheckedCount = evidence?.notCheckedCount ?? 0;
+  const showViolationsPanel =
+    evidence != null ? evidence.violationCount > 0 : violationCount > 0;
+  const showNotCheckedPanel = notCheckedCount > 0;
 
   return {
     entry: registry.entry,
@@ -216,10 +235,13 @@ function buildCheckBlock(
     warnCount,
     violationCount,
     zeroCandidates,
-    showViolationsPanel: violationCount > 0,
-    okBrief: buildOkBrief(registry, zeroCandidates, violationCount),
+    showViolationsPanel,
+    showNotCheckedPanel,
+    notCheckedCount,
+    okBrief: buildOkBrief(registry, zeroCandidates, violationCount, evidence),
     violations,
     entityFindings: entityViolations,
+    evidence,
     subSources:
       registry.entry.num === 8 ? buildTeamSubSources(result) : undefined,
   };

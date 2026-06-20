@@ -515,6 +515,47 @@ function teamRoleRateAccount(result: AuditResult): RuleCandidateAccount {
   };
 }
 
+function deadlineAccount(result: AuditResult): RuleCandidateAccount {
+  const scope = result.meta.cardsChecked;
+  const results = taskResultsForRule(result, "deadline_less_than_one_day");
+  let candidates = 0;
+  let fail = 0;
+  let warn = 0;
+
+  for (const r of results) {
+    if (r.status === "NOT_APPLICABLE") continue;
+    if (r.status === "SKIP" || isPseudoSkip(r)) continue;
+    if (r.reason.includes("Задача завершена") || r.reason.includes("Нет дедлайна")) continue;
+    if (r.status === "PASS" && r.reason === "OK") continue;
+    candidates++;
+    if (r.status === "FAIL") fail++;
+    if (r.status === "WARN") warn++;
+  }
+
+  if (candidates === 0) {
+    return {
+      scopeLabel: scopeTasksLabel(scope),
+      candidatesLabel: "0 задач с дедлайном < 1 дня",
+      unavailableLabel: "—",
+      fail,
+      warn,
+      outcome: outcomeFromCounts(fail, warn, { noCandidates: true }),
+    };
+  }
+
+  return {
+    scopeLabel: scopeTasksLabel(scope),
+    candidatesLabel:
+      fail + warn > 0
+        ? `${fail + warn} с нарушениями`
+        : `${candidates} с дедлайном < 1 дня — нарушений нет`,
+    unavailableLabel: "—",
+    fail,
+    warn,
+    outcome: outcomeFromCounts(fail, warn),
+  };
+}
+
 function reviewStaleAccount(result: AuditResult): RuleCandidateAccount {
   const results = taskResultsForRule(result, "review_stale");
   let onReview = 0;
@@ -603,9 +644,7 @@ export function buildRuleCandidateAccount(
         zeroCandidatesLabel: "0 заблокированных задач",
       });
     case "deadline_less_than_one_day":
-      return defaultTaskAccount(result, ruleId, {
-        zeroCandidatesLabel: "0 задач с дедлайном < 1 дня",
-      });
+      return deadlineAccount(result);
     case "assignee_present":
       return defaultTaskAccount(result, ruleId, {
         zeroCandidatesLabel: "0 карточек без исполнителя",

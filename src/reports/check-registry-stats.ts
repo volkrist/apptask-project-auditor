@@ -15,10 +15,13 @@ import {
 } from "./team-check-composite.js";
 import { escapeTableCell } from "./report-links.js";
 import {
-  buildRuleCandidateAccount,
-  isZeroCandidatesLabel,
-} from "./rule-candidate-accounting.js";
+  buildRegistryRowFromEvidence,
+  registryHasZeroCandidatesFromEvidence,
+} from "./evidence-registry-bridge.js";
+import { buildEvidenceResult } from "./build-evidence-result.js";
+import { isZeroCandidatesLabel } from "./rule-candidate-accounting.js";
 import { isSourceMissingSkip } from "./report-presentation.js";
+import type { EvidenceResult } from "../rules/evidence-types.js";
 
 export type RegistryOutcome =
   | "OK"
@@ -35,6 +38,8 @@ export type RegistryTableRow = {
   unavailable: string;
   violations: string;
   outcome: RegistryOutcome;
+  /** Структурированные доказательства — единый источник для HTML/Markdown. */
+  evidence?: EvidenceResult;
 };
 
 type TaskRuleStats = {
@@ -98,7 +103,17 @@ export function getTaskRuleStats(
 
 /** Кандидатов нет — не показывать ложное «все прошли». */
 export function registryHasZeroCandidates(row: RegistryTableRow): boolean {
+  if (row.evidence) return registryHasZeroCandidatesFromEvidence(row.evidence);
   return isZeroCandidatesLabel(row.candidates);
+}
+
+function isPerCardScopeSkip(r: RuleResult): boolean {
+  return (
+    (r.status === "SKIP" || isPseudoSkip(r)) &&
+    (r.reason.includes("Нет строки сметы") ||
+      r.reason.includes("ПВ не проверялось") ||
+      r.reason.includes("не найдена в утверждённой смете"))
+  );
 }
 
 function isRuleSkipped(result: AuditResult, ruleId: string): boolean {
@@ -113,6 +128,10 @@ function isRuleSkipped(result: AuditResult, ruleId: string): boolean {
     return findings.every((f) => f.status === "SKIP");
   }
 
+  const all = taskResultsForRule(result, ruleId);
+  if (all.length === 0) return false;
+  const actionable = all.filter((r) => !isPerCardScopeSkip(r));
+  if (actionable.length === 0) return false;
   const stats = computeTaskRuleStats(result, ruleId);
   if (stats.skipped === stats.total && stats.total > 0) return true;
   return false;
@@ -151,14 +170,29 @@ function describeEntityRow(
   ruleId: string,
   result: AuditResult,
 ): Omit<RegistryTableRow, "entry"> | null {
-  if (ruleId === "team_role_rate_match") {
-    const account = buildRuleCandidateAccount(ruleId, result);
+  let evidence: EvidenceResult | undefined;
+  try {
+    evidence = buildEvidenceResult(ruleId, result);
+  } catch {
+    evidence = undefined;
+  }
+
+  if (ruleId === "team_role_rate_match" && evidence) {
+    const roleFindings = (result.entityFindings ?? result.meta.entityFindings ?? []).filter(
+      (f) => f.ruleId === ruleId,
+    );
+    const fail = roleFindings.filter((f) => f.status === "FAIL").length;
+    const warn = roleFindings.filter((f) => f.status === "WARN").length;
     return {
-      checked: account.scopeLabel,
-      candidates: account.candidatesLabel,
-      unavailable: account.unavailableLabel,
-      violations: formatViolations(account.fail, account.warn),
-      outcome: account.outcome,
+      checked: "исполнители AppTask + рабочая таблица",
+      candidates: evidence.summaryLabel ?? "—",
+      unavailable:
+        evidence.notCheckedCount > 0
+          ? `${evidence.notCheckedCount} без строки в таблице (роль/ставку сверить нельзя)`
+          : "—",
+      violations: formatViolations(fail, warn),
+      outcome: evidence.status as RegistryOutcome,
+      evidence,
     };
   }
 
@@ -192,6 +226,7 @@ function describeEntityRow(
         unavailable: "—",
         violations: formatViolations(fail, warn),
         outcome: outcomeFrom("CHECKED", fail, warn),
+        evidence,
       };
     }
     case "tracking_daily_anomaly": {
@@ -311,15 +346,8 @@ function buildRegistryRow(
     if (entity) return { entry, ...entity };
   }
 
-  const account = buildRuleCandidateAccount(ruleId, result);
-  return {
-    entry,
-    checked: account.scopeLabel,
-    candidates: account.candidatesLabel,
-    unavailable: account.unavailableLabel,
-    violations: formatViolations(account.fail, account.warn),
-    outcome: account.outcome,
-  };
+  const account = buildRegistryRowFromEvidence(entry, result);
+  return account;
 }
 
 export function buildRegistryTableRows(result: AuditResult): RegistryTableRow[] {

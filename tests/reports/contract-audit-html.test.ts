@@ -86,3 +86,16 @@ test("buildContractAuditHtml includes search filter script", () => {
   assert.match(html, /id="report-search"/);
   assert.match(html, /data-toggle/);
 });
+
+test("buildContractAuditHtml shows notChecked toggle for partial scrum PV", () => {
+  const result = baseResult({ cardsChecked: 1 });
+  result.cards[0]!.results.push({
+    ruleId: "scrum_planned_hours_present",
+    status: "SKIP",
+    reason: "Нет строки сметы — ПВ не проверялось",
+  });
+  const html = buildContractAuditHtml(result);
+  assert.match(html, /Не проверено:/);
+  assert.match(html, /id="check-13-not-checked"/);
+  assert.match(html, /Конкурентный анализ|№63|не найдена в смете|ПВ не проверялось/);
+});

@@ -574,7 +574,7 @@ const EVIDENCE_BY_NUM: Record<number, Omit<ContractRuleEvidenceSpec, "num" | "ti
     passed: "ответ найден или нет вопросов-кандидатов",
     notChecked: "невозможно связать вопрос и ответ (автор/время)",
     outcomeOK: "0 вопросов-кандидатов → «по найденным маркерам не найдено»",
-    outcomePartial: "связь вопрос→ответ эвристическая → PARTIAL, не уверенный OK",
+    outcomePartial: "связь вопрос→ответ неполная → PARTIAL, не уверенный OK",
     outcomeSkip: "—",
     automationLevel: "PARTIAL",
     autoProvable: "частично",

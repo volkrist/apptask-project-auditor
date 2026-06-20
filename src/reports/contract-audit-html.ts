@@ -9,6 +9,7 @@ import { escHtml, linkOrText, formatStatusAssigneeLine } from "./report-html-uti
 import { ruleLabel } from "./rule-labels.js";
 import { BANNED_USER_REPORT_TERMS } from "./rule-verification-methods.js";
 import { simplifyReasonText, humanizeDiscordInReportText } from "./report-presentation.js";
+import type { EvidenceItem } from "../rules/evidence-types.js";
 import { isEntityRule } from "../rules/rule-scopes.js";
 
 const REPORT_CSS = `
@@ -111,6 +112,16 @@ th { background: #12151d; color: var(--muted); font-weight: 600; }
 .search { width: 100%; max-width: 420px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); background: #12151d; color: var(--text); margin: 8px 0 16px; }
 .hidden { display: none !important; }
 .muted { color: var(--muted); }
+.debug-block {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.debug-block dt { font-weight: 600; margin-top: 6px; }
+.debug-block dd { margin: 2px 0 0 16px; }
 .section-anchor { scroll-margin-top: 16px; }
 `;
 
@@ -171,19 +182,66 @@ function renderEntityFinding(f: import("../rules/rule-types.js").EntityFinding):
 </article>`;
 }
 
+function renderEvidenceItem(item: EvidenceItem): string {
+  const link = item.link ? linkOrText(item.link, "открыть") : "";
+  return `<article class="violation-card" data-search="${escHtml(item.objectLabel)}">
+  <div><strong>${escHtml(item.objectLabel)}</strong></div>
+  <div class="meta"><strong>Причина:</strong> ${escHtml(item.reason)}</div>
+  <div class="meta"><strong>Источник:</strong> ${escHtml(item.source)}</div>
+  ${link ? `<div class="meta">${link}</div>` : ""}
+</article>`;
+}
+
+function renderEvidenceDebug(debug: Record<string, string | number | boolean>): string {
+  const rows = Object.entries(debug)
+    .map(
+      ([k, v]) =>
+        `<dt>${escHtml(k)}</dt><dd>${escHtml(String(v))}</dd>`,
+    )
+    .join("");
+  return `<dl class="debug-block">${rows}</dl>`;
+}
+
+function automationNote(check: CheckBlockView): string {
+  const level = check.evidence?.automationLevel;
+  if (level === "TEXT_MARKER") {
+    return `<div class="muted">Проверка по фиксированным текстовым маркерам</div>`;
+  }
+  if (level === "PARTIAL") {
+    return `<div class="muted">Автоматизация неполная — итог может требовать ручной проверки</div>`;
+  }
+  if (level === "SOURCE_UNAVAILABLE") {
+    return `<div class="muted">Источник недоступен — требует ручной проверки</div>`;
+  }
+  return "";
+}
+
 function renderCheckBlock(check: CheckBlockView): string {
   const id = `check-${check.entry.num}`;
   const failPanel = `${id}-fail`;
+  const notCheckedPanel = `${id}-not-checked`;
 
   let countersHtml = "";
+  const counterParts: string[] = [];
   if (check.showViolationsPanel) {
     const btnClass = check.failCount > 0 ? "fail" : "warn";
-    countersHtml = `<div class="counters"><button type="button" class="counter-btn ${btnClass}" data-toggle="${failPanel}">Нарушения: ${check.violationCount}</button></div>`;
+    counterParts.push(
+      `<button type="button" class="counter-btn ${btnClass}" data-toggle="${failPanel}">Нарушения: ${check.violationCount}</button>`,
+    );
+  }
+  if (check.showNotCheckedPanel) {
+    counterParts.push(
+      `<button type="button" class="counter-btn warn" data-toggle="${notCheckedPanel}">Не проверено: ${check.notCheckedCount}</button>`,
+    );
+  }
+  if (counterParts.length > 0) {
+    countersHtml = `<div class="counters">${counterParts.join("")}</div>`;
   } else {
     countersHtml = `<div class="ok-brief muted">${escHtml(check.okBrief)}</div>`;
   }
 
   const failParts = [
+    ...(check.evidence?.violationEvidence ?? []).map(renderEvidenceItem),
     ...check.violations.map(renderViolationRow),
     ...check.entityFindings.map(renderEntityFinding),
   ];
@@ -192,9 +250,23 @@ function renderCheckBlock(check: CheckBlockView): string {
       ? failParts.join("")
       : `<p class="muted">Нет детализированных нарушений.</p>`;
 
+  const notCheckedParts = (check.evidence?.notCheckedEvidence ?? []).map(renderEvidenceItem);
+  const notCheckedHtml =
+    notCheckedParts.length > 0
+      ? notCheckedParts.join("")
+      : `<p class="muted">Нет объектов в списке «Не проверено».</p>`;
+
   const failPanelHtml = check.showViolationsPanel
     ? `<div class="panel" id="${failPanel}">${failHtml}</div>`
     : "";
+  const notCheckedPanelHtml = check.showNotCheckedPanel
+    ? `<div class="panel" id="${notCheckedPanel}">${notCheckedHtml}</div>`
+    : "";
+
+  const debugHtml =
+    check.evidence?.debug && Object.keys(check.evidence.debug).length > 0
+      ? renderEvidenceDebug(check.evidence.debug)
+      : "";
 
   return `<article class="check section-anchor" id="${id}" data-search="${escHtml(`${check.entry.num} ${check.entry.title} ${check.label}`)}">
   <div class="check-head">
@@ -205,9 +277,12 @@ function renderCheckBlock(check: CheckBlockView): string {
   <div class="muted">Область: ${escHtml(check.entry.scope)} · Проверено: ${escHtml(check.registry.checked)} · Кандидатов: ${escHtml(check.registry.candidates)}${check.registry.unavailable && check.registry.unavailable !== "—" ? ` · Не проверено: ${escHtml(check.registry.unavailable)}` : ""}</div>
   <div class="muted">Условие: ${escHtml(check.condition)}</div>
   <div class="muted">Метод проверки: ${escHtml(check.verificationMethod)}</div>
+  ${automationNote(check)}
   ${check.subSources?.length ? `<ul class="sub-sources">${check.subSources.map((s) => `<li><strong>${escHtml(s.label)}:</strong> ${escHtml(s.status)} — ${escHtml(s.detail)}</li>`).join("")}</ul>` : ""}
   ${countersHtml}
   ${failPanelHtml}
+  ${notCheckedPanelHtml}
+  ${debugHtml}
 </article>`;
 }
 

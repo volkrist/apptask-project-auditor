@@ -6,6 +6,7 @@ import { buildDetailMarkdown } from "./markdown.js";
 import { buildSummaryMarkdown } from "./summary-markdown.js";
 import { buildContractAuditMarkdown } from "./contract-audit-markdown.js";
 import { buildContractAuditHtml } from "./build-html-report.js";
+import { buildExampleEvidenceResults } from "./build-evidence-result.js";
 import { auditRunIdFromDir } from "./report-web-url.js";
 
 export type AuditOutputPaths = {
@@ -68,6 +69,11 @@ export function writeAuditReports(
     buildContractAuditHtml(result, {
       ignoredCount: extras.ignoredCount ?? 0,
     }),
+    "utf8",
+  );
+  fs.writeFileSync(
+    path.join(dir, "evidence-examples.json"),
+    JSON.stringify(buildExampleEvidenceResults(result), null, 2),
     "utf8",
   );
 

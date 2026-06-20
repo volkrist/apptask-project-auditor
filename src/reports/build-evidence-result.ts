@@ -8,6 +8,10 @@ import type {
   EvidenceStatus,
 } from "../rules/evidence-types.js";
 import {
+  buildRuleCandidateAccount,
+  isZeroCandidatesLabel,
+} from "./rule-candidate-accounting.js";
+import {
   isCompletedStatus,
   isTestingStatus,
 } from "../rules/status/status-helpers.js";
@@ -396,7 +400,7 @@ function buildOpenQuestionsEvidence(
       note:
         candidateCount === 0
           ? "по найденным маркерам не найдено"
-          : "связь вопрос→ответ эвристическая",
+          : "связь вопрос→ответ по времени и автору — проверено частично",
     },
     summaryLabel:
       candidateCount === 0
@@ -410,67 +414,169 @@ function buildBlockedAssigneeEvidence(
   spec: NonNullable<ReturnType<typeof getEvidenceSpecByRuleId>>,
 ): EvidenceResult {
   const ruleId = "blocked_assignee_not_allowed";
-  const scopeCount = result.meta.cardsChecked;
+  const account = buildRuleCandidateAccount(ruleId, result);
   const violationEvidence: EvidenceItem[] = [];
-  const notCheckedEvidence: EvidenceItem[] = [];
-  let candidateCount = 0;
-  let violationCount = 0;
-  let allSkipped = true;
 
   for (const card of result.cards) {
     const r = ruleResultFor(card, ruleId);
-    if (!r) continue;
-    if (r.status === "SKIP" || isPseudoSkip(r)) {
-      allSkipped = true;
-      continue;
-    }
-    allSkipped = false;
-    if (r.status === "NOT_APPLICABLE") continue;
-    candidateCount++;
-    if (r.status === "WARN" || r.status === "FAIL") {
-      violationCount++;
+    if (r?.status === "WARN" || r?.status === "FAIL") {
       violationEvidence.push(
         cardToEvidenceItem(card, r.reason, "AppTask users API"),
       );
     }
   }
 
-  let status: EvidenceStatus = "OK";
-  if (allSkipped && candidateCount === 0) {
-    status = "SKIP";
-  } else if (violationCount > 0) {
-    status = "FAIL";
-  } else {
-    status = "PARTIAL";
-  }
+  const violationCount = account.fail + account.warn;
+  const candidateCount = isZeroCandidatesLabel(account.candidatesLabel)
+    ? 0
+    : result.cards.filter((c) => {
+        const r = ruleResultFor(c, ruleId);
+        return (
+          r &&
+          r.status !== "NOT_APPLICABLE" &&
+          r.status !== "SKIP" &&
+          !isPseudoSkip(r)
+        );
+      }).length;
 
-  if (status === "PARTIAL" || status === "SKIP") {
-    notCheckedEvidence.push({
-      objectLabel: "уволенные / неактивные",
-      reason: spec.notChecked,
-      source: "HR / users — не подключён",
-      link: result.meta.boardUrl,
-    });
-  }
+  const notCheckedEvidence: EvidenceItem[] =
+    account.unavailableLabel !== "—"
+      ? [
+          {
+            objectLabel: "уволенные / неактивные",
+            reason: account.unavailableLabel,
+            source: "HR / users — не подключён",
+            link: result.meta.boardUrl,
+          },
+        ]
+      : [];
 
   return {
     ruleId,
     contractNum: spec.num,
-    scopeCount,
+    scopeCount: result.meta.cardsChecked,
     candidateCount,
-    passedCount: candidateCount - violationCount,
+    passedCount: Math.max(0, candidateCount - violationCount),
     violationCount,
     notCheckedCount: notCheckedEvidence.length,
-    status,
+    status: account.outcome as EvidenceStatus,
     automationLevel: spec.automationLevel,
     sources: spec.sources.split(";").map((s) => s.trim()),
     candidateEvidence: [],
     violationEvidence,
     notCheckedEvidence,
-    summaryLabel:
-      allSkipped && candidateCount === 0
-        ? "источник недоступен"
-        : `${candidateCount} назначений проверено`,
+    summaryLabel: account.candidatesLabel,
+  };
+}
+
+function buildTeamRoleRateEvidence(
+  result: AuditResult,
+  spec: NonNullable<ReturnType<typeof getEvidenceSpecByRuleId>>,
+): EvidenceResult {
+  const ruleId = "team_role_rate_match";
+  const account = buildRuleCandidateAccount(ruleId, result);
+  const violationEvidence: EvidenceItem[] = [];
+  const notCheckedEvidence: EvidenceItem[] = [];
+
+  for (const f of result.entityFindings ?? result.meta.entityFindings ?? []) {
+    if (f.ruleId === "team_worksheet_match" && (f.status === "WARN" || f.status === "FAIL")) {
+      notCheckedEvidence.push({
+        objectLabel: f.objectLabel,
+        reason: "исполнитель не найден в таблице — роль/ставку сверить нельзя",
+        source: "Google Sheet / рабочая таблица",
+        link: f.link,
+      });
+    }
+    if (f.ruleId === ruleId && (f.status === "WARN" || f.status === "FAIL")) {
+      violationEvidence.push({
+        objectLabel: f.objectLabel,
+        reason: f.reason,
+        source: f.source ?? "Google Sheet / рабочая таблица",
+        link: f.link,
+      });
+    }
+  }
+
+  const notCheckedCount = notCheckedEvidence.length;
+  const violationCount = account.fail + account.warn;
+  const candidateCount = isZeroCandidatesLabel(account.candidatesLabel)
+    ? 0
+    : Math.max(violationCount, notCheckedCount, 1);
+
+  return {
+    ruleId,
+    contractNum: spec.num,
+    scopeCount: 1,
+    candidateCount,
+    passedCount: Math.max(0, candidateCount - violationCount),
+    violationCount,
+    notCheckedCount,
+    status: account.outcome as EvidenceStatus,
+    automationLevel: spec.automationLevel,
+    sources: spec.sources.split(";").map((s) => s.trim()),
+    candidateEvidence: [],
+    violationEvidence,
+    notCheckedEvidence,
+    summaryLabel: account.candidatesLabel,
+  };
+}
+
+function buildActReadyEvidence(
+  result: AuditResult,
+  spec: NonNullable<ReturnType<typeof getEvidenceSpecByRuleId>>,
+): EvidenceResult {
+  const ruleId = "act_ready_naming";
+  const account = buildRuleCandidateAccount(ruleId, result);
+  const violationEvidence: EvidenceItem[] = [];
+
+  for (const card of result.cards) {
+    const r = ruleResultFor(card, ruleId);
+    if (r?.status === "WARN" || r?.status === "FAIL") {
+      violationEvidence.push(cardToEvidenceItem(card, r.reason, spec.sources));
+    }
+  }
+
+  const violationCount = account.fail + account.warn;
+  const candidateCount = isZeroCandidatesLabel(account.candidatesLabel)
+    ? 0
+    : result.cards.filter((c) => {
+        const r = ruleResultFor(c, ruleId);
+        return (
+          r &&
+          r.status !== "NOT_APPLICABLE" &&
+          r.status !== "SKIP" &&
+          !isPseudoSkip(r)
+        );
+      }).length;
+
+  return {
+    ruleId,
+    contractNum: spec.num,
+    scopeCount: result.meta.cardsChecked,
+    candidateCount,
+    passedCount: Math.max(0, candidateCount - violationCount),
+    violationCount,
+    notCheckedCount: account.unavailableLabel !== "—" ? 1 : 0,
+    status: account.outcome as EvidenceStatus,
+    automationLevel: spec.automationLevel,
+    sources: spec.sources.split(";").map((s) => s.trim()),
+    candidateEvidence: [],
+    violationEvidence,
+    notCheckedEvidence:
+      account.unavailableLabel !== "—"
+        ? [
+            {
+              objectLabel: "завершённые задачи для актов",
+              reason: account.unavailableLabel,
+              source: spec.sources,
+              link: result.meta.boardUrl,
+            },
+          ]
+        : [],
+    summaryLabel: account.candidatesLabel,
+    debug: {
+      partialNote: account.unavailableLabel,
+    },
   };
 }
 
@@ -480,12 +586,10 @@ function buildGenericEvidence(result: AuditResult, ruleId: string): EvidenceResu
     throw new Error(`No evidence spec for ruleId: ${ruleId}`);
   }
 
+  const account = buildRuleCandidateAccount(ruleId, result);
   const scopeCount = result.meta.cardsChecked;
   const violationEvidence: EvidenceItem[] = [];
   const notCheckedEvidence: EvidenceItem[] = [];
-  let candidateCount = 0;
-  let violationCount = 0;
-  let skippedAll = true;
 
   for (const card of result.cards) {
     const r = ruleResultFor(card, ruleId);
@@ -494,11 +598,8 @@ function buildGenericEvidence(result: AuditResult, ruleId: string): EvidenceResu
       notCheckedEvidence.push(cardToEvidenceItem(card, r.reason, spec.sources));
       continue;
     }
-    skippedAll = false;
     if (r.status === "NOT_APPLICABLE") continue;
-    candidateCount++;
     if (r.status === "WARN" || r.status === "FAIL") {
-      violationCount++;
       violationEvidence.push(cardToEvidenceItem(card, r.reason, spec.sources));
     }
   }
@@ -508,7 +609,6 @@ function buildGenericEvidence(result: AuditResult, ruleId: string): EvidenceResu
   );
   for (const f of entityFindings) {
     if (f.status === "WARN" || f.status === "FAIL") {
-      violationCount++;
       violationEvidence.push({
         objectLabel: f.objectLabel,
         reason: f.reason,
@@ -524,36 +624,37 @@ function buildGenericEvidence(result: AuditResult, ruleId: string): EvidenceResu
         link: f.link,
       });
     }
-    if (f.status === "PASS" || f.status === "WARN" || f.status === "FAIL") {
-      skippedAll = false;
-      candidateCount = Math.max(candidateCount, 1);
-    }
   }
 
+  const violationCount = account.fail + account.warn;
   const notCheckedCount = notCheckedEvidence.length;
+  const zeroCandidates = isZeroCandidatesLabel(account.candidatesLabel);
+  const candidateCount = zeroCandidates
+    ? 0
+    : Math.max(
+        0,
+        result.cards.filter((c) => {
+          const r = ruleResultFor(c, ruleId);
+          return (
+            r &&
+            r.status !== "NOT_APPLICABLE" &&
+            r.status !== "SKIP" &&
+            !isPseudoSkip(r)
+          );
+        }).length,
+      ) || (violationCount > 0 ? violationCount : 0);
+
   const passedCount = Math.max(0, candidateCount - violationCount);
-  let status: EvidenceStatus = "OK";
-  if (skippedAll && candidateCount === 0 && notCheckedCount > 0) {
-    status = "SKIP";
-  } else if (violationCount > 0) {
-    const hasFail =
-      result.cards.some((c) => ruleResultFor(c, ruleId)?.status === "FAIL") ||
-      entityFindings.some((f) => f.status === "FAIL");
-    status = hasFail ? "FAIL" : "WARN";
-  } else if (
+  let status: EvidenceStatus = account.outcome as EvidenceStatus;
+
+  if (
+    status === "OK" &&
     notCheckedCount > 0 &&
     (spec.automationLevel === "PARTIAL" ||
       spec.automationLevel === "SOURCE_UNAVAILABLE")
   ) {
     status = "PARTIAL";
   }
-
-  const summaryLabel =
-    candidateCount === 0 && notCheckedCount === 0
-      ? "Кандидатов для проверки нет"
-      : violationCount > 0
-        ? `${violationCount} с нарушениями`
-        : `${candidateCount} кандидатов — нарушений нет`;
 
   return {
     ruleId,
@@ -569,7 +670,7 @@ function buildGenericEvidence(result: AuditResult, ruleId: string): EvidenceResu
     candidateEvidence: [],
     violationEvidence,
     notCheckedEvidence,
-    summaryLabel,
+    summaryLabel: account.candidatesLabel,
   };
 }
 
@@ -585,6 +686,8 @@ const SPECIAL_BUILDERS: Record<
   review_stale: buildReviewStaleEvidence,
   open_questions_closed: buildOpenQuestionsEvidence,
   blocked_assignee_not_allowed: buildBlockedAssigneeEvidence,
+  team_role_rate_match: buildTeamRoleRateEvidence,
+  act_ready_naming: buildActReadyEvidence,
 };
 
 /** Собрать EvidenceResult для одного ruleId. */
