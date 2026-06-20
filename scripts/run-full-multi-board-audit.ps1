@@ -1,4 +1,4 @@
-# Full multi-board audit: 783,445,54 — manual only, NOT for Task Scheduler.
+# Full multi-board audit: 783,445,54,789 — manual only, NOT for Task Scheduler.
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path

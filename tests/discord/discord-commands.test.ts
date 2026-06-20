@@ -53,7 +53,7 @@ test("slash commands: /audit, /turboweave + screenshot commands only", () => {
   assert.deepEqual(names.sort(), [...REGISTERED_SLASH_COMMANDS].sort());
 });
 
-test("/audit: no options (multi-board 783,445,54 only)", () => {
+test("/audit: no options (multi-board 783,445,54,789 only)", () => {
   assert.deepEqual(getCommandOptionNames("audit"), []);
 });
 

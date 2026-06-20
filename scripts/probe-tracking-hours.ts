@@ -29,7 +29,7 @@ const TRACKING_TABLES = [
   "TrackingUpdateMarks",
 ] as const;
 
-const DEFAULT_BOARD_IDS = [783, 445, 54];
+const DEFAULT_BOARD_IDS = [783, 445, 54, 789];
 
 type ColumnRow = {
   COLUMN_NAME: string;

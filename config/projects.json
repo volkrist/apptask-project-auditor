@@ -8,5 +8,15 @@
     "discordChannelId": "1508451205402067055",
     "ruleProfile": "contract_turboweave_v1",
     "enabled": true
+  },
+  {
+    "id": "ataev-market",
+    "name": "Атаев Маркет",
+    "boardUrl": "https://apptask.ru/c/7/board/789",
+    "boardIds": ["789"],
+    "guildId": "1481273490299555904",
+    "discordChannelId": "1508451205402067055",
+    "ruleProfile": "contract_turboweave_v1",
+    "enabled": true
   }
 ]

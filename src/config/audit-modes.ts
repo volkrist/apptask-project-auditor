@@ -30,14 +30,17 @@ export const TURBOWEAVE_AUDIT_CONFIG = {
   },
 } as const;
 
+/** Доски полного multi-board аудита (/audit, audit:full). */
+export const FULL_AUDIT_BOARD_IDS = ["783", "445", "54", "789"] as const;
+
 export const FULL_AUDIT_CONFIG = {
   boardUrl: "https://apptask.ru/c/7/board/783",
   projectName: "AppTask Multi-Board",
-  boardIds: ["783", "445", "54"] as const,
+  boardIds: FULL_AUDIT_BOARD_IDS,
   env: {
     APPTASK_COLLECTOR: "db",
     APPTASK_AUDIT_SCOPE: "multi",
-    APPTASK_DB_BOARD_IDS: "783,445,54",
+    APPTASK_DB_BOARD_IDS: FULL_AUDIT_BOARD_IDS.join(","),
     APPTASK_DB_FALLBACK: "false",
     SCRUM_BOARD_IDS: "783",
     AUDIT_DISCORD_CHANNEL_ID: ATAEV_AUDIT_DISCORD_CHANNEL_ID,

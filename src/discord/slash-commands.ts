@@ -7,7 +7,7 @@ import {
 export const slashCommands = [
   {
     name: "audit",
-    description: "Полный аудит досок 783, 445, 54 (без комментариев)",
+    description: "Полный аудит досок 783, 445, 54, 789 (без комментариев)",
   },
   {
     name: "turboweave",

@@ -33,7 +33,7 @@ test("applyAuditModeEnv full sets three boards and audit channel", () => {
   const prev = { ...process.env };
   const snapshot = applyAuditModeEnv("full");
   try {
-    assert.equal(process.env.APPTASK_DB_BOARD_IDS, "783,445,54");
+    assert.equal(process.env.APPTASK_DB_BOARD_IDS, "783,445,54,789");
     assert.equal(process.env.APPTASK_AUDIT_SCOPE, "multi");
     assert.equal(process.env.SCRUM_BOARD_IDS, "783");
     assert.equal(

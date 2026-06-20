@@ -1,5 +1,5 @@
 /**
- * Full multi-board audit: 783,445,54 — manual only (Discord /audit or npm run audit:full).
+ * Full multi-board audit: 783,445,54,789 — manual only (Discord /audit or npm run audit:full).
  */
 import "dotenv/config";
 import path from "node:path";
@@ -11,7 +11,7 @@ import {
 } from "../config/audit-modes.js";
 
 async function main(): Promise<void> {
-  console.log("[full-audit] starting multi-board 783,445,54");
+  console.log("[full-audit] starting multi-board 783,445,54,789");
   const snapshot = applyAuditModeEnv("full");
 
   try {
