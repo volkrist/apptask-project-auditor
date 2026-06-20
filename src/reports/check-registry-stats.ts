@@ -223,7 +223,13 @@ function describeEntityRow(
         unavailable: "—",
         violations: formatViolations(fail, warn),
         outcome: outcomeFrom("CHECKED", fail, warn),
-        evidence,
+        evidence: evidence
+          ? {
+              ...evidence,
+              candidateCount: counts.total,
+              summaryLabel: `Все карточки классифицированы, неизвестных типов: ${counts.unknown}`,
+            }
+          : undefined,
       };
     }
     case "tracking_daily_anomaly": {

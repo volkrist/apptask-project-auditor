@@ -166,9 +166,27 @@ function buildOkBrief(
   registry: RegistryTableRow,
   zeroCandidates: boolean,
   violationCount: number,
-  evidence?: EvidenceResult,
+  evidence: EvidenceResult | undefined,
+  result: AuditResult,
 ): string {
-  if (evidence?.automationLevel === "TEXT_MARKER" && zeroCandidates && violationCount === 0) {
+  const num = registry.entry.num;
+  const ruleId = registry.entry.ruleIds[0]!;
+
+  if (num === 4 && zeroCandidates && violationCount === 0) {
+    return "Кандидатов для проверки нет: заблокированных задач не найдено.";
+  }
+  if (num === 36 && zeroCandidates && violationCount === 0) {
+    return "По фиксированным маркерам «готово/сделал/проверь» нарушений не найдено.";
+  }
+  if (num === 11 && violationCount === 0) {
+    const { counts } = buildBoardClassification(result);
+    return `Все карточки классифицированы, неизвестных типов: ${counts.unknown}.`;
+  }
+  if (
+    ruleId === "unresolved_question_keywords_in_card" &&
+    zeroCandidates &&
+    violationCount === 0
+  ) {
     return "По фиксированным маркерам незакрытых вопросов не найдено";
   }
   if (evidence?.automationLevel === "PARTIAL" && registry.outcome === "PARTIAL" && violationCount === 0) {
@@ -242,7 +260,7 @@ function buildCheckBlock(
     showViolationsPanel,
     showNotCheckedPanel,
     notCheckedCount,
-    okBrief: buildOkBrief(registry, zeroCandidates, violationCount, evidence),
+    okBrief: buildOkBrief(registry, zeroCandidates, violationCount, evidence, result),
     violations,
     entityFindings: entityViolations,
     evidence,

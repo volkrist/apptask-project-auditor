@@ -114,3 +114,36 @@ test("buildContractAuditHtml shows notChecked toggle for partial scrum PV", () =
   assert.match(html, /id="check-13-not-checked"/);
   assert.match(html, /Конкурентный анализ|№63|не найдена в смете|ПВ не проверялось/);
 });
+
+test("buildContractAuditHtml okBrief uses rule-specific wording for checks 4, 11, 36", () => {
+  const result = baseResult({ cardsChecked: 1 });
+  result.cards[0]!.results.push(
+    {
+      ruleId: "blocked_task_reason",
+      status: "NOT_APPLICABLE",
+      reason: "Задача не заблокирована",
+    },
+    {
+      ruleId: "vague_done_comment",
+      status: "NOT_APPLICABLE",
+      reason: "Маркеры не найдены",
+    },
+  );
+  result.entityFindings = [
+    {
+      ruleId: "task_type_classification",
+      status: "PASS",
+      reason: "ok",
+      scope: "project",
+      objectLabel: "классификация",
+    },
+  ];
+  const html = buildContractAuditHtml(result);
+  const block4 = html.match(/id="check-4"[\s\S]*?<\/article>/)?.[0] ?? "";
+  const block36 = html.match(/id="check-36"[\s\S]*?<\/article>/)?.[0] ?? "";
+  assert.match(block4, /заблокированных задач не найдено/);
+  assert.doesNotMatch(block4, /незакрытых вопросов/);
+  assert.match(block36, /маркерам «готово\/сделал\/проверь» нарушений не найдено/);
+  assert.doesNotMatch(block36, /незакрытых вопросов/);
+  assert.match(html, /Все карточки классифицированы, неизвестных типов: 0/);
+});

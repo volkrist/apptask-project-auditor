@@ -774,6 +774,13 @@ export function buildEvidenceResult(ruleId: string, result: AuditResult): Eviden
         "По фиксированным маркерам незакрытых вопросов не найдено";
     }
   }
+  if (ruleId === "vague_done_comment" && evidence.violationCount === 0) {
+    evidence.summaryLabel =
+      "По фиксированным маркерам «готово/сделал/проверь» нарушений не найдено";
+  }
+  if (ruleId === "blocked_task_reason" && evidence.candidateCount === 0 && evidence.violationCount === 0) {
+    evidence.summaryLabel = "0 заблокированных задач";
+  }
   return evidence;
 }
 
