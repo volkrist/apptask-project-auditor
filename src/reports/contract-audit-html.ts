@@ -240,11 +240,12 @@ function renderCheckBlock(check: CheckBlockView): string {
     countersHtml = `<div class="ok-brief muted">${escHtml(check.okBrief)}</div>`;
   }
 
-  const failParts = [
-    ...(check.evidence?.violationEvidence ?? []).map(renderEvidenceItem),
-    ...check.violations.map(renderViolationRow),
-    ...check.entityFindings.map(renderEntityFinding),
-  ];
+  const failParts = check.evidence
+    ? check.evidence.violationEvidence.map(renderEvidenceItem)
+    : [
+        ...check.violations.map(renderViolationRow),
+        ...check.entityFindings.map(renderEntityFinding),
+      ];
   const failHtml =
     failParts.length > 0
       ? failParts.join("")

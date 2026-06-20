@@ -23,6 +23,13 @@ export function isAuditDiscordDmOnly(): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
+/** По умолчанию true — отправлять audit-report.md вместе с HTML. AUDIT_DISCORD_ATTACH_MD=false отключает. */
+export function isAuditDiscordAttachMd(): boolean {
+  const v = process.env.AUDIT_DISCORD_ATTACH_MD?.trim().toLowerCase();
+  if (v === "0" || v === "false" || v === "no") return false;
+  return true;
+}
+
 export type AuditPublishChannelSource =
   | "projects_json"
   | "apptask_board"
@@ -226,10 +233,12 @@ export function buildReportAttachments(
     logReportFile("humanSummaryPath", out.output.humanSummaryPath);
   }
 
-  const candidates = [
+  const candidates: Array<{ path: string; name: string }> = [
     { path: out.output.htmlPath, name: "audit-report.html" },
-    { path: out.output.reportPath, name: "audit-report.md" },
   ];
+  if (isAuditDiscordAttachMd()) {
+    candidates.push({ path: out.output.reportPath, name: "audit-report.md" });
+  }
 
   const files: AttachmentBuilder[] = [];
   for (const { path: filePath, name } of candidates) {
@@ -369,7 +378,9 @@ export async function publishFullReportToChannel(
     `CHECKED: ${registry.checked}`,
     `SKIP: ${registry.skip}`,
     "",
-    "Файл: audit-report.html",
+    files.length === 2
+      ? "Файлы: audit-report.html, audit-report.md"
+      : "Файл: audit-report.html",
   ];
   if (webUrl) {
     contentLines.push("", `Открыть web report: ${webUrl}`);
@@ -387,6 +398,10 @@ export async function publishFullReportToChannel(
     console.warn("[audit-channel] No report files found for Discord attachments");
     return sentNames;
   }
+
+  console.log(
+    `[audit-channel] attachments prepared (${files.length}): ${sentNames.join(", ")}`,
+  );
 
   console.log(
     `[audit-channel] posted embed + ${files.length} file(s) to channel ${channelId}`,

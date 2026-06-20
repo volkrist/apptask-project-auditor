@@ -377,9 +377,19 @@ function buildOpenQuestionsEvidence(
   let status: EvidenceStatus = "OK";
   if (violationCount > 0) {
     status = "WARN";
-  } else if (spec.automationLevel === "PARTIAL" && candidateCount > 0) {
+  } else if (
+    spec.automationLevel === "PARTIAL" &&
+    (candidateCount > 0 || debug.commentsWithQuestionMark > 0)
+  ) {
     status = "PARTIAL";
   }
+
+  const partialNote =
+    debug.commentsWithQuestionMark > 0 && candidateCount === 0 && violationCount === 0
+      ? `По фиксированным маркерам открытых вопросов не найдено. Найдено ${debug.commentsWithQuestionMark} комментариев с вопросительным знаком. Требуется ручная проверка или расширение правил вопроса.`
+      : candidateCount === 0
+        ? "по найденным маркерам не найдено"
+        : "связь вопрос→ответ по времени и автору — проверено частично";
 
   return {
     ruleId,
@@ -397,15 +407,14 @@ function buildOpenQuestionsEvidence(
     notCheckedEvidence: [],
     debug: {
       ...debug,
-      note:
-        candidateCount === 0
-          ? "по найденным маркерам не найдено"
-          : "связь вопрос→ответ по времени и автору — проверено частично",
+      note: partialNote,
     },
     summaryLabel:
-      candidateCount === 0
-        ? "0 открытых вопросов по маркерам"
-        : `${violationCount} открытых вопросов`,
+      status === "PARTIAL" && violationCount === 0
+        ? `PARTIAL — ${debug.commentsWithQuestionMark} комментариев с «?»`
+        : candidateCount === 0
+          ? "0 открытых вопросов по маркерам"
+          : `${violationCount} открытых вопросов`,
   };
 }
 
@@ -469,6 +478,57 @@ function buildBlockedAssigneeEvidence(
   };
 }
 
+function buildScrumDecompositionEvidence(
+  result: AuditResult,
+  spec: NonNullable<ReturnType<typeof getEvidenceSpecByRuleId>>,
+): EvidenceResult {
+  const ruleId = "scrum_decomposition_over_20h";
+  const account = buildRuleCandidateAccount(ruleId, result);
+  const violationEvidence: EvidenceItem[] = [];
+  const notCheckedEvidence: EvidenceItem[] = [];
+
+  for (const card of result.cards) {
+    const r = ruleResultFor(card, ruleId);
+    if (!r) continue;
+    if (r.status === "SKIP" || isPseudoSkip(r)) {
+      notCheckedEvidence.push(cardToEvidenceItem(card, r.reason, "Scrum / смета"));
+      continue;
+    }
+    if (r.reason.includes("Нет строки сметы")) continue;
+    if (r.status === "PASS" && r.reason === "OK") continue;
+    if (r.status === "WARN" || r.status === "FAIL") {
+      violationEvidence.push(cardToEvidenceItem(card, r.reason, "Scrum / смета: ПВ"));
+    }
+  }
+
+  const violationCount = violationEvidence.length;
+  let candidateCount = 0;
+  for (const card of result.cards) {
+    const r = ruleResultFor(card, ruleId);
+    if (!r || r.status === "SKIP" || isPseudoSkip(r)) continue;
+    if (r.reason.includes("Нет строки сметы")) continue;
+    if (r.status === "PASS" && r.reason === "OK") continue;
+    candidateCount++;
+  }
+
+  return {
+    ruleId,
+    contractNum: spec.num,
+    scopeCount: result.meta.cardsChecked,
+    candidateCount,
+    passedCount: Math.max(0, candidateCount - violationCount),
+    violationCount,
+    notCheckedCount: notCheckedEvidence.length,
+    status: account.outcome as EvidenceStatus,
+    automationLevel: spec.automationLevel,
+    sources: spec.sources.split(";").map((s) => s.trim()),
+    candidateEvidence: [],
+    violationEvidence,
+    notCheckedEvidence,
+    summaryLabel: account.candidatesLabel,
+  };
+}
+
 function buildTeamRoleRateEvidence(
   result: AuditResult,
   spec: NonNullable<ReturnType<typeof getEvidenceSpecByRuleId>>,
@@ -476,32 +536,34 @@ function buildTeamRoleRateEvidence(
   const ruleId = "team_role_rate_match";
   const account = buildRuleCandidateAccount(ruleId, result);
   const violationEvidence: EvidenceItem[] = [];
-  const notCheckedEvidence: EvidenceItem[] = [];
+  const seenLabels = new Set<string>();
 
   for (const f of result.entityFindings ?? result.meta.entityFindings ?? []) {
     if (f.ruleId === "team_worksheet_match" && (f.status === "WARN" || f.status === "FAIL")) {
-      notCheckedEvidence.push({
+      violationEvidence.push({
         objectLabel: f.objectLabel,
-        reason: "исполнитель не найден в таблице — роль/ставку сверить нельзя",
+        reason: "исполнитель не найден в рабочей таблице",
         source: "Google Sheet / рабочая таблица",
         link: f.link,
       });
-    }
-    if (f.ruleId === ruleId && (f.status === "WARN" || f.status === "FAIL")) {
-      violationEvidence.push({
-        objectLabel: f.objectLabel,
-        reason: f.reason,
-        source: f.source ?? "Google Sheet / рабочая таблица",
-        link: f.link,
-      });
+      seenLabels.add(f.objectLabel);
     }
   }
+  for (const f of result.entityFindings ?? result.meta.entityFindings ?? []) {
+    if (f.ruleId !== ruleId || (f.status !== "WARN" && f.status !== "FAIL")) continue;
+    if (seenLabels.has(f.objectLabel)) continue;
+    violationEvidence.push({
+      objectLabel: f.objectLabel,
+      reason: f.reason,
+      source: f.source ?? "Google Sheet / рабочая таблица",
+      link: f.link,
+    });
+  }
 
-  const notCheckedCount = notCheckedEvidence.length;
-  const violationCount = account.fail + account.warn;
+  const violationCount = violationEvidence.length;
   const candidateCount = isZeroCandidatesLabel(account.candidatesLabel)
     ? 0
-    : Math.max(violationCount, notCheckedCount, 1);
+    : Math.max(violationCount, 1);
 
   return {
     ruleId,
@@ -510,13 +572,13 @@ function buildTeamRoleRateEvidence(
     candidateCount,
     passedCount: Math.max(0, candidateCount - violationCount),
     violationCount,
-    notCheckedCount,
+    notCheckedCount: 0,
     status: account.outcome as EvidenceStatus,
     automationLevel: spec.automationLevel,
     sources: spec.sources.split(";").map((s) => s.trim()),
     candidateEvidence: [],
     violationEvidence,
-    notCheckedEvidence,
+    notCheckedEvidence: [],
     summaryLabel: account.candidatesLabel,
   };
 }
@@ -626,23 +688,27 @@ function buildGenericEvidence(result: AuditResult, ruleId: string): EvidenceResu
     }
   }
 
-  const violationCount = account.fail + account.warn;
+  const violationCount = violationEvidence.length;
   const notCheckedCount = notCheckedEvidence.length;
   const zeroCandidates = isZeroCandidatesLabel(account.candidatesLabel);
-  const candidateCount = zeroCandidates
-    ? 0
-    : Math.max(
-        0,
-        result.cards.filter((c) => {
-          const r = ruleResultFor(c, ruleId);
-          return (
-            r &&
-            r.status !== "NOT_APPLICABLE" &&
-            r.status !== "SKIP" &&
-            !isPseudoSkip(r)
-          );
-        }).length,
-      ) || (violationCount > 0 ? violationCount : 0);
+  let candidateCount = 0;
+  if (!zeroCandidates) {
+    for (const card of result.cards) {
+      const r = ruleResultFor(card, ruleId);
+      if (!r || r.status === "NOT_APPLICABLE") continue;
+      if (r.status === "SKIP" || isPseudoSkip(r)) continue;
+      if (r.status === "PASS" && r.reason === "OK") continue;
+      if (r.reason.includes("Нет строки сметы") || r.reason.includes("Нет дедлайна")) continue;
+      if (r.reason.includes("Задача завершена")) continue;
+      candidateCount++;
+    }
+    if (candidateCount === 0 && violationCount > 0) {
+      candidateCount = violationCount;
+    }
+    if (candidateCount === 0 && entityFindings.some((f) => f.status === "PASS" || f.status === "WARN" || f.status === "FAIL")) {
+      candidateCount = Math.max(violationCount, 1);
+    }
+  }
 
   const passedCount = Math.max(0, candidateCount - violationCount);
   let status: EvidenceStatus = account.outcome as EvidenceStatus;
@@ -683,6 +749,7 @@ const SPECIAL_BUILDERS: Record<
 > = {
   deadline_less_than_one_day: buildDeadlineEvidence,
   scrum_planned_hours_present: buildScrumPvEvidence,
+  scrum_decomposition_over_20h: buildScrumDecompositionEvidence,
   review_stale: buildReviewStaleEvidence,
   open_questions_closed: buildOpenQuestionsEvidence,
   blocked_assignee_not_allowed: buildBlockedAssigneeEvidence,
@@ -701,8 +768,10 @@ export function buildEvidenceResult(ruleId: string, result: AuditResult): Eviden
   const evidence = buildGenericEvidence(result, ruleId);
   if (ruleId === "unresolved_question_keywords_in_card") {
     evidence.debug = scanKeywordMarkersDebug(result);
-    if (evidence.candidateCount === 0 && evidence.violationCount === 0) {
-      evidence.summaryLabel = "0 найденных маркеров";
+    evidence.violationCount = evidence.violationEvidence.length;
+    if (evidence.violationCount === 0) {
+      evidence.summaryLabel =
+        "По фиксированным маркерам незакрытых вопросов не найдено";
     }
   }
   return evidence;

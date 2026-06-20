@@ -192,6 +192,44 @@ test("review stale evidence: zero review tasks shows debug", () => {
   assert.ok(ev.debug?.statusDistribution);
 });
 
+test("scrum decomposition evidence: zero candidates when no PV > 20h", () => {
+  const result = baseResult([
+    {
+      task: emptyTask,
+      results: [
+        { ruleId: "scrum_decomposition_over_20h", status: "PASS", reason: "OK" },
+      ],
+    },
+  ]);
+  const ev = buildEvidenceResult("scrum_decomposition_over_20h", result);
+  assert.equal(ev.candidateCount, 0);
+  assert.match(ev.summaryLabel ?? "", /0 задач с ПВ >20 ч/);
+});
+
+test("open questions evidence: PARTIAL when question marks but no marker candidates", () => {
+  const result = baseResult([
+    {
+      task: {
+        ...emptyTask,
+        comments: [
+          {
+            id: "c1",
+            createTime: "2026-06-01T10:00:00Z",
+            creatorName: "Alice",
+            text: "Какой API?",
+          },
+        ],
+      },
+      results: [
+        { ruleId: "open_questions_closed", status: "PASS", reason: "OK" },
+      ],
+    },
+  ]);
+  const ev = buildEvidenceResult("open_questions_closed", result);
+  assert.equal(ev.status, "PARTIAL");
+  assert.ok(ev.debug?.commentsWithQuestionMark);
+});
+
 test("open questions evidence: includes comment scan debug", () => {
   const result = baseResult([
     {

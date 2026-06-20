@@ -169,7 +169,11 @@ function buildOkBrief(
   evidence?: EvidenceResult,
 ): string {
   if (evidence?.automationLevel === "TEXT_MARKER" && zeroCandidates && violationCount === 0) {
-    return "по фиксированным маркерам не найдено";
+    return "По фиксированным маркерам незакрытых вопросов не найдено";
+  }
+  if (evidence?.automationLevel === "PARTIAL" && registry.outcome === "PARTIAL" && violationCount === 0) {
+    const note = evidence.debug?.note?.toString();
+    return note ?? "проверено частично — автоматизация неполная";
   }
   if (evidence?.automationLevel === "PARTIAL" && registry.outcome === "OK" && violationCount === 0) {
     return evidence.debug?.note?.toString() ?? "проверено частично";

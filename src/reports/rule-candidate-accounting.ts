@@ -466,16 +466,22 @@ function teamRoleRateAccount(result: AuditResult): RuleCandidateAccount {
   const wsFindings = (result.entityFindings ?? result.meta.entityFindings ?? []).filter(
     (f) => f.ruleId === "team_worksheet_match",
   );
-  const missingInSheet = wsFindings.filter(
+  const missingFindings = wsFindings.filter(
     (f) => f.status === "WARN" || f.status === "FAIL",
-  ).length;
+  );
+  const missingInSheet = missingFindings.length;
+  const missingLabels = new Set(missingFindings.map((f) => f.objectLabel));
 
   const roleFindings = (result.entityFindings ?? result.meta.entityFindings ?? []).filter(
     (f) => f.ruleId === "team_role_rate_match",
   );
   const fail = roleFindings.filter((f) => f.status === "FAIL").length;
-  const warn =
-    roleFindings.filter((f) => f.status === "WARN").length + missingInSheet;
+  const roleWarnOnly = roleFindings.filter(
+    (f) =>
+      (f.status === "WARN" || f.status === "FAIL") &&
+      !missingLabels.has(f.objectLabel),
+  ).length;
+  const warn = missingInSheet + roleWarnOnly;
 
   if (roleFindings.some((f) => f.status === "SKIP")) {
     return {
@@ -498,10 +504,7 @@ function teamRoleRateAccount(result: AuditResult): RuleCandidateAccount {
   return {
     scopeLabel: "исполнители AppTask + рабочая таблица",
     candidatesLabel: parts.length > 0 ? parts.join("; ") : "участники не найдены",
-    unavailableLabel:
-      missingInSheet > 0
-        ? `${missingInSheet} без строки в таблице (роль/ставку сверить нельзя)`
-        : "—",
+    unavailableLabel: "—",
     fail,
     warn,
     outcome:
@@ -512,6 +515,61 @@ function teamRoleRateAccount(result: AuditResult): RuleCandidateAccount {
           : checkedInSheet > 0
             ? "OK"
             : "OK",
+  };
+}
+
+function scrumDecompositionAccount(result: AuditResult): RuleCandidateAccount {
+  const scope = result.meta.cardsChecked;
+  const results = taskResultsForRule(result, "scrum_decomposition_over_20h");
+  let candidates = 0;
+  let warn = 0;
+  let fail = 0;
+  let skipped = 0;
+
+  for (const r of results) {
+    if (r.status === "SKIP" || isPseudoSkip(r)) {
+      skipped++;
+      continue;
+    }
+    if (r.reason.includes("Нет строки сметы")) continue;
+    if (r.status === "PASS" && r.reason === "OK") continue;
+    candidates++;
+    if (r.status === "WARN") warn++;
+    if (r.status === "FAIL") fail++;
+  }
+
+  if (skipped === results.length && results.length > 0) {
+    return {
+      scopeLabel: scopeTasksLabel(scope),
+      candidatesLabel: "Scrum / смета недоступна",
+      unavailableLabel: "—",
+      fail: 0,
+      warn: 0,
+      outcome: "SKIP",
+    };
+  }
+
+  if (candidates === 0) {
+    return {
+      scopeLabel: scopeTasksLabel(scope),
+      candidatesLabel: "0 задач с ПВ >20 ч",
+      unavailableLabel: "—",
+      fail,
+      warn,
+      outcome: outcomeFromCounts(fail, warn, { noCandidates: true }),
+    };
+  }
+
+  return {
+    scopeLabel: scopeTasksLabel(scope),
+    candidatesLabel:
+      fail + warn > 0
+        ? `${fail + warn} с нарушениями`
+        : `${candidates} с ПВ >20 ч — нарушений нет`,
+    unavailableLabel: "—",
+    fail,
+    warn,
+    outcome: outcomeFromCounts(fail, warn),
   };
 }
 
@@ -654,9 +712,7 @@ export function buildRuleCandidateAccount(
         zeroCandidatesLabel: "0 завершённых без комментария «проверено»",
       });
     case "scrum_decomposition_over_20h":
-      return defaultTaskAccount(result, ruleId, {
-        zeroCandidatesLabel: "0 задач с ПВ >20 ч",
-      });
+      return scrumDecompositionAccount(result);
     case "in_progress_stale":
       return defaultTaskAccount(result, ruleId, {
         zeroCandidatesLabel: "0 задач в работе без обновлений",
@@ -684,6 +740,6 @@ export function isZeroCandidatesLabel(label: string): boolean {
   if (t.startsWith("0 записей с трекингом")) return true;
   if (t.startsWith("0 найденных")) return true;
   if (t.startsWith("0 заблокированных")) return true;
-  if (t.startsWith("0 завершённых")) return true;
+  if (t.startsWith("0 задач с ПВ")) return true;
   return false;
 }

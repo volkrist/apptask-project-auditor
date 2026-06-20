@@ -87,6 +87,21 @@ test("buildContractAuditHtml includes search filter script", () => {
   assert.match(html, /data-toggle/);
 });
 
+test("buildContractAuditHtml violation panel count matches evidence items", () => {
+  const result = baseResult();
+  const html = buildContractAuditHtml(result);
+  const failBtn = html.match(/id="check-19"[\s\S]*?Нарушения: (\d+)/);
+  if (failBtn) {
+    const count = Number(failBtn[1]);
+    const panel = html.match(/id="check-19-fail"[\s\S]*?<\/div>\s*<div class="panel"/);
+    const panelHtml = html.match(/id="check-19-fail">([\s\S]*?)<\/div>\s*(?:<div class="panel"|$)/);
+    if (panelHtml) {
+      const cards = (panelHtml[1].match(/class="violation-card"/g) ?? []).length;
+      assert.equal(cards, count, `check-19: button ${count} vs panel ${cards}`);
+    }
+  }
+});
+
 test("buildContractAuditHtml shows notChecked toggle for partial scrum PV", () => {
   const result = baseResult({ cardsChecked: 1 });
   result.cards[0]!.results.push({

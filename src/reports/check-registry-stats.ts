@@ -182,15 +182,12 @@ function describeEntityRow(
       (f) => f.ruleId === ruleId,
     );
     const fail = roleFindings.filter((f) => f.status === "FAIL").length;
-    const warn = roleFindings.filter((f) => f.status === "WARN").length;
+    const warn = Math.max(0, evidence.violationCount - fail);
     return {
       checked: "исполнители AppTask + рабочая таблица",
       candidates: evidence.summaryLabel ?? "—",
-      unavailable:
-        evidence.notCheckedCount > 0
-          ? `${evidence.notCheckedCount} без строки в таблице (роль/ставку сверить нельзя)`
-          : "—",
-      violations: formatViolations(fail, warn),
+      unavailable: "—",
+      violations: formatViolations(fail, Math.max(0, warn - fail)),
       outcome: evidence.status as RegistryOutcome,
       evidence,
     };

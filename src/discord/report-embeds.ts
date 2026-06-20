@@ -65,7 +65,7 @@ export function getCommentsStatusText(markersFound: number): string {
     : "Маркеры не найдены";
 }
 
-/** Короткое уведомление в Discord; полный отчёт — во вложении audit-report.html. */
+/** Короткое уведомление в Discord; полный отчёт — во вложениях audit-report.html (+ audit-report.md). */
 export function buildAuditReportEmbed(
   out: RunAuditResult,
 ): EmbedBuilder {
@@ -77,6 +77,9 @@ export function buildAuditReportEmbed(
     buildRegistryTableRows(out.result),
     out.result,
   );
+  const attachMd = process.env.AUDIT_DISCORD_ATTACH_MD?.trim().toLowerCase();
+  const includeMd =
+    attachMd !== "0" && attachMd !== "false" && attachMd !== "no";
 
   const overview = [
     `Проверено: **${meta.cardsChecked}** карточек`,
@@ -92,7 +95,9 @@ export function buildAuditReportEmbed(
   return new EmbedBuilder()
     .setTitle(`${meta.projectName} audit completed`)
     .setDescription(
-      "Полный отчёт: **audit-report.html** во вложении.",
+      includeMd
+        ? "Полный отчёт: **audit-report.html** и **audit-report.md** во вложениях."
+        : "Полный отчёт: **audit-report.html** во вложении.",
     )
     .setColor(meta.failCount > 0 ? 0xed4245 : meta.warnCount > 0 ? 0xfee75c : 0x57f287)
     .addFields({ name: "Сводка", value: overview, inline: false });
