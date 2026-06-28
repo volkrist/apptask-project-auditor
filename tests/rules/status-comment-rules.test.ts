@@ -7,6 +7,7 @@ import { evaluateTask } from "../../src/rules/evaluate.js";
 import {
   deadlineLessThanOneDayRule,
   inProgressStaleRule,
+  reviewStaleRule,
   reviewQueueSizeRule,
   reworkWithoutReasonRule,
 } from "../../src/rules/soft/status-comment-rules.js";
@@ -18,9 +19,9 @@ function task(overrides: Partial<RawTask>): RawTask {
 const config = loadAuditConfig({ linkCheckEnabled: false });
 
 test("deadline_less_than_one_day warns when due within 24h", async () => {
-  const tomorrow = new Date();
-  tomorrow.setHours(tomorrow.getHours() + 6);
-  const dd = `${String(tomorrow.getDate()).padStart(2, "0")}.${String(tomorrow.getMonth() + 1).padStart(2, "0")}.${tomorrow.getFullYear()}`;
+  const due = new Date();
+  due.setDate(due.getDate() + 1);
+  const dd = `${String(due.getDate()).padStart(2, "0")}.${String(due.getMonth() + 1).padStart(2, "0")}.${due.getFullYear()}`;
   const t = task({ status: "В работе", dueDate: dd });
   const r = await deadlineLessThanOneDayRule.evaluate(t, {
     config,
@@ -52,7 +53,7 @@ test("review_queue_over_limit fires on testing task when board overloaded", asyn
 });
 
 test("in_progress_stale when last activity old", async () => {
-  const old = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString();
+  const old = new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString();
   const t = task({
     status: "В работе",
     updatedAt: old,
@@ -93,10 +94,21 @@ test("status comment rules included in evaluateTask", async () => {
 test("in_progress_stale limit is 48 business hours by default", async () => {
   const prev = process.env.IN_PROGRESS_STALE_BUSINESS_HOURS;
   delete process.env.IN_PROGRESS_STALE_BUSINESS_HOURS;
-  const old = new Date(Date.now() - 50 * 60 * 60 * 1000).toISOString();
+  const old = new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString();
   const t = task({ status: "В работе", updatedAt: old });
   const r = await inProgressStaleRule.evaluate(t, { config, allTasks: [t] });
   assert.equal(r.status, "WARN");
   assert.match(r.reason, /48/);
   if (prev) process.env.IN_PROGRESS_STALE_BUSINESS_HOURS = prev;
+});
+
+test("review_stale limit is 48 business hours by default", async () => {
+  const prev = process.env.REVIEW_STALE_BUSINESS_HOURS;
+  delete process.env.REVIEW_STALE_BUSINESS_HOURS;
+  const old = new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString();
+  const t = task({ status: "На проверке", updatedAt: old });
+  const r = await reviewStaleRule.evaluate(t, { config, allTasks: [t] });
+  assert.equal(r.status, "WARN");
+  assert.match(r.reason, /48/);
+  if (prev) process.env.REVIEW_STALE_BUSINESS_HOURS = prev;
 });

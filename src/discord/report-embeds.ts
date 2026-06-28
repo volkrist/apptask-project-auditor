@@ -8,10 +8,8 @@ import {
 
 const RULE_LABELS: Record<string, string> = {
   deadline_present: "Нет дедлайна",
-  artifact_links_present: "Нет ссылок на артефакты",
   estimate_present: "Нет оценки времени/бюджета",
   estimate_link_present: "Нет ссылки на смету/договор",
-  description_has_goal: "Нет цели в описании",
   assignee_present: "Нет исполнителя",
   description_present: "Нет или короткое описание",
   priority_present: "Нет приоритета",
@@ -22,12 +20,9 @@ const RULE_LABELS: Record<string, string> = {
 
 const ISSUE_RECOMMENDATIONS: Record<string, string> = {
   deadline_present: "Заполнить дедлайны",
-  artifact_links_present:
-    "Добавить ссылки на ТЗ, макеты, документы или репозитории",
   estimate_present: "Указать оценку времени или бюджета",
   assignee_present: "Назначить ответственных исполнителей",
   description_present: "Заполнить описание задачи",
-  description_has_goal: "Добавить цель или ожидаемый результат",
 };
 
 export function humanizeRuleLabel(ruleId: string, fallbackLabel: string): string {

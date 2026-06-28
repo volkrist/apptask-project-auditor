@@ -21,6 +21,7 @@ test("applyAuditModeEnv turboweave sets board 783 only", () => {
     assert.equal(process.env.APPTASK_DB_FALLBACK, "false");
     assert.equal(process.env.AUDIT_PROFILE, "contract_turboweave_v1");
     assert.equal(process.env.IN_PROGRESS_STALE_BUSINESS_HOURS, "48");
+    assert.equal(process.env.REVIEW_STALE_BUSINESS_HOURS, "48");
   } finally {
     restoreAuditModeEnv(snapshot);
     for (const [k, v] of Object.entries(prev)) {

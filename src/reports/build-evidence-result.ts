@@ -9,6 +9,8 @@ import type {
 } from "../rules/evidence-types.js";
 import {
   buildRuleCandidateAccount,
+  countEstimateOverrunCandidates,
+  countPvCompareCandidates,
   isZeroCandidatesLabel,
 } from "./rule-candidate-accounting.js";
 import {
@@ -17,6 +19,10 @@ import {
 } from "../rules/status/status-helpers.js";
 import { commentPlainTextForRules } from "../rules/helpers.js";
 import { isOpenQuestionComment } from "../rules/soft/comment-heuristics.js";
+import {
+  ACTUAL_HOURS_EXCEEDS_ESTIMATE_RULE,
+  ESTIMATE_EXCEEDED_WITHOUT_COMMENT_RULE,
+} from "../rules/soft/tracking-hours-rules.js";
 
 function taskLabel(card: CardAudit): string {
   const id = card.task.id ? `№${card.task.id}` : "без номера";
@@ -430,7 +436,7 @@ function buildBlockedAssigneeEvidence(
     const r = ruleResultFor(card, ruleId);
     if (r?.status === "WARN" || r?.status === "FAIL") {
       violationEvidence.push(
-        cardToEvidenceItem(card, r.reason, "AppTask users API"),
+        cardToEvidenceItem(card, r.reason, "AppTask DB: Users.blocked"),
       );
     }
   }
@@ -693,14 +699,20 @@ function buildGenericEvidence(result: AuditResult, ruleId: string): EvidenceResu
   const zeroCandidates = isZeroCandidatesLabel(account.candidatesLabel);
   let candidateCount = 0;
   if (!zeroCandidates) {
-    for (const card of result.cards) {
-      const r = ruleResultFor(card, ruleId);
-      if (!r || r.status === "NOT_APPLICABLE") continue;
-      if (r.status === "SKIP" || isPseudoSkip(r)) continue;
-      if (r.status === "PASS" && r.reason === "OK") continue;
-      if (r.reason.includes("Нет строки сметы") || r.reason.includes("Нет дедлайна")) continue;
-      if (r.reason.includes("Задача завершена")) continue;
-      candidateCount++;
+    if (ruleId === ACTUAL_HOURS_EXCEEDS_ESTIMATE_RULE) {
+      candidateCount = countPvCompareCandidates(result);
+    } else if (ruleId === ESTIMATE_EXCEEDED_WITHOUT_COMMENT_RULE) {
+      candidateCount = countEstimateOverrunCandidates(result);
+    } else {
+      for (const card of result.cards) {
+        const r = ruleResultFor(card, ruleId);
+        if (!r || r.status === "NOT_APPLICABLE") continue;
+        if (r.status === "SKIP" || isPseudoSkip(r)) continue;
+        if (r.status === "PASS" && r.reason === "OK") continue;
+        if (r.reason.includes("Нет строки сметы") || r.reason.includes("Нет дедлайна")) continue;
+        if (r.reason.includes("Задача завершена")) continue;
+        candidateCount++;
+      }
     }
     if (candidateCount === 0 && violationCount > 0) {
       candidateCount = violationCount;

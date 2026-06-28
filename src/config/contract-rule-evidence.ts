@@ -1,18 +1,10 @@
-import { CONTRACT_CHECK_REGISTRY } from "./contract-check-registry.js";
+import {
+  CONTRACT_OPERATIONAL_CHECK_REGISTRY,
+  getFullCheckRegistry,
+  getOperationalCheckRegistry,
+  MANDATORY_CARD_FIELD_CHECK_REGISTRY,
+} from "./contract-check-registry.js";
 import type { AutomationLevel } from "../rules/evidence-types.js";
-
-/** Статусы, распознаваемые как QA / review (см. также TESTING_STATUS_RE). */
-export const REVIEW_STATUS_ALIASES = [
-  "На проверке",
-  "Проверить тестировщику",
-  "QA",
-  "Review",
-  "Тестирование",
-  "Проверка",
-  "testing",
-  "review",
-  "qa",
-] as const;
 
 export type ContractRuleEvidenceSpec = {
   num: number;
@@ -33,6 +25,208 @@ export type ContractRuleEvidenceSpec = {
   /** Подсказка для формулировок в отчёте при не-STRICT уровне. */
   reportWording?: string;
 };
+
+function mandatoryFieldEvidence(
+  violation: string,
+  passed: string,
+  overrides: Partial<{
+    sources: string;
+    scope: string;
+    candidates: string;
+    notChecked: string;
+    automationLevel: AutomationLevel;
+    autoProvable: string;
+  }> = {},
+): Omit<ContractRuleEvidenceSpec, "num" | "title" | "ruleIds"> {
+  return {
+    sources: overrides.sources ?? "AppTask DB / API: поля карточки",
+    scope: overrides.scope ?? "task-level карточки (исключены потоковые)",
+    candidates: overrides.candidates ?? "все проверенные карточки",
+    violation,
+    passed,
+    notChecked: overrides.notChecked ?? "—",
+    outcomeOK: "нарушений нет",
+    outcomePartial: "—",
+    outcomeSkip: "источник недоступен",
+    automationLevel: overrides.automationLevel ?? "STRICT",
+    autoProvable: overrides.autoProvable ?? "да",
+  };
+}
+
+const MANDATORY_EVIDENCE_BY_RULE: Record<
+  string,
+  Omit<ContractRuleEvidenceSpec, "num" | "title" | "ruleIds">
+> = {
+  title_present: mandatoryFieldEvidence(
+    "название пустое, слишком короткое или без конкретики",
+    "название заполнено и достаточно конкретное",
+  ),
+  title_not_generic: mandatoryFieldEvidence(
+    "название из списка общих слов (правки, доработки, баги и т.п.)",
+    "название не является слишком общим",
+  ),
+  description_present: mandatoryFieldEvidence(
+    "описание пустое или короче порога (80 символов)",
+    "описание заполнено",
+  ),
+  description_has_goal: mandatoryFieldEvidence(
+    "в тексте описания (content) нет секции «Цель:/Результат:» и ни одного маркера из goalKeywords",
+    "цель или ожидаемый результат указаны явно в описании",
+    { automationLevel: "TEXT_MARKER", autoProvable: "частично" },
+  ),
+  assignee_present: mandatoryFieldEvidence(
+    "задача в работе или на проверке без назначенного исполнителя",
+    "исполнитель указан",
+    {
+      candidates: "карточки в статусе «В процессе» или «На проверке»",
+    },
+  ),
+  blocked_assignee_not_allowed: mandatoryFieldEvidence(
+    "исполнитель заблокирован в AppTask (Users.blocked)",
+    "исполнитель активен",
+    {
+      sources: "AppTask DB: BoardTaskUsers + Users.blocked",
+      notChecked: "список пользователей не загружен",
+      automationLevel: "STRICT",
+      autoProvable: "да",
+    },
+  ),
+  assignee_not_in_users_list: mandatoryFieldEvidence(
+    "исполнитель не найден в списке пользователей",
+    "исполнитель найден в users",
+    {
+      sources: "AppTask DB: Users; API get_users при playwright/api",
+      notChecked: "список пользователей не загружен",
+      automationLevel: "PARTIAL",
+      autoProvable: "частично",
+    },
+  ),
+  deadline_present: mandatoryFieldEvidence(
+    "дедлайн не указан",
+    "дедлайн указан",
+    { sources: "AppTask DB: dueDate" },
+  ),
+  deadline_not_overdue: mandatoryFieldEvidence(
+    "дедлайн просрочен при незавершённой задаче",
+    "дедлайн не просрочен",
+    { sources: "AppTask DB: dueDate, status" },
+  ),
+  deadline_realistic: mandatoryFieldEvidence(
+    "дедлайн в прошлом или нереалистичен",
+    "дедлайн реалистичен",
+    { sources: "AppTask DB: dueDate, startDate" },
+  ),
+  deadline_start_not_after_due: mandatoryFieldEvidence(
+    "дата начала позже дедлайна",
+    "даты начала и дедлайна согласованы",
+    { sources: "AppTask DB: startDate, dueDate" },
+  ),
+  priority_present: mandatoryFieldEvidence(
+    "приоритет не задан",
+    "приоритет указан",
+    { sources: "AppTask DB: priority" },
+  ),
+  tags_required: mandatoryFieldEvidence(
+    "теги не указаны или отсутствуют обязательные теги из REQUIRED_TAGS",
+    "у карточки есть теги",
+    {
+      sources: "AppTask DB: tags; REQUIRED_TAGS в .env — дополнительный список",
+      candidates: "все проверенные карточки",
+    },
+  ),
+  task_type_valid: mandatoryFieldEvidence(
+    "нет тега с типом задачи из допустимого списка",
+    "тип задачи указан тегом",
+    {
+      sources: "AppTask DB: BoardTaskTags; список типов — audit-config.ts requiredTaskTypes",
+      candidates: "все проверенные карточки",
+    },
+  ),
+  stage_matches_column: mandatoryFieldEvidence(
+    "этап не указан, дублирует статус колонки или не содержит маркеров для текущего статуса",
+    "этап/воронка соответствует статусу",
+    {
+      sources: "AppTask: поле «Этап» (Playwright) или stage в RawTask; status — колонка BoardStates",
+      automationLevel: "PARTIAL",
+      autoProvable: "частично",
+    },
+  ),
+  estimate_present: mandatoryFieldEvidence(
+    "нет ПВ в карточке, ссылки на смету и ПВ в Google-смете",
+    "оценка времени или бюджет по смете указаны",
+    {
+      sources:
+        "AppTask DB: planned_end_time_offset; описание/ссылки; Scrum/Google Sheets",
+    },
+  ),
+  estimate_link_present: mandatoryFieldEvidence(
+    "нет ссылки/упоминания сметы, договора, заявки, согласования и нет строки в Google-смете",
+    "связь со сметой/договором есть",
+    {
+      sources:
+        "AppTask DB: content/links; Scrum/Google Sheets (строка задачи в смете)",
+    },
+  ),
+  artifact_links_present: mandatoryFieldEvidence(
+    "нет ссылок на макет, ТЗ, репозиторий, документацию или строки в смете",
+    "артефакт найден (макет, ТЗ, документация, репозиторий, заявка или смета)",
+    {
+      sources:
+        "AppTask DB: content/links; Scrum/Google Sheets (строка задачи в смете)",
+    },
+  ),
+  links_reachable: mandatoryFieldEvidence(
+    "ссылка или вложение недоступно / пустое",
+    "все ссылки доступны (HTTP 2xx/3xx)",
+    {
+      sources: "AppTask DB: content/links; HTTP-проверка",
+      notChecked: "HTTP-проверка отключена (LINK_CHECK_ENABLED=false) или нет ссылок",
+      automationLevel: "PARTIAL",
+      autoProvable: "частично",
+    },
+  ),
+  not_duplicate: mandatoryFieldEvidence(
+    "найдена похожая задача на той же доске",
+    "дубликатов не обнаружено",
+    { automationLevel: "PARTIAL", autoProvable: "частично" },
+  ),
+  open_questions_closed: mandatoryFieldEvidence(
+    "вопрос в комментариях без ответа в треде и без ответа другого участника",
+    "на все вопросы есть ответ",
+    {
+      sources: "AppTask DB: comments (текст, parent_id, автор, время)",
+      automationLevel: "TEXT_MARKER",
+      autoProvable: "частично",
+    },
+  ),
+  unresolved_question_keywords_in_card: mandatoryFieldEvidence(
+    "в тексте карточки есть маркеры незакрытого вопроса",
+    "признаков незакрытого вопроса нет",
+    {
+      sources: "AppTask DB: title, description, comments",
+      automationLevel: "TEXT_MARKER",
+      autoProvable: "частично",
+    },
+  ),
+  review_stage_requires_assignee: mandatoryFieldEvidence(
+    "на этапе проверки не назначен тестировщик",
+    "тестировщик назначен",
+    { sources: "AppTask DB: assignee + status (review/QA)" },
+  ),
+};
+
+/** Статусы, распознаваемые как QA / review (см. также TESTING_STATUS_RE). */
+export const REVIEW_STATUS_ALIASES = [
+  "На проверке",
+  "Проверить тестировщику",
+  "QA",
+  "Review",
+  "Тестирование",
+  "Проверка",
+  "testing",
+  "review",
+  "qa",
+] as const;
 
 const EVIDENCE_BY_NUM: Record<number, Omit<ContractRuleEvidenceSpec, "num" | "title" | "ruleIds">> = {
   1: {
@@ -236,7 +430,7 @@ const EVIDENCE_BY_NUM: Record<number, Omit<ContractRuleEvidenceSpec, "num" | "ti
     sources: "AppTask DB current status; status history",
     scope: "task-level карточки",
     candidates: "текущий статус ∈ review/QA aliases",
-    violation: "candidate без движения > 1 рабочего дня",
+    violation: "candidate без движения > 2 рабочих дней",
     passed: "есть движение или срок не превышен",
     notChecked: "—",
     outcomeOK: "candidates = 0 → показать aliases + распределение статусов + «текущих на проверке: 0»",
@@ -272,13 +466,13 @@ const EVIDENCE_BY_NUM: Record<number, Omit<ContractRuleEvidenceSpec, "num" | "ti
     autoProvable: "да",
   },
   19: {
-    sources: "AppTask description links; классификация UI/front",
-    scope: "UI/front task-level карточки",
-    candidates: "классифицированные UI/front задачи",
-    violation: "нет ссылки на макет",
+    sources: "AppTask description links; классификация UI/front; исключение задач на дизайн/макет",
+    scope: "UI/front task-level на вёрстку/реализацию (не создание макета)",
+    candidates: "UI/front задачи на реализацию по готовому макету",
+    violation: "нет ссылки на готовый макет (Figma)",
     passed: "ссылка на макет есть",
-    notChecked: "—",
-    outcomeOK: "0 UI/front задач или все с макетом",
+    notChecked: "задачи на создание макета/дизайна",
+    outcomeOK: "0 задач на вёрстку или все с макетом",
     outcomePartial: "—",
     outcomeSkip: "—",
     automationLevel: "STRICT",
@@ -286,11 +480,11 @@ const EVIDENCE_BY_NUM: Record<number, Omit<ContractRuleEvidenceSpec, "num" | "ti
   },
   20: {
     sources: "AppTask description / comments",
-    scope: "UI/front task-level карточки",
-    candidates: "UI/front с макетом",
+    scope: "UI/front task-level на вёрстку (не создание макета)",
+    candidates: "UI/front на реализацию с макетом",
     violation: "нет маркера согласования макета",
     passed: "макет согласован (маркер найден)",
-    notChecked: "—",
+    notChecked: "задачи на создание макета/дизайна",
     outcomeOK: "маркеры согласования найдены или 0 UI задач",
     outcomePartial: "—",
     outcomeSkip: "—",
@@ -570,8 +764,8 @@ const EVIDENCE_BY_NUM: Record<number, Omit<ContractRuleEvidenceSpec, "num" | "ti
     sources: "AppTask comments",
     scope: "комментарии task-level карточек",
     candidates: "комментарии с «?» или маркерами вопроса (вопрос, уточнить, обсудить, ждем ответ, непонятно)",
-    violation: "вопрос-кандидат без ответа другого участника",
-    passed: "ответ найден или нет вопросов-кандидатов",
+    violation: "вопрос-кандидат без ответа в треде и без ответа другого участника",
+    passed: "ответ в треде или от другого участника; либо нет вопросов-кандидатов",
     notChecked: "невозможно связать вопрос и ответ (автор/время)",
     outcomeOK: "0 вопросов-кандидатов → «по найденным маркерам не найдено»",
     outcomePartial: "связь вопрос→ответ неполная → PARTIAL, не уверенный OK",
@@ -608,18 +802,18 @@ const EVIDENCE_BY_NUM: Record<number, Omit<ContractRuleEvidenceSpec, "num" | "ti
     autoProvable: "да",
   },
   44: {
-    sources: "AppTask assignees; AppTask users API (blocked)",
+    sources: "AppTask DB: BoardTaskUsers + Users.blocked",
     scope: "task-level с назначенным исполнителем",
     candidates: "назначения на исполнителей",
-    violation: "исполнитель blocked в AppTask",
+    violation: "исполнитель blocked=true в dbo.Users",
     passed: "исполнитель активен",
-    notChecked: "источник «уволенные/неактивные» не подключён — только blocked users",
+    notChecked: "список пользователей не загружен",
     outcomeOK: "нет blocked assignees",
-    outcomePartial: "источник уволенных недоступен → PARTIAL + «Не проверено»",
-    outcomeSkip: "users API недоступен",
-    automationLevel: "SOURCE_UNAVAILABLE",
-    autoProvable: "нет",
-    reportWording: "требует ручной проверки списка уволенных",
+    outcomePartial: "—",
+    outcomeSkip: "список пользователей не загружен",
+    automationLevel: "STRICT",
+    autoProvable: "да",
+    reportWording: "blocked из dbo.Users",
   },
   45: {
     sources: "AppTask title; status (завершённые); Scrum ПВ (косвенно)",
@@ -637,12 +831,24 @@ const EVIDENCE_BY_NUM: Record<number, Omit<ContractRuleEvidenceSpec, "num" | "ti
   },
 };
 
-/** Полная матрица доказательств для 45 контрактных проверок. */
-export const CONTRACT_RULE_EVIDENCE: readonly ContractRuleEvidenceSpec[] =
-  CONTRACT_CHECK_REGISTRY.map((entry) => {
-    const spec = EVIDENCE_BY_NUM[entry.num];
+/** Детальные спеки из операционного реестра для обязательных полей. */
+const MANDATORY_EVIDENCE_FROM_OPERATIONAL: Partial<Record<string, number>> = {
+  description_present: 5,
+  assignee_present: 18,
+  open_questions_closed: 41,
+  unresolved_question_keywords_in_card: 42,
+  review_stage_requires_assignee: 43,
+  blocked_assignee_not_allowed: 44,
+};
+
+/** Полная матрица доказательств для реестра отчёта. */
+export const CONTRACT_RULE_EVIDENCE: readonly ContractRuleEvidenceSpec[] = [
+  ...MANDATORY_CARD_FIELD_CHECK_REGISTRY.map((entry) => {
+    const ruleId = entry.ruleIds[0]!;
+    const opNum = MANDATORY_EVIDENCE_FROM_OPERATIONAL[ruleId];
+    const spec = opNum ? EVIDENCE_BY_NUM[opNum] : MANDATORY_EVIDENCE_BY_RULE[ruleId];
     if (!spec) {
-      throw new Error(`Missing evidence spec for contract check #${entry.num}`);
+      throw new Error(`Missing mandatory evidence spec for ${ruleId}`);
     }
     return {
       num: entry.num,
@@ -650,13 +856,36 @@ export const CONTRACT_RULE_EVIDENCE: readonly ContractRuleEvidenceSpec[] =
       ruleIds: entry.ruleIds,
       ...spec,
     };
-  });
+  }),
+  ...getOperationalCheckRegistry().map((entry) => {
+    const original = CONTRACT_OPERATIONAL_CHECK_REGISTRY.find(
+      (e) => e.ruleIds[0] === entry.ruleIds[0],
+    );
+    if (!original) {
+      throw new Error(`Missing operational registry entry for ${entry.ruleIds[0]}`);
+    }
+    const spec = EVIDENCE_BY_NUM[original.num];
+    if (!spec) {
+      throw new Error(`Missing evidence spec for operational check #${original.num}`);
+    }
+    return {
+      num: entry.num,
+      title: entry.title,
+      ruleIds: entry.ruleIds,
+      ...spec,
+    };
+  }),
+];
 
 export function getEvidenceSpecByNum(num: number): ContractRuleEvidenceSpec | undefined {
   return CONTRACT_RULE_EVIDENCE.find((s) => s.num === num);
 }
 
 export function getEvidenceSpecByRuleId(ruleId: string): ContractRuleEvidenceSpec | undefined {
+  const mandatory = CONTRACT_RULE_EVIDENCE.find(
+    (s) => s.ruleIds.includes(ruleId) && s.num <= MANDATORY_CARD_FIELD_CHECK_REGISTRY.length,
+  );
+  if (mandatory) return mandatory;
   return CONTRACT_RULE_EVIDENCE.find((s) => s.ruleIds.includes(ruleId));
 }
 

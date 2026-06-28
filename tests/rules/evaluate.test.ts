@@ -52,7 +52,13 @@ test("evaluateTask legacy: плохая карточка с FAIL по жёстк
   assert.equal(statusOf(results, "estimate_present"), "FAIL");
 });
 
-test("evaluateTask legacy: tags_required PASS если REQUIRED_TAGS не задан", async () => {
+test("evaluateTask legacy: tags_required FAIL если теги пустые", async () => {
+  const task = loadFixture("task-bad.json");
+  const results = await evaluateTask(task, testConfig, [task], undefined, legacyExtras);
+  assert.equal(statusOf(results, "tags_required"), "FAIL");
+});
+
+test("evaluateTask legacy: tags_required PASS если есть тег", async () => {
   const task = loadFixture("task-good.json");
   const results = await evaluateTask(task, testConfig, [task], undefined, legacyExtras);
   assert.equal(statusOf(results, "tags_required"), "PASS");
@@ -68,12 +74,12 @@ test("evaluateProject legacy: агрегирует счётчики", async () =
   assert.ok(project.warnCount > 0);
 });
 
-test("evaluateTask contract: не запускает generic deadline_present", async () => {
+test("evaluateTask contract: включает обязательные поля карточки", async () => {
   const task = loadFixture("task-bad.json");
   const results = await evaluateTask(task, testConfig, [task]);
-  assert.equal(statusOf(results, "deadline_present"), undefined);
-  assert.equal(statusOf(results, "artifact_links_present"), undefined);
-  assert.ok(results.some((r) => r.ruleId === "assignee_present"));
+  assert.equal(statusOf(results, "deadline_present"), "PASS");
+  assert.equal(statusOf(results, "artifact_links_present"), "FAIL");
+  assert.equal(statusOf(results, "assignee_present"), "FAIL");
 });
 
 test("evaluateProject contract: исключает потоковые карточки", async () => {

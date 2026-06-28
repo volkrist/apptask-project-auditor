@@ -184,3 +184,88 @@ test("scrum PV partial when tasks missing from estimate", () => {
   assert.equal(account.outcome, "PARTIAL");
   assert.doesNotMatch(account.candidatesLabel, /все прошли/);
 });
+
+test("estimate_exceeded_without_comment counts only overrun tasks as candidates", () => {
+  const account = buildRuleCandidateAccount(
+    "estimate_exceeded_without_comment",
+    baseResult([
+      {
+        task: {
+          id: "1",
+          url: null,
+          title: "Over",
+          descriptionText: null,
+          createdAt: null,
+          startDate: null,
+          dueDate: null,
+          priority: null,
+          status: "Завершено",
+          tags: [],
+          creator: null,
+          assignees: [],
+          assigneeRefs: [],
+          category: null,
+          stage: null,
+          plannedTime: "10 ч",
+          actualTime: null,
+          links: [],
+          attachments: [],
+          comments: [],
+          boardId: "783",
+        },
+        results: [
+          {
+            ruleId: "actual_hours_exceeds_estimate",
+            status: "WARN",
+            reason: "Факт 15.00 ч > ПВ 10 ч (карточка, +20%) — перерасход 50.0%",
+          },
+          {
+            ruleId: "estimate_exceeded_without_comment",
+            status: "WARN",
+            reason: "Перерасход > 20% без объясняющего комментария",
+          },
+        ],
+      },
+      {
+        task: {
+          id: "2",
+          url: null,
+          title: "OK",
+          descriptionText: null,
+          createdAt: null,
+          startDate: null,
+          dueDate: null,
+          priority: null,
+          status: "Завершено",
+          tags: [],
+          creator: null,
+          assignees: [],
+          assigneeRefs: [],
+          category: null,
+          stage: null,
+          plannedTime: "10 ч",
+          actualTime: null,
+          links: [],
+          attachments: [],
+          comments: [],
+          boardId: "783",
+        },
+        results: [
+          {
+            ruleId: "actual_hours_exceeds_estimate",
+            status: "PASS",
+            reason: "Факт 8.00 ч ≤ ПВ 10 ч (карточка, +20%)",
+          },
+          {
+            ruleId: "estimate_exceeded_without_comment",
+            status: "PASS",
+            reason: "Перерасход ниже порога",
+          },
+        ],
+      },
+    ]),
+  );
+  assert.match(account.candidatesLabel, /1 с превышением без комментария/);
+  assert.equal(account.warn, 1);
+  assert.equal(account.outcome, "WARN");
+});

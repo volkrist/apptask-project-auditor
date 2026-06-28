@@ -20,7 +20,33 @@ export type AuditProfile = {
   flowTagPatterns: readonly RegExp[];
 };
 
+/** Блок «1. Обязательные поля карточки» — hard + soft из AGENTS.md / ТЗ заказчика. */
+export const MANDATORY_CARD_FIELD_RULE_IDS = [
+  "title_present",
+  "title_not_generic",
+  "description_present",
+  "assignee_present",
+  "blocked_assignee_not_allowed",
+  "assignee_not_in_users_list",
+  "deadline_present",
+  "deadline_not_overdue",
+  "deadline_realistic",
+  "deadline_start_not_after_due",
+  "priority_present",
+  "tags_required",
+  "task_type_valid",
+  "stage_matches_column",
+  "estimate_present",
+  "estimate_link_present",
+  "links_reachable",
+  "not_duplicate",
+  "open_questions_closed",
+  "unresolved_question_keywords_in_card",
+  "review_stage_requires_assignee",
+] as const;
+
 const CONTRACT_RULE_IDS = [
+  ...MANDATORY_CARD_FIELD_RULE_IDS,
   "deadline_less_than_one_day",
   "high_priority_stale",
   "in_progress_stale",
@@ -39,14 +65,8 @@ const CONTRACT_RULE_IDS = [
   "tracking_on_non_work_status",
   "rework_without_reason",
   "vague_done_comment",
-  "unresolved_question_keywords_in_card",
-  "open_questions_closed",
-  "review_stage_requires_assignee",
-  "blocked_assignee_not_allowed",
-  "assignee_present",
   "developer_active_tasks_limit",
   "never_started_task",
-  "description_present",
   // source-dependent — правило есть, но может вернуть SKIP
   "board_name_template",
   "board_folder_link",
@@ -74,6 +94,10 @@ export const CONTRACT_TURBOWEAVE_V1: AuditProfile = {
   label: "Контракт TurboWeave v1",
   ruleIds: new Set(CONTRACT_RULE_IDS),
   reportGroups: [
+    {
+      section: "1. Обязательные поля карточки",
+      ruleIds: [...MANDATORY_CARD_FIELD_RULE_IDS],
+    },
     {
       section: "Сроки и статусы",
       ruleIds: [
@@ -111,7 +135,6 @@ export const CONTRACT_TURBOWEAVE_V1: AuditProfile = {
     {
       section: "QA / проверка",
       ruleIds: [
-        "review_stage_requires_assignee",
         "verified_success_comment",
         "tester_feedback_has_proof",
         "developer_active_tasks_limit",
@@ -120,8 +143,6 @@ export const CONTRACT_TURBOWEAVE_V1: AuditProfile = {
     {
       section: "Комментарии и открытые вопросы",
       ruleIds: [
-        "unresolved_question_keywords_in_card",
-        "open_questions_closed",
         "rework_without_reason",
         "vague_done_comment",
         "blocked_task_reason",
@@ -139,9 +160,6 @@ export const CONTRACT_TURBOWEAVE_V1: AuditProfile = {
         "team_discord_match",
         "team_role_rate_match",
         "task_type_classification",
-        "assignee_present",
-        "blocked_assignee_not_allowed",
-        "description_present",
         "ui_has_mockup_link",
         "ui_mockup_approved",
         "ui_adaptive_requirements",
@@ -165,7 +183,7 @@ export const CONTRACT_TURBOWEAVE_V1: AuditProfile = {
     /\(coo/i,
   ],
   flowCategoryPatterns: [/потоков/i, /сервис/i, /операцион/i, /менеджмент/i],
-  flowTagPatterns: [/flow/i, /потоков/i, /service/i, /operational/i],
+  flowTagPatterns: [/flow/i, /потоков/i, /service/i, /operational/i, /менеджмент/i, /коммуникаци/i],
 };
 
 const LEGACY_GENERIC_RULE_IDS = new Set<string>(); // empty = all rules (handled in loader)

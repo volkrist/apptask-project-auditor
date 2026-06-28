@@ -32,6 +32,20 @@ export function result(
   return { ruleId, status, reason };
 }
 
+/** «35 ч», «1 ч 30 мин» → число часов (для ПВ из карточки AppTask). */
+export function parsePlannedTimeHours(
+  plannedTime: string | null | undefined,
+): number | null {
+  const s = plannedTime?.trim();
+  if (!s) return null;
+  const hMatch = s.match(/(\d+(?:[.,]\d+)?)\s*ч/i);
+  const mMatch = s.match(/(\d+)\s*мин/i);
+  let hours = 0;
+  if (hMatch) hours += Number(hMatch[1]!.replace(",", "."));
+  if (mMatch) hours += Number(mMatch[1]) / 60;
+  return hours > 0 ? hours : null;
+}
+
 export function parseRuDate(value: string | null | undefined): Date | null {
   if (!value?.trim()) return null;
   const match = value.trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
@@ -139,11 +153,37 @@ export function titleSimilarity(a: string, b: string): number {
   return Math.max(jaccard, containment);
 }
 
+export function formatAllowedTaskTypes(config: AuditConfig): string {
+  return config.requiredTaskTypes.join(", ");
+}
+
+/** Контекст для сообщений: теги и колонка доски (block_name в БД). */
+export function describeTaskTypeContext(task: RawTask): string {
+  const tags = task.tags.map((t) => t.trim()).filter(Boolean);
+  const tagsLabel = tags.length > 0 ? tags.join(", ") : "нет";
+  const block = task.category?.trim() || "не указана";
+  return `теги: ${tagsLabel}; колонка доски: ${block}`;
+}
+
+/**
+ * Тип задачи — один из requiredTaskTypes (баг, доработка, …).
+ * Источники: (1) теги карточки, (2) категория только при точном совпадении или categoryTaskTypeMap.
+ * Колонка доски (Frontend, UI/UX в БД) не является типом задачи.
+ */
 export function extractTaskType(
   task: RawTask,
   config: AuditConfig,
 ): string | null {
   const allowed = config.requiredTaskTypes.map((t) => t.toLowerCase());
+
+  for (const tag of task.tags) {
+    const lower = tag.toLowerCase().trim();
+    if (!lower) continue;
+    const exactTag = allowed.find((t) => lower === t);
+    if (exactTag) return exactTag;
+    const partialTag = allowed.find((t) => lower.includes(t));
+    if (partialTag) return partialTag;
+  }
 
   if (task.category) {
     const category = task.category.toLowerCase().trim();
@@ -154,20 +194,6 @@ export function extractTaskType(
     }
     const exactCategory = allowed.find((t) => category === t);
     if (exactCategory) return exactCategory;
-  }
-
-  for (const tag of task.tags) {
-    const lower = tag.toLowerCase().trim();
-    const exactTag = allowed.find((t) => lower === t);
-    if (exactTag) return exactTag;
-    const partialTag = allowed.find((t) => lower.includes(t));
-    if (partialTag) return partialTag;
-  }
-
-  if (task.category) {
-    const category = task.category.toLowerCase();
-    const partialCategory = allowed.find((t) => category.includes(t));
-    if (partialCategory) return partialCategory;
   }
 
   return null;
@@ -197,6 +223,42 @@ export function collectLinkTargets(task: RawTask): string[] {
     if (attachment.url) targets.push(attachment.url);
   }
   return targets;
+}
+
+/** Уникальные HTTP(S) URL для проверки links_reachable. */
+export function collectLinkCheckTargets(task: RawTask): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (value: string | null | undefined) => {
+    const url = value?.trim();
+    if (!url || !isValidHttpUrl(url) || seen.has(url)) return;
+    seen.add(url);
+    out.push(url);
+  };
+
+  for (const url of collectLinkTargets(task)) add(url);
+
+  const desc = task.descriptionText ?? "";
+  const hrefRe = /https?:\/\/[^\s<>"']+/gi;
+  let m: RegExpExecArray | null;
+  while ((m = hrefRe.exec(desc)) !== null) {
+    add(m[0]!.replace(/[.,;:!?)]+$/, ""));
+  }
+
+  return out;
+}
+
+function truncateUrlList(urls: string[], max = 3): string {
+  if (urls.length <= max) return urls.join(", ");
+  const head = urls.slice(0, max).join(", ");
+  return `${head} и ещё ${urls.length - max}`;
+}
+
+export function formatLinkCheckPassReason(checked: string[]): string {
+  if (checked.length === 0) {
+    return "Ссылок и вложений для проверки нет";
+  }
+  return `Проверено ссылок: ${checked.length} — все доступны (${truncateUrlList(checked)})`;
 }
 
 export function findKeywordInText(
@@ -313,6 +375,28 @@ export function isQaUser(
     return qaTesters.some((qa) => assigneeNameMatches(user.realName, qa));
   }
   return isQaRoleText(user.roleUser) || isQaRoleText(user.role);
+}
+
+export function isCommentFromQa(
+  comment: TaskComment,
+  qaTesters: readonly string[],
+  users?: AppTaskUser[],
+): boolean {
+  const name = comment.creatorName?.trim();
+  if (name) {
+    if (qaTesters.some((qa) => assigneeNameMatches(name, qa))) return true;
+    const byName = (users ?? []).find((u) =>
+      assigneeNameMatches(u.realName, name),
+    );
+    if (byName && isQaUser(byName, qaTesters)) return true;
+  }
+  if (comment.creatorId != null && users?.length) {
+    const byId = users.find(
+      (u) => String(u.id) === String(comment.creatorId),
+    );
+    if (byId && isQaUser(byId, qaTesters)) return true;
+  }
+  return false;
 }
 
 export function canDetermineQaFromUsers(

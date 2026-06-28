@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { getFullCheckRegistry } from "../../src/config/contract-check-registry.js";
 import { buildContractAuditHtml } from "../../src/reports/build-html-report.js";
 import type { AuditResult } from "../../src/rules/rule-types.js";
+
+function registryNum(ruleId: string): number {
+  const entry = getFullCheckRegistry().find((e) => e.ruleIds[0] === ruleId);
+  if (!entry) throw new Error(`registry entry not found: ${ruleId}`);
+  return entry.num;
+}
 
 function baseResult(overrides: Partial<AuditResult["meta"]> = {}): AuditResult {
   return {
@@ -90,14 +97,16 @@ test("buildContractAuditHtml includes search filter script", () => {
 test("buildContractAuditHtml violation panel count matches evidence items", () => {
   const result = baseResult();
   const html = buildContractAuditHtml(result);
-  const failBtn = html.match(/id="check-19"[\s\S]*?Нарушения: (\d+)/);
+  const uiNum = registryNum("ui_has_mockup_link");
+  const failBtn = html.match(new RegExp(`id="check-${uiNum}"[\\s\\S]*?Нарушения: (\\d+)`));
   if (failBtn) {
     const count = Number(failBtn[1]);
-    const panel = html.match(/id="check-19-fail"[\s\S]*?<\/div>\s*<div class="panel"/);
-    const panelHtml = html.match(/id="check-19-fail">([\s\S]*?)<\/div>\s*(?:<div class="panel"|$)/);
+    const panelHtml = html.match(
+      new RegExp(`id="check-${uiNum}-fail">([\\s\\S]*?)<\\/div>\\s*(?:<div class="panel"|$)`),
+    );
     if (panelHtml) {
       const cards = (panelHtml[1].match(/class="violation-card"/g) ?? []).length;
-      assert.equal(cards, count, `check-19: button ${count} vs panel ${cards}`);
+      assert.equal(cards, count, `check-${uiNum}: button ${count} vs panel ${cards}`);
     }
   }
 });
@@ -110,12 +119,13 @@ test("buildContractAuditHtml shows notChecked toggle for partial scrum PV", () =
     reason: "Нет строки сметы — ПВ не проверялось",
   });
   const html = buildContractAuditHtml(result);
+  const pvNum = registryNum("scrum_planned_hours_present");
   assert.match(html, /Не проверено:/);
-  assert.match(html, /id="check-13-not-checked"/);
+  assert.match(html, new RegExp(`id="check-${pvNum}-not-checked"`));
   assert.match(html, /Конкурентный анализ|№63|не найдена в смете|ПВ не проверялось/);
 });
 
-test("buildContractAuditHtml okBrief uses rule-specific wording for checks 4, 11, 36", () => {
+test("buildContractAuditHtml okBrief uses rule-specific wording for blocked and vague done", () => {
   const result = baseResult({ cardsChecked: 1 });
   result.cards[0]!.results.push(
     {
@@ -139,11 +149,22 @@ test("buildContractAuditHtml okBrief uses rule-specific wording for checks 4, 11
     },
   ];
   const html = buildContractAuditHtml(result);
-  const block4 = html.match(/id="check-4"[\s\S]*?<\/article>/)?.[0] ?? "";
-  const block36 = html.match(/id="check-36"[\s\S]*?<\/article>/)?.[0] ?? "";
-  assert.match(block4, /заблокированных задач не найдено/);
-  assert.doesNotMatch(block4, /незакрытых вопросов/);
-  assert.match(block36, /маркерам «готово\/сделал\/проверь» нарушений не найдено/);
-  assert.doesNotMatch(block36, /незакрытых вопросов/);
+  const blockedReasonNum = registryNum("blocked_task_reason");
+  const vagueDoneNum = registryNum("vague_done_comment");
+  const blockBlocked = html.match(new RegExp(`id="check-${blockedReasonNum}"[\\s\\S]*?<\\/article>`))?.[0] ?? "";
+  const blockVague = html.match(new RegExp(`id="check-${vagueDoneNum}"[\\s\\S]*?<\\/article>`))?.[0] ?? "";
+  assert.match(blockBlocked, /Кандидатов для проверки нет|заблокированных задач не найдено/);
+  assert.doesNotMatch(blockBlocked, /незакрытых вопросов/);
+  assert.match(blockVague, /маркерам «готово\/сделал\/проверь» нарушений не найдено/);
+  assert.doesNotMatch(blockVague, /незакрытых вопросов/);
   assert.match(html, /Все карточки классифицированы, неизвестных типов: 0/);
+});
+
+test("buildContractAuditHtml includes mandatory fields section with all checks", () => {
+  const html = buildContractAuditHtml(baseResult());
+  assert.match(html, /Обязательные поля карточки/);
+  assert.match(html, /Успешно:.*Нарушений:/);
+  assert.match(html, /понятное название задачи/);
+  assert.match(html, /id="check-1"/);
+  assert.match(html, /id="check-23"/);
 });

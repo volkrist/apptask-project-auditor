@@ -192,6 +192,67 @@ test("actual > estimate + 20% → WARN on board 783", async () => {
   });
   assert.equal(r.status, "WARN");
   assert.equal(r.ruleId, ACTUAL_HOURS_EXCEEDS_ESTIMATE_RULE);
+  assert.match(r.reason, /смета/);
+});
+
+test("card ПВ overrides scrum when within +20%", async () => {
+  const task = {
+    ...emptyRawTask(),
+    id: "16",
+    title: "3.2.1 UI: HUD  (UI/UX)",
+    boardId: "783",
+    status: "Завершено",
+    plannedTime: "13 ч",
+  };
+  const rows = [
+    row({
+      board_id: 783,
+      task_id: 16,
+      user_id: 1,
+      total_time: 13.1 * 3_600_000,
+      date: "2026-06-10T00:00:00.000Z",
+    }),
+  ];
+  const r = await actualHoursExceedsEstimateRule.evaluate(task, {
+    config,
+    allTasks: [task],
+    tracking: trackingCtx(rows, [783], [783]),
+    scrum: scrumCtx([
+      estimateRow({ title: "3.2.1 UI: HUD  (UI/UX)", plannedHours: 10 }),
+    ]),
+  });
+  assert.equal(r.status, "PASS");
+  assert.match(r.reason, /карточка/);
+});
+
+test("card ПВ used for WARN when scrum would pass", async () => {
+  const task = {
+    ...emptyRawTask(),
+    id: "86",
+    title: "8.8 Полишинг (front)",
+    boardId: "783",
+    status: "В процессе",
+    plannedTime: "15 ч",
+  };
+  const rows = [
+    row({
+      board_id: 783,
+      task_id: 86,
+      user_id: 1,
+      total_time: 26 * 3_600_000,
+      date: "2026-06-10T00:00:00.000Z",
+    }),
+  ];
+  const r = await actualHoursExceedsEstimateRule.evaluate(task, {
+    config,
+    allTasks: [task],
+    tracking: trackingCtx(rows, [783], [783]),
+    scrum: scrumCtx([
+      estimateRow({ title: "8.8 Полишинг (front)", plannedHours: 30 }),
+    ]),
+  });
+  assert.equal(r.status, "WARN");
+  assert.match(r.reason, /ПВ 15 ч \(карточка/);
 });
 
 test("actual below estimate + 20% → PASS", async () => {
@@ -269,6 +330,36 @@ test("estimate exceeded without explanation comment → WARN", async () => {
     ]),
   });
   assert.equal(r.status, "WARN");
+});
+
+test("estimate exceeded with explanation in description → PASS", async () => {
+  const task = {
+    ...emptyRawTask(),
+    id: "2",
+    title: "4.1 API",
+    boardId: "783",
+    status: "В процессе",
+    descriptionText: "Причина перерасхода: блокер на API, заняло больше времени",
+    comments: [],
+  };
+  const rows = [
+    row({
+      board_id: 783,
+      task_id: 2,
+      user_id: 1,
+      total_time: 30 * 3_600_000,
+      date: "2026-06-10T00:00:00.000Z",
+    }),
+  ];
+  const r = await estimateExceededWithoutCommentRule.evaluate(task, {
+    config,
+    allTasks: [task],
+    tracking: trackingCtx(rows, [783], [783]),
+    scrum: scrumCtx([
+      estimateRow({ title: "4.1 API", plannedHours: 10 }),
+    ]),
+  });
+  assert.equal(r.status, "PASS");
 });
 
 test("estimate exceeded with explanation marker → PASS", async () => {

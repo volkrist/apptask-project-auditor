@@ -13,6 +13,8 @@ export type TaskComment = {
   creatorName?: string | null;
   createTime?: string | null;
   parentId?: number | string | null;
+  /** File attachments on the comment when API provides attachmentList. */
+  attachments?: Array<{ name: string; url: string | null }>;
 };
 
 export type TaskHistoryEntry = {

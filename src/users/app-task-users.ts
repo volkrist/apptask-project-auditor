@@ -28,6 +28,27 @@ function normalizeName(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+/** blocked из API (boolean) или БД (0/1/bit). */
+export function isUserBlocked(value: unknown): boolean {
+  return value === true || value === 1 || value === "1";
+}
+
+export function mapDbUserRow(row: {
+  id: number;
+  real_name: string | null;
+  email?: string | null;
+  blocked?: unknown;
+}): AppTaskUser | null {
+  const realName = row.real_name?.trim();
+  if (!realName) return null;
+  return {
+    id: row.id,
+    realName,
+    email: row.email ?? null,
+    blocked: isUserBlocked(row.blocked),
+  };
+}
+
 function mapApiUser(raw: unknown): AppTaskUser | null {
   if (!raw || typeof raw !== "object") return null;
   const row = raw as Record<string, unknown>;
@@ -44,7 +65,7 @@ function mapApiUser(raw: unknown): AppTaskUser | null {
     id: typeof id === "number" ? id : String(id),
     realName,
     email: typeof row.email === "string" ? row.email : null,
-    blocked: row.blocked === true,
+    blocked: isUserBlocked(row.blocked),
     roleUser: roleUser || null,
     role: typeof row.role === "string" ? row.role.trim() : null,
   };

@@ -5,7 +5,7 @@ import {
   getEvidenceSpecByRuleId,
   groupEvidenceByAutomationLevel,
 } from "../../src/config/contract-rule-evidence.js";
-import { CONTRACT_CHECK_REGISTRY } from "../../src/config/contract-check-registry.js";
+import { getFullCheckRegistry } from "../../src/config/contract-check-registry.js";
 import {
   formatEvidenceMatrixTable,
   formatFullEvidenceMatrixMarkdown,
@@ -17,11 +17,12 @@ import {
 } from "../../src/reports/build-evidence-result.js";
 import type { AuditResult } from "../../src/rules/rule-types.js";
 
-test("CONTRACT_RULE_EVIDENCE has 45 entries matching registry", () => {
-  assert.equal(CONTRACT_RULE_EVIDENCE.length, 45);
-  assert.equal(CONTRACT_CHECK_REGISTRY.length, 45);
-  for (let i = 0; i < 45; i++) {
-    const reg = CONTRACT_CHECK_REGISTRY[i]!;
+test("CONTRACT_RULE_EVIDENCE matches full check registry", () => {
+  const registry = getFullCheckRegistry();
+  assert.equal(CONTRACT_RULE_EVIDENCE.length, registry.length);
+  assert.equal(registry.length, 62);
+  for (let i = 0; i < registry.length; i++) {
+    const reg = registry[i]!;
     const ev = CONTRACT_RULE_EVIDENCE[i]!;
     assert.equal(ev.num, reg.num);
     assert.equal(ev.title, reg.title);
@@ -31,7 +32,7 @@ test("CONTRACT_RULE_EVIDENCE has 45 entries matching registry", () => {
 
 test("every registry ruleId has evidence spec", () => {
   const ruleIds = new Set<string>();
-  for (const entry of CONTRACT_CHECK_REGISTRY) {
+  for (const entry of getFullCheckRegistry()) {
     for (const id of entry.ruleIds) ruleIds.add(id);
   }
   for (const id of ruleIds) {
@@ -42,17 +43,17 @@ test("every registry ruleId has evidence spec", () => {
 test("automation level groups cover all checks", () => {
   const groups = groupEvidenceByAutomationLevel();
   const total = Object.values(groups).reduce((s, g) => s + g.length, 0);
-  assert.equal(total, 45);
+  assert.equal(total, 62);
   assert.ok(groups.STRICT.length > 0);
   assert.ok(groups.TEXT_MARKER.length > 0);
   assert.ok(groups.PARTIAL.length > 0);
   assert.ok(groups.SOURCE_UNAVAILABLE.length > 0);
 });
 
-test("formatEvidenceMatrixTable has header and 45 data rows", () => {
+test("formatEvidenceMatrixTable has header and 62 data rows", () => {
   const lines = formatEvidenceMatrixTable();
   assert.ok(lines[0]?.includes("automationLevel"));
-  assert.equal(lines.length, 47);
+  assert.equal(lines.length, 64);
 });
 
 test("formatFullEvidenceMatrixMarkdown includes key sections", () => {
@@ -60,7 +61,7 @@ test("formatFullEvidenceMatrixMarkdown includes key sections", () => {
   assert.match(md, /Audit Rule Evidence Matrix/);
   assert.match(md, /EvidenceResult/);
   assert.match(md, /Review \/ QA status aliases/);
-  assert.match(md, /№13\. ПВ указано в Scrum/);
+  assert.match(md, /ПВ указано в Scrum/);
   assert.match(md, /STRICT/);
 });
 
@@ -258,7 +259,7 @@ test("open questions evidence: includes comment scan debug", () => {
   assert.equal(ev.automationLevel, "PARTIAL");
 });
 
-test("blocked assignee evidence: PARTIAL when source incomplete", () => {
+test("blocked assignee evidence: OK when assignees checked", () => {
   const result = baseResult([
     {
       task: emptyTask,
@@ -272,9 +273,25 @@ test("blocked assignee evidence: PARTIAL when source incomplete", () => {
     },
   ]);
   const ev = buildEvidenceResult("blocked_assignee_not_allowed", result);
-  assert.equal(ev.automationLevel, "SOURCE_UNAVAILABLE");
-  assert.equal(ev.status, "PARTIAL");
-  assert.ok(ev.notCheckedEvidence.length > 0);
+  assert.equal(ev.automationLevel, "STRICT");
+  assert.equal(ev.status, "OK");
+});
+
+test("blocked assignee evidence: SKIP when users not loaded", () => {
+  const result = baseResult([
+    {
+      task: emptyTask,
+      results: [
+        {
+          ruleId: "blocked_assignee_not_allowed",
+          status: "SKIP",
+          reason: "Список пользователей AppTask недоступен",
+        },
+      ],
+    },
+  ]);
+  const ev = buildEvidenceResult("blocked_assignee_not_allowed", result);
+  assert.equal(ev.status, "SKIP");
 });
 
 test("buildExampleEvidenceResults returns 5 examples", () => {

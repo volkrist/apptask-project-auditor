@@ -1,6 +1,7 @@
 import type { Rule } from "../rule-types.js";
 import { fail, notApplicable, pass, skip, warn, commentPlainTextForRules } from "../helpers.js";
 import {
+  commentThreadHasProof,
   isBlockedTask,
   isCompletedStatus,
   isInProgressStatus,
@@ -9,11 +10,11 @@ import {
 import { hoursSince } from "../../scrum/estimate-matcher.js";
 import { findInProgressStartedAt } from "../history/history-parser.js";
 import { makeStateNameResolver } from "../../collectors/state-map.js";
-import { isUiRelatedTask } from "../task-ui.js";
+import { isUiRelatedTask, requiresExistingMockupLink } from "../task-ui.js";
 import { getAuditProfile, resolveAuditProfileId } from "../../config/audit-profiles.js";
 import { partitionTasksForAudit } from "../../tasks/task-classification.js";
 import { getTaskTrackingMetrics } from "../../tracking/load-tracking-context.js";
-import { hasVerificationSuccessMarker } from "../soft/comment-heuristics.js";
+import { hasVerificationSuccessMarker, hasMockupApprovalMarker, isTesterFeedbackComment } from "../soft/comment-heuristics.js";
 import { findOpenQuestionWithoutReply } from "../soft/open-questions-closed.js";
 
 function primaryAssignee(task: Parameters<Rule["evaluate"]>[0]): string | null {
@@ -23,6 +24,8 @@ function primaryAssignee(task: Parameters<Rule["evaluate"]>[0]): string | null {
 
 const DEVELOPER_MAX_ACTIVE =
   Number(process.env.DEVELOPER_MAX_ACTIVE_TASKS ?? "3") || 3;
+const MASS_START_MIN_IN_PROGRESS =
+  Number(process.env.MASS_START_MIN_IN_PROGRESS ?? "4") || 4;
 const NEVER_STARTED_DAYS =
   Number(process.env.NEVER_STARTED_DAYS ?? "14") || 14;
 const TRACKING_HIGH_HOURS_THRESHOLD =
@@ -190,22 +193,36 @@ export const sprintDatesMatchRule: Rule = {
   },
 };
 
+function hasMockupLinkReference(textBlob: string): boolean {
+  if (/figma\.com|zeplin\.com|sketch\.com|invisionapp\.com/i.test(textBlob)) {
+    return true;
+  }
+  return /https?:\/\/\S*(mockup|макет)/i.test(textBlob);
+}
+
 export const uiHasMockupLinkRule: Rule = {
   id: "ui_has_mockup_link",
   severity: "soft",
-  evaluate(task) {
+  evaluate(task, ctx) {
     if (!isUiRelatedTask(task)) {
       return notApplicable("ui_has_mockup_link", "Не UI/front задача");
     }
+    if (!requiresExistingMockupLink(task, ctx.config)) {
+      return notApplicable(
+        "ui_has_mockup_link",
+        "Задача на создание UI/макета — готовый макет не требуется",
+      );
+    }
     const links = [...(task.links ?? []), ...(task.attachments ?? []).map((a) => a.url ?? a.name)];
-    const hasMockup = links.some((l) =>
-      /figma|mockup|макет|zeplin|sketch/i.test(l ?? ""),
-    );
     const desc = task.descriptionText ?? "";
-    if (hasMockup || /figma|mockup|макет/i.test(desc)) {
+    const textBlob = [desc, ...links].join("\n");
+    if (hasMockupLinkReference(textBlob)) {
       return pass("ui_has_mockup_link", "Ссылка на макет найдена");
     }
-    return fail("ui_has_mockup_link", "Нет ссылки на актуальный макет");
+    return fail(
+      "ui_has_mockup_link",
+      "Нет ссылки на готовый макет (Figma и др.). Для задач на вёрстку по макету нужен Figma; ссылка на ТЗ не заменяет макет",
+    );
   },
 };
 
@@ -213,10 +230,27 @@ export const uiMockupApprovedRule: Rule = {
   id: "ui_mockup_approved",
   severity: "soft",
   evaluate(task) {
-    return uiOnlyRule(
+    if (!isUiRelatedTask(task)) {
+      return notApplicable("ui_mockup_approved", "Не UI/front задача");
+    }
+
+    const textParts = [
+      task.title ?? "",
+      task.descriptionText ?? "",
+      ...(task.comments ?? []).map((c) => commentPlainTextForRules(c)),
+    ];
+    const blob = textParts.join("\n");
+
+    if (hasMockupApprovalMarker(blob)) {
+      return pass(
+        "ui_mockup_approved",
+        "Подтверждение согласования макета найдено в описании или комментариях",
+      );
+    }
+
+    return warn(
       "ui_mockup_approved",
-      task,
-      "Нет подтверждения согласования макета перед разработкой",
+      "Нет подтверждения согласования макета перед разработкой (описание или комментарии)",
     );
   },
 };
@@ -297,10 +331,11 @@ export const verifiedSuccessCommentRule: Rule = {
     if (!isCompletedStatus(task.status)) {
       return notApplicable("verified_success_comment", "Не завершена");
     }
-    const comments = task.comments ?? [];
-    const ok = comments.some((c) =>
-      hasVerificationSuccessMarker(commentPlainTextForRules(c)),
-    );
+    const textParts = [
+      task.descriptionText ?? "",
+      ...(task.comments ?? []).map((c) => commentPlainTextForRules(c)),
+    ];
+    const ok = textParts.some((text) => hasVerificationSuccessMarker(text));
     if (ok) {
       return pass("verified_success_comment", "Маркер успешной проверки найден");
     }
@@ -315,27 +350,26 @@ export const testerFeedbackHasProofRule: Rule = {
   id: "tester_feedback_has_proof",
   severity: "soft",
   evaluate(task) {
-    if (!isTestingStatus(task.status) && !isCompletedStatus(task.status)) {
-      return pass("tester_feedback_has_proof", "Не на проверке");
-    }
     const comments = task.comments ?? [];
-    const feedback = comments.filter((c) =>
-      /баг|ошибк|не работ|замечан|вернуть|rework/i.test(c.text ?? ""),
-    );
+
+    const feedback = comments.filter((c) => {
+      const text = commentPlainTextForRules(c);
+      return text.trim().length > 0 && isTesterFeedbackComment(text);
+    });
+
     if (feedback.length === 0) {
       return notApplicable("tester_feedback_has_proof", "Нет замечаний тестировщика");
     }
-    const withProof = feedback.some((c) =>
-      /https?:\/\/|скрин|screenshot|видео|\.png|\.jpg|attachment/i.test(
-        c.text ?? "",
-      ),
+
+    const missing = feedback.filter(
+      (c) => !commentThreadHasProof(c, comments),
     );
-    if (withProof) {
+    if (missing.length === 0) {
       return pass("tester_feedback_has_proof", "Есть пруф в замечаниях");
     }
     return warn(
       "tester_feedback_has_proof",
-      "Замечания тестировщика без скриншота/ссылки/видео",
+      `${missing.length} замечаний без скриншота/ссылки/видео`,
     );
   },
 };
@@ -354,6 +388,12 @@ export const massStartWithoutCompletionRule: Rule = {
     const { auditable } = partitionTasksForAudit(ctx.allTasks, profile);
     const mine = auditable.filter((t) => primaryAssignee(t) === assignee);
     const inProgress = mine.filter((t) => isInProgressStatus(t.status));
+    if (inProgress.length >= MASS_START_MIN_IN_PROGRESS) {
+      return warn(
+        "mass_start_without_completion",
+        `У исполнителя ${assignee}: ${inProgress.length} задач в работе одновременно (порог ${MASS_START_MIN_IN_PROGRESS})`,
+      );
+    }
     const oldOpen = mine.filter(
       (t) =>
         !isCompletedStatus(t.status) &&
@@ -385,7 +425,10 @@ export const openQuestionsClosedRule: Rule = {
         `Открытый вопрос в комментарии без ответа: «${snippet}»`,
       );
     }
-    return notApplicable("open_questions_closed", "Открытых вопросов без ответа не найдено");
+    return pass(
+      "open_questions_closed",
+      "Открытых вопросов без ответа в комментариях не найдено",
+    );
   },
 };
 

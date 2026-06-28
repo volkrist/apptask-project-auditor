@@ -9,6 +9,7 @@ import {
   deadlineUrgency,
   findBlockReasonInTask,
   findVagueDoneComments,
+  commentHasProof,
   isBlockedTask,
   isCompletedStatus,
   isHighPriorityOrCriticalBug,
@@ -125,4 +126,22 @@ test("blocked reason in comments", () => {
     comments: [{ text: "blocked" }],
   });
   assert.equal(findBlockReasonInTask(bad), null);
+});
+
+test("commentHasProof finds links and images in HTML content", () => {
+  assert.equal(
+    commentHasProof({
+      text: "см скрин",
+      content: '<a href="https://figma.com/file/abc">макет</a>',
+    }),
+    true,
+  );
+  assert.equal(
+    commentHasProof({
+      text: "баг",
+      content: '<img src="https://cdn.example/bug.png">',
+    }),
+    true,
+  );
+  assert.equal(commentHasProof({ text: "просто текст без пруфа" }), false);
 });

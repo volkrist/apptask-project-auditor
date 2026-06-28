@@ -21,6 +21,8 @@ const baseTask: DbTaskRow = {
   priority: 2,
   planned_start_time: "2026-01-10T00:00:00.000Z",
   planned_end_time: "2026-02-20T00:00:00.000Z",
+  planned_end_time_offset: 28800,
+  current_end_time_offset: 7200,
   end_time: null,
   update_time: "2026-03-01T12:00:00.000Z",
   create_time: "2026-01-01T00:00:00.000Z",
@@ -71,11 +73,32 @@ test("mapDbBundleToRawTasks builds url and cleans html", () => {
   assert.equal(raw.boardId, "783");
   assert.equal(raw.url, "https://apptask.ru/c/7/board/783/9001");
   assert.equal(raw.status, "В процессе");
+  assert.equal(raw.stage, null);
+  assert.equal(raw.plannedTime, "8 ч");
+  assert.equal(raw.actualTime, "2 ч");
   assert.equal(raw.category, "Frontend");
   assert.ok(raw.descriptionText?.includes("Описание"));
+  assert.equal(raw.links.length, 0);
   assert.deepEqual(raw.assignees, ["Иван"]);
   assert.equal(raw.comments[0]?.text.toLowerCase(), "готово");
   assert.equal(raw.sprintId, "4");
+});
+
+test("mapDbBundleToRawTasks extracts links from HTML content", () => {
+  const taskWithLink: DbTaskRow = {
+    ...baseTask,
+    content:
+      '<p>Смета <a href="https://docs.google.com/spreadsheets/d/abc/edit">таблица</a></p>',
+  };
+
+  const [raw] = mapDbBundleToRawTasks(
+    { tasks: [taskWithLink], assignees: [], tags: [], comments: [], histories: [] },
+    "https://apptask.ru/c/7",
+  );
+
+  assert.deepEqual(raw.links, [
+    "https://docs.google.com/spreadsheets/d/abc/edit",
+  ]);
 });
 
 test("htmlToPlainText normalizes nbsp", () => {

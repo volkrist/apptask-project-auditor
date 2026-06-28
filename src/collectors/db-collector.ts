@@ -17,9 +17,11 @@ import {
   fetchHistories,
   fetchBoardStates,
   fetchTags,
+  fetchUsers,
 } from "./db-queries.js";
 import { mapDbBundleToRawTasks } from "./db-mapper.js";
 import { buildStateNameByKey } from "./state-map.js";
+import { mapDbUserRow, type AppTaskUser } from "../users/app-task-users.js";
 
 const log = createLogger("collector:db");
 
@@ -35,6 +37,7 @@ export type DbCollectorStats = {
   tagRows: number;
   commentRows: number;
   historyRows: number;
+  usersLoaded: number;
   stateNameByKey: Record<string, string>;
 };
 
@@ -65,7 +68,7 @@ export async function collectTasksViaDb(
   log.info(`collect via DB boardIds=${boardIds.join(",")} auditScope=${auditScope}`);
 
   try {
-    const [tasks, assignees, tags, comments, histories, boardStates] =
+    const [tasks, assignees, tags, comments, histories, boardStates, userRows] =
       await Promise.all([
       fetchActiveTasks(config, boardIds),
       fetchAssignees(config, boardIds),
@@ -73,7 +76,12 @@ export async function collectTasksViaDb(
       fetchComments(config, boardIds),
       fetchHistories(config, boardIds),
       fetchBoardStates(config, boardIds),
+      fetchUsers(config),
     ]);
+
+    const appTaskUsers: AppTaskUser[] = userRows
+      .map((row) => mapDbUserRow(row))
+      .filter((u): u is AppTaskUser => u !== null);
 
     const stateNameByKey = buildStateNameByKey(boardStates);
 
@@ -163,17 +171,18 @@ export async function collectTasksViaDb(
       tagRows: tags.length,
       commentRows: comments.length,
       historyRows: histories.length,
+      usersLoaded: appTaskUsers.length,
       stateNameByKey,
     };
 
     log.info(
-      `DB collect done: tasks=${stats.tasksLoaded} comments=${stats.commentRows} history=${stats.historyRows}`,
+      `DB collect done: tasks=${stats.tasksLoaded} comments=${stats.commentRows} history=${stats.historyRows} users=${stats.usersLoaded}`,
     );
 
     return {
       tasks: rawTasks,
       totalOnBoard,
-      appTaskUsers: [],
+      appTaskUsers,
       ignoredCount: ignored.skippedCount,
       ignoredUrls: ignored.skippedUrls,
       stats,

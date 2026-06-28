@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CONTRACT_CHECK_REGISTRY } from "../../src/config/contract-check-registry.js";
+import {
+  CONTRACT_OPERATIONAL_CHECK_REGISTRY,
+  getFullCheckRegistry,
+  MANDATORY_CARD_FIELD_CHECK_REGISTRY,
+} from "../../src/config/contract-check-registry.js";
 import {
   buildCheckRegistryRows,
   summarizeCheckRegistry,
 } from "../../src/reports/build-check-registry.js";
 import type { AuditResult } from "../../src/rules/rule-types.js";
 
-test("contract check registry has 45 items", () => {
-  assert.equal(CONTRACT_CHECK_REGISTRY.length, 45);
+test("full check registry has mandatory + operational items", () => {
+  assert.equal(MANDATORY_CARD_FIELD_CHECK_REGISTRY.length, 21);
+  assert.equal(CONTRACT_OPERATIONAL_CHECK_REGISTRY.length, 45);
+  assert.equal(getFullCheckRegistry().length, 60);
 });
 
 test("registry marks skipped entity rule", () => {
@@ -44,7 +50,7 @@ test("registry marks skipped entity rule", () => {
   };
 
   const rows = buildCheckRegistryRows(result);
-  const teamRow = rows.find((r) => r.entry.num === 8);
+  const teamRow = rows.find((r) => r.entry.ruleIds[0] === "team_worksheet_match");
   assert.equal(teamRow?.executionStatus, "SKIP");
   assert.equal(teamRow?.resultText, "SKIP");
 
@@ -124,7 +130,9 @@ test("registry counts task-level violations", () => {
     ],
   };
 
-  const row = buildCheckRegistryRows(result).find((r) => r.entry.num === 18);
+  const row = buildCheckRegistryRows(result).find(
+    (r) => r.entry.ruleIds[0] === "assignee_present",
+  );
   assert.equal(row?.executionStatus, "CHECKED");
   assert.equal(row?.failCount, 2);
   assert.equal(row?.violations, "2 FAIL");
@@ -154,6 +162,6 @@ test("summarizeCheckRegistry totals", () => {
     ],
   });
   const s = summarizeCheckRegistry(rows);
-  assert.equal(s.checked + s.notApplicable + s.skip, 45);
+  assert.equal(s.checked + s.notApplicable + s.skip, 60);
   assert.equal(s.notApplicable, 0);
 });

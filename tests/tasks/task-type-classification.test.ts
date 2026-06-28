@@ -69,6 +69,29 @@ test("findOpenQuestionWithoutReply detects unanswered question", () => {
   assert.ok(findOpenQuestionWithoutReply(task));
 });
 
+test("findOpenQuestionWithoutReply passes when same author replies in thread", () => {
+  const task = {
+    ...emptyRawTask(),
+    comments: [
+      {
+        id: 60165,
+        text: "Как сварить пельмени?",
+        creatorName: "Артём Цапенко",
+        createTime: "2026-06-22T11:11:32.627Z",
+        parentId: null,
+      },
+      {
+        id: 60184,
+        text: "берем кастрюлю и варишь",
+        creatorName: "Артём Цапенко",
+        createTime: "2026-06-26T13:37:42.379Z",
+        parentId: 60165,
+      },
+    ],
+  };
+  assert.equal(findOpenQuestionWithoutReply(task), null);
+});
+
 test("findOpenQuestionWithoutReply passes when another user replied", () => {
   const task = {
     ...emptyRawTask(),

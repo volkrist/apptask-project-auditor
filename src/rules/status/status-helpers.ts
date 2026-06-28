@@ -1,6 +1,6 @@
 import type { RawTask, TaskComment } from "../../adapters/apptask/types.js";
+import { extractLinksFromHtml } from "../../collectors/api-mapper.js";
 import { commentPlainTextForRules } from "../helpers.js";
-
 export function parseRuDateToMs(date: string | null): number | null {
   if (!date) return null;
   const m = date.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
@@ -56,7 +56,47 @@ const GENERIC_REWORK_REASON =
   /^(переделать|не готово|доработать|fix|rework)[.!?\s]*$/i;
 
 const PROOF_RE =
-  /https?:\/\/|www\.|\.png|\.jpg|\.jpeg|\.gif|\.webp|\.pdf|скрин|screenshot|видео|attachment|прикреп/i;
+  /https?:\/\/|www\.|\.png|\.jpg|\.jpeg|\.gif|\.webp|\.pdf|\.mp4|\.webm|\.mov|скрин|screenshot|видео|attachment|прикреп|loom\.com|drive\.google|disk\.yandex|figma\.com/i;
+
+const PROOF_HTML_MEDIA_RE =
+  /<img\b|data:image\/|file\.apptask|\/uploads?\//i;
+
+export function commentHasProof(comment: TaskComment): boolean {
+  const plain = commentPlainTextForRules(comment);
+  if (PROOF_RE.test(plain)) return true;
+
+  const html = comment.content ?? "";
+  if (html.trim()) {
+    if (extractLinksFromHtml(html).length > 0) return true;
+    if (PROOF_HTML_MEDIA_RE.test(html)) return true;
+    if (PROOF_RE.test(html)) return true;
+  }
+
+  if (
+    comment.attachments?.some(
+      (a) =>
+        Boolean(a.url?.trim()) ||
+        /\.(png|jpe?g|gif|webp|mp4|webm|mov|pdf)(\?|$)/i.test(a.name),
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+export function commentThreadHasProof(
+  comment: TaskComment,
+  allComments: TaskComment[],
+): boolean {
+  if (commentHasProof(comment)) return true;
+  const id = comment.id;
+  if (id == null) return false;
+  const replies = allComments.filter(
+    (c) => c.parentId != null && String(c.parentId) === String(id),
+  );
+  return replies.some((r) => commentHasProof(r));
+}
 
 export function isCompletedStatus(status: string | null): boolean {
   return DONE_STATUS_RE.test(status ?? "");
@@ -72,6 +112,13 @@ export function isTestingStatus(status: string | null): boolean {
 
 export function isReviewStatus(status: string | null): boolean {
   return isTestingStatus(status);
+}
+
+/** Исполнитель обязателен только для «В процессе» и «На проверке». */
+export function assigneeRequiredForStatus(status: string | null): boolean {
+  if (!status?.trim()) return false;
+  if (isCompletedStatus(status)) return false;
+  return isInProgressStatus(status) || isReviewStatus(status);
 }
 
 export function isBlockedTask(task: RawTask): boolean {
@@ -181,10 +228,6 @@ export function isHighPriorityOrCriticalBug(task: RawTask): {
     return { match: true, marker: "bug+critical" };
   }
   return { match: false, marker: "" };
-}
-
-export function commentHasProof(comment: TaskComment): boolean {
-  return PROOF_RE.test(commentPlainTextForRules(comment));
 }
 
 export function isVagueDoneCommentText(text: string): boolean {

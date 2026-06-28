@@ -18,6 +18,8 @@ export type DbTaskRow = {
   priority: number | null;
   planned_start_time: Date | string | null;
   planned_end_time: Date | string | null;
+  planned_end_time_offset: number | null;
+  current_end_time_offset: number | null;
   end_time: Date | string | null;
   update_time: Date | string | null;
   create_time: Date | string | null;
@@ -31,6 +33,14 @@ export type DbAssigneeRow = {
   task_id: number;
   task_name: string | null;
   user_id: number;
+  real_name: string | null;
+  email: string | null;
+  blocked: boolean | number | null;
+  removed: boolean | number | null;
+};
+
+export type DbUserRow = {
+  id: number;
   real_name: string | null;
   email: string | null;
   blocked: boolean | number | null;

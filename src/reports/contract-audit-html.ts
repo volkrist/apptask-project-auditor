@@ -355,12 +355,16 @@ export function buildContractAuditHtml(
 
   const sectionBlocks = vm.sections
     .map((sec) => {
-      const sectionChecks = vm.checks.filter((c) =>
-        sec.checkNums.includes(c.entry.num),
-      );
+      const ruleSet = new Set(sec.ruleIds);
+      const sectionChecks = vm.checks.filter((c) => ruleSet.has(c.ruleId));
       if (sectionChecks.length === 0) return "";
+      const okCount = sectionChecks.filter((c) => c.registry.outcome === "OK").length;
+      const violCount = sectionChecks.filter(
+        (c) => c.registry.outcome === "FAIL" || c.registry.outcome === "WARN",
+      ).length;
       return `<section class="section-anchor" id="section-${sec.sectionId}">
   <h2>${escHtml(sec.section)}</h2>
+  <p class="toc-stats">Успешно: <span style="color:var(--ok)">${okCount}</span> · Нарушений: <span style="color:var(--fail)">${violCount}</span></p>
   ${sectionChecks.map(renderCheckBlock).join("")}
 </section>`;
     })

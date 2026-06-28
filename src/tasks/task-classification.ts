@@ -2,6 +2,9 @@ import type { RawTask } from "../adapters/apptask/types.js";
 import type { AuditProfile } from "../config/audit-profiles.js";
 import { CONTRACT_TURBOWEAVE_V1 } from "../config/audit-profiles.js";
 
+const FLOW_TASK_TYPE_TAG_RE =
+  /^(менеджмент|коммуникаци|операцион|сервис|поток|management|communication)/i;
+
 function matchesAny(text: string, patterns: readonly RegExp[]): boolean {
   return patterns.some((p) => p.test(text));
 }
@@ -20,10 +23,16 @@ export function isFlowOrServiceTask(
     return true;
   }
 
+  const stage = task.stage?.trim() ?? "";
+  if (stage && matchesAny(stage, profile.flowCategoryPatterns)) {
+    return true;
+  }
+
   for (const tag of task.tags ?? []) {
-    if (tag && matchesAny(tag, profile.flowTagPatterns)) {
-      return true;
-    }
+    const t = tag?.trim() ?? "";
+    if (!t) continue;
+    if (matchesAny(t, profile.flowTagPatterns)) return true;
+    if (FLOW_TASK_TYPE_TAG_RE.test(t)) return true;
   }
 
   return false;

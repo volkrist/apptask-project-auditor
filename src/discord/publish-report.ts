@@ -14,6 +14,7 @@ import type { RunAuditResult } from "../app/run-audit.js";
 import type { EnrichCommentsResult } from "../comments/enrich-tasks-comments.js";
 import { ATAEV_AUDIT_DISCORD_CHANNEL_ID } from "../config/audit-modes.js";
 import { findProjectByBoard, findProjectByGuildAndBoard } from "../config/projects.js";
+import { findGuildAuditorChannelId } from "./auditor-channel.js";
 import { buildAuditReportEmbed } from "./report-embeds.js";
 import { buildReportWebUrl } from "../reports/report-web-url.js";
 import { summarizeRegistryOutcomes, buildRegistryTableRows } from "../reports/check-registry-stats.js";
@@ -33,6 +34,7 @@ export function isAuditDiscordAttachMd(): boolean {
 export type AuditPublishChannelSource =
   | "projects_json"
   | "apptask_board"
+  | "guild_auditor"
   | "invoke_channel"
   | "env"
   | "default";
@@ -49,6 +51,7 @@ export function resolveAuditPublishChannel(options?: {
   boardUrl?: string | null;
   apptaskDiscordChannelId?: string | null;
   apptaskBoardId?: string | null;
+  guildAuditorChannelId?: string | null;
   invokeChannelId?: string | null;
   fallback?: string | null;
 }): AuditPublishChannelResolution {
@@ -71,6 +74,11 @@ export function resolveAuditPublishChannel(options?: {
     };
   }
 
+  const fromGuildAuditor = options?.guildAuditorChannelId?.trim();
+  if (fromGuildAuditor) {
+    return { channelId: fromGuildAuditor, source: "guild_auditor" };
+  }
+
   const fromInvoke = options?.invokeChannelId?.trim();
   if (fromInvoke) {
     return { channelId: fromInvoke, source: "invoke_channel" };
@@ -91,6 +99,7 @@ export function getAuditPublishChannelId(options?: {
   boardUrl?: string | null;
   apptaskDiscordChannelId?: string | null;
   apptaskBoardId?: string | null;
+  guildAuditorChannelId?: string | null;
   invokeChannelId?: string | null;
   fallback?: string | null;
 }): string {
@@ -110,28 +119,38 @@ export async function publishAuditToConfiguredChannel(
   out: RunAuditResult,
 ): Promise<string[]> {
   const token = process.env.DISCORD_BOT_TOKEN?.trim();
-  const resolved = resolveAuditPublishChannel({
-    guildId: out.publishGuildId,
-    boardUrl: out.result.meta.boardUrl,
-    apptaskDiscordChannelId:
-      out.result.meta.discordPublishChannelIdFromAppTask ?? undefined,
-    apptaskBoardId:
-      out.result.meta.discordPublishBoardIdFromAppTask ?? undefined,
-    invokeChannelId: out.publishChannelId,
-  });
-  const channelId = resolved.channelId;
-  if (!token || !channelId) {
+  if (!token) {
     throw new Error("DISCORD_BOT_TOKEN or publish channel id is not set");
   }
-
-  console.log(
-    `[audit-channel] publish source=${resolved.source}${resolved.boardId ? ` board=${resolved.boardId}` : ""} channel=${channelId}`,
-  );
 
   const client = new Client({ intents: [GatewayIntentBits.Guilds] });
   try {
     await client.login(token);
     await waitForDiscordClient(client);
+
+    const guildAuditorChannelId = out.publishGuildId
+      ? await findGuildAuditorChannelId(client, out.publishGuildId)
+      : null;
+
+    const resolved = resolveAuditPublishChannel({
+      guildId: out.publishGuildId,
+      boardUrl: out.result.meta.boardUrl,
+      apptaskDiscordChannelId:
+        out.result.meta.discordPublishChannelIdFromAppTask ?? undefined,
+      apptaskBoardId:
+        out.result.meta.discordPublishBoardIdFromAppTask ?? undefined,
+      guildAuditorChannelId,
+      invokeChannelId: out.publishChannelId,
+    });
+    const channelId = resolved.channelId;
+    if (!channelId) {
+      throw new Error("DISCORD_BOT_TOKEN or publish channel id is not set");
+    }
+
+    console.log(
+      `[audit-channel] publish source=${resolved.source}${resolved.boardId ? ` board=${resolved.boardId}` : ""} channel=${channelId}`,
+    );
+
     const channel = await resolveAuditChannel(client, channelId);
     if (!channel) {
       throw new Error(`Cannot publish to channel ${channelId}`);

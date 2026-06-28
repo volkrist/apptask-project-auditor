@@ -8,6 +8,8 @@ import type { AppTaskUser } from "../../src/users/app-task-users.js";
 import {
   findBlockedAssignees,
   findAssigneesMissingFromUsers,
+  mapDbUserRow,
+  isUserBlocked,
 } from "../../src/users/app-task-users.js";
 
 const baseConfig = loadAuditConfig({ linkCheckEnabled: false });
@@ -127,6 +129,37 @@ test("blocked_assignee: assignee not in users → not FAIL", async () => {
   const results = await evaluateTask(t, baseConfig, [t], sampleUsers);
   assert.equal(statusOf(results, "blocked_assignee_not_allowed"), "PASS");
   assert.equal(findAssigneesMissingFromUsers(t, sampleUsers).length, 1);
+});
+
+test("mapDbUserRow: blocked=1 из БД", () => {
+  assert.equal(isUserBlocked(1), true);
+  assert.equal(isUserBlocked(0), false);
+  const user = mapDbUserRow({
+    id: 8166,
+    real_name: "Максим Макаров",
+    email: "m@test.ru",
+    blocked: 1,
+  });
+  assert.equal(user?.blocked, true);
+});
+
+test("blocked_assignee: TurboWeave #95 blocked user → FAIL", async () => {
+  const users: AppTaskUser[] = [
+    { id: 8166, realName: "Максим Макаров", email: "m@test.ru", blocked: true },
+  ];
+  const t = task({
+    id: "95",
+    title: "Авторизация/регистрация пользователя",
+    descriptionText: "Цель: тест.",
+    assigneeRefs: [{ name: "Максим Макаров", userId: "8166" }],
+    assignees: ["Максим Макаров"],
+  });
+  const results = await evaluateTask(t, baseConfig, [t], users);
+  assert.equal(statusOf(results, "blocked_assignee_not_allowed"), "FAIL");
+  assert.match(
+    reasonOf(results, "blocked_assignee_not_allowed") ?? "",
+    /Максим Макаров/i,
+  );
 });
 
 test("blocked_assignee: empty users API → SKIP", async () => {

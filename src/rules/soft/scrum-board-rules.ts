@@ -7,7 +7,7 @@ import {
 } from "../status/status-helpers.js";
 import { matchTaskToEstimate } from "../../scrum/estimate-matcher.js";
 import { isScrumAuditBoard } from "../../scrum/scrum-estimate-config.js";
-import { pass, warn, skip } from "../helpers.js";
+import { parsePlannedTimeHours, pass, warn, skip } from "../helpers.js";
 
 export const SCRUM_ESTIMATE_MISSING_RULE = "scrum_task_in_estimate";
 export const SCRUM_NAME_MISMATCH_RULE = "scrum_title_matches_estimate";
@@ -141,23 +141,33 @@ export const scrumDecompositionOver20hRule: Rule = {
   evaluate(task, ctx) {
     const skip = requireScrumForTask(task, ctx, SCRUM_DECOMPOSITION_RULE);
     if (skip) return skip;
-    const match = matchTaskToEstimate(task, ctx.scrum!.rows);
-    if (match.kind !== "ok" && match.kind !== "title_mismatch") {
-      return pass(SCRUM_DECOMPOSITION_RULE, "Нет строки сметы");
-    }
-    const row = match.row;
-    const hours = row.estimateHours ?? row.plannedHours ?? null;
     const threshold = ctx.scrum!.config.decompositionHoursThreshold;
-    const hasSubTasks = Boolean(
-      row.subtaskTitle?.trim() || row.subTask?.trim(),
-    );
-    if (hours != null && hours > threshold && !hasSubTasks) {
+    const match = matchTaskToEstimate(task, ctx.scrum!.rows);
+
+    if (match.kind === "ok" || match.kind === "title_mismatch") {
+      const row = match.row;
+      const hours = row.estimateHours ?? row.plannedHours ?? null;
+      const hasSubTasks = Boolean(
+        row.subtaskTitle?.trim() || row.subTask?.trim(),
+      );
+      if (hours != null && hours > threshold && !hasSubTasks) {
+        return warn(
+          SCRUM_DECOMPOSITION_RULE,
+          `В Scrum ${hours} ч (> ${threshold}) без подзадач/декомпозиции («${row.fullTitle || row.title}»)`,
+        );
+      }
+      return pass(SCRUM_DECOMPOSITION_RULE, "OK");
+    }
+
+    const cardHours = parsePlannedTimeHours(task.plannedTime);
+    if (cardHours != null && cardHours > threshold) {
       return warn(
         SCRUM_DECOMPOSITION_RULE,
-        `В Scrum ${hours} ч (> ${threshold}) без подзадач/декомпозиции («${row.fullTitle || row.title}»)`,
+        `ПВ ${cardHours} ч в карточке AppTask (> ${threshold}), задача не найдена в смете — декомпозиция не подтверждена`,
       );
     }
-    return pass(SCRUM_DECOMPOSITION_RULE, "OK");
+
+    return pass(SCRUM_DECOMPOSITION_RULE, "Нет строки сметы");
   },
 };
 

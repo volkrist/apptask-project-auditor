@@ -113,8 +113,6 @@ export function buildHumanAuditMarkdown(
 ): string {
   const status = getAuditStatusText(result.meta.failCount, result.meta.warnCount);
   const mgmt = buildManagementSummary(result);
-  const topIssues = result.topIssues.slice(0, 5);
-  const recommendations = issueRecommendations(result.topIssues);
 
   const lines: string[] = [
     "# Отчёт аудита AppTask",
@@ -159,38 +157,8 @@ export function buildHumanAuditMarkdown(
 
   lines.push(
     "",
-    "## 2. Главные проблемы",
+    "## 2. Детализация по карточкам",
   );
-
-  if (topIssues.length === 0) {
-    lines.push("- Проблем не найдено");
-  } else {
-    for (const issue of topIssues) {
-      lines.push(`- ${humanizeRuleLabel(issue.ruleId)} — ${issue.count} карточек`);
-    }
-  }
-
-  lines.push("", "## 3. Что исправить в первую очередь");
-  if (recommendations.length === 0) {
-    lines.push("- Нет срочных действий");
-  } else {
-    lines.push(...recommendations);
-  }
-
-  lines.push(...buildStatusDeadlineMarkdown(result));
-  lines.push(...buildTestingQueueMarkdown(result, result.meta.boardMetrics));
-  lines.push(...buildScrumEstimateMarkdown(result));
-  lines.push(...buildTrackingHoursMarkdown(result));
-  lines.push(...buildCommentIssuesMarkdown(result));
-
-  lines.push("", "## Исключённые карточки");
-  lines.push(`- Исключено карточек: ${extras.ignoredCount ?? 0}`);
-  const ignoredUrls = extras.ignoredUrls ?? [];
-  if (ignoredUrls.length > 0 && ignoredUrls.length <= 10) {
-    for (const url of ignoredUrls) lines.push(`- ${url}`);
-  }
-
-  lines.push("", "## 4. Детализация по карточкам");
   const problematicCards = result.cards.filter((c) =>
     c.results.some((r) => r.status !== "PASS"),
   );

@@ -68,6 +68,7 @@ export type CheckBlockView = {
 export type SectionTocView = {
   section: string;
   sectionId: string;
+  ruleIds: readonly string[];
   checksOk: number;
   checksWithViolations: number;
   checkNums: number[];
@@ -289,6 +290,7 @@ function buildSections(checks: CheckBlockView[], result: AuditResult): SectionTo
     return {
       section: group.section,
       sectionId: slugSection(group.section),
+      ruleIds: group.ruleIds,
       checksOk,
       checksWithViolations,
       checkNums: sectionChecks.map((c) => c.entry.num),

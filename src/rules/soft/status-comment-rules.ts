@@ -24,7 +24,7 @@ import { pass, warn, fail, notApplicable } from "../helpers.js";
 const IN_PROGRESS_STALE_HOURS =
   Number(process.env.IN_PROGRESS_STALE_BUSINESS_HOURS ?? "48") || 48;
 const REVIEW_STALE_HOURS =
-  Number(process.env.REVIEW_STALE_BUSINESS_HOURS ?? "24") || 24;
+  Number(process.env.REVIEW_STALE_BUSINESS_HOURS ?? "48") || 48;
 const REVIEW_QUEUE_MAX = Number(process.env.REVIEW_QUEUE_MAX ?? "10") || 10;
 const RECENT_REWORK_DAYS = Number(process.env.RECENT_REWORK_DAYS ?? "30") || 30;
 

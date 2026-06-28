@@ -4,7 +4,10 @@ import type {
   TaskComment,
 } from "../adapters/apptask/types.js";
 import { emptyRawTask } from "../adapters/apptask/types.js";
-import { htmlCommentContentToText } from "../comments/app-task-comments.js";
+import {
+  appTaskCommentsToTaskComments,
+  htmlCommentContentToText,
+} from "../comments/app-task-comments.js";
 import type { AppTaskComment } from "../comments/app-task-comments.js";
 import type { AppTaskUser } from "../users/app-task-users.js";
 import type {
@@ -149,7 +152,7 @@ export function mapApiTaskListItemToRawTask(
     url: id ? `${opts.boardUrl.replace(/\/$/, "")}/${id}` : null,
     title: typeof item.name === "string" ? item.name.trim() : null,
     status,
-    stage: status,
+    stage: null,
     startDate: formatIsoToRuDate(item.plannedStartTime),
     dueDate: formatIsoToRuDate(item.plannedEndTime ?? item.endTime),
     priority:
@@ -208,7 +211,7 @@ export function mergeTaskDetailsIntoRawTask(
         ? details.name.trim()
         : task.title,
     status,
-    stage: status,
+    stage: task.stage,
     descriptionText: descriptionText || task.descriptionText,
     links: links.length > 0 ? links : task.links,
     attachments: attachments.length > 0 ? attachments : task.attachments,
@@ -235,14 +238,7 @@ export function mergeTaskDetailsIntoRawTask(
 export function appTaskCommentsToRawComments(
   comments: AppTaskComment[],
 ): TaskComment[] {
-  return comments.map((c) => ({
-    text: htmlToPlainText(c.content),
-    content: c.content,
-    id: c.id,
-    creatorId: c.creatorId,
-    createTime: c.createTime,
-    parentId: c.parentId,
-  }));
+  return appTaskCommentsToTaskComments(comments);
 }
 
 export function buildUsersMap(users: AppTaskUser[]): Map<string, AppTaskUser> {

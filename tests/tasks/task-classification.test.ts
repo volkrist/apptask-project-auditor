@@ -27,6 +27,11 @@ test("regular dev task is auditable", () => {
   assert.equal(isFlowOrServiceTask(t), false);
 });
 
+test("isFlowOrServiceTask detects management task type tag", () => {
+  const t = task({ title: "Созвон с заказчиком", tags: ["Менеджмент"] });
+  assert.equal(isFlowOrServiceTask(t), true);
+});
+
 test("partitionTasksForAudit splits flow tasks", () => {
   const tasks = [
     task({ id: "1", title: "Менеджмент" }),

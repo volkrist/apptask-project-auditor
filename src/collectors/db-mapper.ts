@@ -1,6 +1,6 @@
 import type { RawTask, TaskComment, TaskHistoryEntry } from "../adapters/apptask/types.js";
 import { emptyRawTask } from "../adapters/apptask/types.js";
-import { htmlToPlainText, formatIsoToRuDate } from "./api-mapper.js";
+import { htmlToPlainText, formatIsoToRuDate, formatSecondsToTime, extractLinksFromHtml } from "./api-mapper.js";
 import { buildTaskUrl } from "./db-config.js";
 import type {
   DbAssigneeRow,
@@ -118,8 +118,11 @@ export function mapDbBundleToRawTasks(
       updatedAt: toIso(t.update_time),
       priority: t.priority != null ? String(t.priority) : null,
       status,
-      stage: status,
+      stage: null,
       category: t.block_name?.trim() ?? null,
+      plannedTime: formatSecondsToTime(t.planned_end_time_offset),
+      actualTime: formatSecondsToTime(t.current_end_time_offset),
+      links: extractLinksFromHtml(t.content),
       tags: tagsByTask.get(key) ?? [],
       assignees,
       assigneeRefs,

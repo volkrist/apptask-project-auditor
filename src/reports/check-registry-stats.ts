@@ -1,5 +1,5 @@
 import {
-  CONTRACT_CHECK_REGISTRY,
+  getFullCheckRegistry,
   type ContractCheckRegistryEntry,
 } from "../config/contract-check-registry.js";
 import { getAuditProfile } from "../config/audit-profiles.js";
@@ -354,7 +354,7 @@ function buildRegistryRow(
 }
 
 export function buildRegistryTableRows(result: AuditResult): RegistryTableRow[] {
-  return CONTRACT_CHECK_REGISTRY.map((entry) => buildRegistryRow(entry, result));
+  return getFullCheckRegistry().map((entry) => buildRegistryRow(entry, result));
 }
 
 export function summarizeRegistryOutcomes(

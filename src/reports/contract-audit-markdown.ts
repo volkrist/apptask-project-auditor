@@ -11,7 +11,6 @@ import {
   formatTaskViolationBlock,
   formatTrackingDailyAnomalyGroup,
   formatTeamWorksheetGroup,
-  formatTaskClassificationDebugTable,
   type TaskViolationGroup,
 } from "./evidence-markdown.js";
 import { ruleCondition } from "./rule-conditions.js";
@@ -20,12 +19,32 @@ import { BANNED_USER_REPORT_TERMS } from "./rule-verification-methods.js";
 import {
   filterSourceUnavailableSkips,
   formatAuditedAt,
-  humanizeDiscordTeamNote,
-  humanizeProfileLabel,
-  humanizeSourcesUsed,
   simplifyReasonText,
   skipExplanationForReport,
 } from "./report-presentation.js";
+
+function formatSectionChecklist(
+  result: AuditResult,
+  ruleIds: readonly string[],
+): string[] {
+  const ruleSet = new Set(ruleIds);
+  const rows = buildRegistryTableRows(result).filter((r) =>
+    ruleSet.has(r.entry.ruleIds[0]!),
+  );
+  const ok = rows.filter((r) => r.outcome === "OK").length;
+  const viol = rows.filter(
+    (r) => r.outcome === "FAIL" || r.outcome === "WARN",
+  ).length;
+  const lines = [`Успешно **${ok}** · Нарушений **${viol}**`, ""];
+  for (const row of rows) {
+    const tail =
+      row.violations !== "0" && row.violations !== "—"
+        ? ` (${row.violations})`
+        : "";
+    lines.push(`- ${row.entry.title} — **${row.outcome}**${tail}`);
+  }
+  return lines;
+}
 
 function overallStatus(failCount: number, warnCount: number): string {
   if (failCount > 0) return "Требует исправлений (есть FAIL)";
@@ -156,24 +175,8 @@ export function buildContractAuditMarkdown(
     `- SKIP: ${registrySummary.skip}`,
     `- Статус: ${overallStatus(meta.failCount, meta.warnCount)}`,
     "",
-    "## Область проверки",
-    "",
-    `- Доска: ${meta.boardUrl}`,
-    `- Источники данных: ${humanizeSourcesUsed(meta.sourcesUsed)}`,
-    `- Профиль проверки: ${humanizeProfileLabel(meta.auditProfile)}`,
-    `- Исключения: потоковые / сервисные карточки (${excludedFlow})`,
+    "## Результаты проверок",
   );
-
-  if (excludedFlow > 0) {
-    lines.push(
-      "- Потоковые карточки исключены из проверок карточек, но их фактическое время учитывается в проверке дневного списания времени.",
-    );
-  }
-
-  const discordNote = result.meta.discordTeamNote;
-  if (discordNote) {
-    lines.push(`- Discord-сверка команды: ${humanizeDiscordTeamNote(discordNote)}`);
-  }
 
   if (meta.boardSummaries && meta.boardSummaries.length > 1) {
     lines.push("", "### Доски в аудите");
@@ -196,6 +199,21 @@ export function buildContractAuditMarkdown(
   for (const group of profile.reportGroups) {
     const taskGroups = taskSections.get(group.section) ?? [];
     const entityGroups = entityFindingsForSection(result, group.ruleIds);
+    const isMandatory = group.section.includes("Обязательные поля карточки");
+
+    if (isMandatory) {
+      hasAnyResults = true;
+      lines.push("", `### ${group.section}`);
+      lines.push(...formatSectionChecklist(result, group.ruleIds));
+      if (taskGroups.length > 0) {
+        lines.push("", "#### Детали нарушений");
+        for (const taskGroup of taskGroups) {
+          lines.push(...formatTaskViolationBlock(taskGroup));
+        }
+      }
+      continue;
+    }
+
     const hasTeamRules = group.ruleIds.some(
       (id) => id === "team_worksheet_match" || id === "team_discord_match",
     );
@@ -242,7 +260,6 @@ export function buildContractAuditMarkdown(
 
   lines.push("");
   lines.push(...formatCheckRegistryMarkdown(result));
-  lines.push(...formatTaskClassificationDebugTable(result));
 
   lines.push("", "## Исключённые карточки", "");
   const excluded = meta.excludedFlowCards ?? meta.excludedFlowExamples ?? [];

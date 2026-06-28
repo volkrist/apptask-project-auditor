@@ -1,5 +1,10 @@
-import type { AuditResult, RuleResult } from "../rules/rule-types.js";
+import type { AuditResult, CardAudit, RuleResult } from "../rules/rule-types.js";
+import { collectLinkCheckTargets } from "../rules/helpers.js";
 import { isTestingStatus } from "../rules/status/status-helpers.js";
+import {
+  ACTUAL_HOURS_EXCEEDS_ESTIMATE_RULE,
+  ESTIMATE_EXCEEDED_WITHOUT_COMMENT_RULE,
+} from "../rules/soft/tracking-hours-rules.js";
 import type { RegistryOutcome } from "./check-registry-stats.js";
 
 export type RuleCandidateAccount = {
@@ -19,6 +24,102 @@ function taskResultsForRule(result: AuditResult, ruleId: string): RuleResult[] {
     }
   }
   return out;
+}
+
+function ruleResultForCard(card: CardAudit, ruleId: string): RuleResult | undefined {
+  return card.results.find((r) => r.ruleId === ruleId);
+}
+
+/** Задача с сопоставимым фактом и ПВ (не SKIP / «нет ПВ»). */
+function isPvCompareCandidate(card: CardAudit): boolean {
+  const r = ruleResultForCard(card, ACTUAL_HOURS_EXCEEDS_ESTIMATE_RULE);
+  if (!r || r.status === "SKIP" || r.status === "NOT_APPLICABLE") return false;
+  if (r.reason.includes("Нет ПВ")) return false;
+  return r.reason.startsWith("Факт ");
+}
+
+/** Задача с превышением ПВ выше порога (+20%). */
+function isEstimateOverrunCandidate(card: CardAudit): boolean {
+  const actual = ruleResultForCard(card, ACTUAL_HOURS_EXCEEDS_ESTIMATE_RULE);
+  if (actual?.status === "WARN") return true;
+  const comment = ruleResultForCard(card, ESTIMATE_EXCEEDED_WITHOUT_COMMENT_RULE);
+  if (comment?.status === "WARN") return true;
+  if (comment?.reason.includes("Есть комментарий с объяснением")) return true;
+  return false;
+}
+
+function estimateOverrunCommentAccount(result: AuditResult): RuleCandidateAccount {
+  const scope = result.meta.cardsChecked;
+  const overrunCards = result.cards.filter(isEstimateOverrunCandidate);
+  const commentResults = overrunCards
+    .map((c) => ruleResultForCard(c, ESTIMATE_EXCEEDED_WITHOUT_COMMENT_RULE))
+    .filter((r): r is RuleResult => r != null);
+  const warn = commentResults.filter((r) => r.status === "WARN").length;
+  const fail = commentResults.filter((r) => r.status === "FAIL").length;
+
+  if (overrunCards.length === 0) {
+    return {
+      scopeLabel: scopeTasksLabel(scope),
+      candidatesLabel: "0 задач с превышением ПВ",
+      unavailableLabel: "—",
+      fail: 0,
+      warn: 0,
+      outcome: "OK",
+    };
+  }
+
+  return {
+    scopeLabel: scopeTasksLabel(scope),
+    candidatesLabel:
+      warn + fail > 0
+        ? `${warn + fail} с превышением без комментария`
+        : `${overrunCards.length} с превышением — комментарии есть`,
+    unavailableLabel: "—",
+    fail,
+    warn,
+    outcome: outcomeFromCounts(fail, warn),
+  };
+}
+
+function actualHoursExceedsAccount(result: AuditResult): RuleCandidateAccount {
+  const scope = result.meta.cardsChecked;
+  const compareCards = result.cards.filter(isPvCompareCandidate);
+  const results = compareCards
+    .map((c) => ruleResultForCard(c, ACTUAL_HOURS_EXCEEDS_ESTIMATE_RULE))
+    .filter((r): r is RuleResult => r != null);
+  const warn = results.filter((r) => r.status === "WARN").length;
+  const fail = results.filter((r) => r.status === "FAIL").length;
+
+  if (compareCards.length === 0) {
+    return {
+      scopeLabel: scopeTasksLabel(scope),
+      candidatesLabel: "0 задач с фактом и ПВ для сравнения",
+      unavailableLabel: "—",
+      fail: 0,
+      warn: 0,
+      outcome: "OK",
+    };
+  }
+
+  return {
+    scopeLabel: scopeTasksLabel(scope),
+    candidatesLabel:
+      warn + fail > 0
+        ? `${warn + fail} с превышением ПВ`
+        : `${compareCards.length} с фактом и ПВ — превышений нет`,
+    unavailableLabel: "—",
+    fail,
+    warn,
+    outcome: outcomeFromCounts(fail, warn),
+  };
+}
+
+export function countEstimateOverrunCandidates(result: AuditResult): number {
+  return result.cards.filter(isEstimateOverrunCandidate).length;
+}
+
+export function countPvCompareCandidates(result: AuditResult): number {
+  return result.cards.filter(isPvCompareCandidate).length;
 }
 
 function isPseudoSkip(r: RuleResult): boolean {
@@ -317,6 +418,37 @@ function trackingNonWorkAccount(result: AuditResult): RuleCandidateAccount {
   };
 }
 
+function testerFeedbackProofAccount(result: AuditResult): RuleCandidateAccount {
+  const scope = result.meta.cardsChecked;
+  const results = taskResultsForRule(result, "tester_feedback_has_proof");
+  const counts = countByStatus(results);
+  const withFeedback = counts.pass + counts.warn + counts.fail;
+  const violations = counts.warn + counts.fail;
+
+  if (withFeedback === 0) {
+    return {
+      scopeLabel: scopeTasksLabel(scope),
+      candidatesLabel: "0 замечаний тестировщика",
+      unavailableLabel: "—",
+      fail: 0,
+      warn: 0,
+      outcome: "OK",
+    };
+  }
+
+  return {
+    scopeLabel: scopeTasksLabel(scope),
+    candidatesLabel:
+      violations > 0
+        ? `${violations} замечаний без пруфа`
+        : `${withFeedback} замечаний — пруф есть`,
+    unavailableLabel: "—",
+    fail: counts.fail,
+    warn: counts.warn,
+    outcome: outcomeFromCounts(counts.fail, counts.warn),
+  };
+}
+
 function markerRuleAccount(
   result: AuditResult,
   ruleId: string,
@@ -402,17 +534,15 @@ function blockedAssigneeAccount(result: AuditResult): RuleCandidateAccount {
   const candidates = counts.pass + counts.fail + counts.warn;
   return {
     scopeLabel: scopeTasksLabel(scope),
-    candidatesLabel: `${candidates} назначений проверено`,
+    candidatesLabel:
+      counts.fail > 0
+        ? `${counts.fail} на blocked-исполнителях`
+        : `${candidates} назначений — blocked не найдено`,
     unavailableLabel:
-      "источник «уволенные/неактивные» не подключён — только blocked users AppTask",
+      counts.skipped > 0 ? `${counts.skipped} пропущено (нет users)` : "—",
     fail: counts.fail,
     warn: counts.warn,
-    outcome:
-      counts.fail > 0
-        ? "FAIL"
-        : counts.warn > 0
-          ? "WARN"
-          : "PARTIAL",
+    outcome: outcomeFromCounts(counts.fail, counts.warn),
   };
 }
 
@@ -630,6 +760,57 @@ function reviewStaleAccount(result: AuditResult): RuleCandidateAccount {
   return account;
 }
 
+function linksReachableAccount(result: AuditResult): RuleCandidateAccount {
+  const ruleId = "links_reachable";
+  const results = taskResultsForRule(result, ruleId);
+  const scope = result.meta.cardsChecked;
+  const counts = countByStatus(results);
+  const { fail, warn } = formatViolations(counts.fail, counts.warn);
+
+  let withLinks = 0;
+  for (const card of result.cards) {
+    const hasEmptyAttachment = card.task.attachments.some((a) => !a.url?.trim());
+    if (collectLinkCheckTargets(card.task).length > 0 || hasEmptyAttachment) {
+      withLinks++;
+    }
+  }
+
+  if (counts.skipped === results.length && results.length > 0) {
+    return {
+      scopeLabel: scopeTasksLabel(scope),
+      candidatesLabel: "HTTP-проверка отключена",
+      unavailableLabel: `${counts.skipped} не проверено (LINK_CHECK_ENABLED=false)`,
+      fail: 0,
+      warn: 0,
+      outcome: "SKIP",
+    };
+  }
+
+  if (withLinks === 0) {
+    return {
+      scopeLabel: scopeTasksLabel(scope),
+      candidatesLabel: "0 карточек со ссылками для проверки",
+      unavailableLabel: counts.skipped > 0 ? `${counts.skipped} пропущено` : "—",
+      fail,
+      warn,
+      outcome: outcomeFromCounts(fail, warn, { noCandidates: true }),
+    };
+  }
+
+  return {
+    scopeLabel: scopeTasksLabel(scope),
+    candidatesLabel:
+      fail + warn > 0
+        ? `${withLinks} со ссылками, ${fail + warn} с проблемами`
+        : `${withLinks} со ссылками — все доступны`,
+    unavailableLabel:
+      counts.skipped > 0 ? `${counts.skipped} пропущено (проверка отключена)` : "—",
+    fail,
+    warn,
+    outcome: outcomeFromCounts(fail, warn, { partial: counts.skipped > 0 }),
+  };
+}
+
 export function buildRuleCandidateAccount(
   ruleId: string,
   result: AuditResult,
@@ -695,7 +876,7 @@ export function buildRuleCandidateAccount(
     case "unresolved_question_keywords_in_card":
       return markerRuleAccount(result, ruleId, "маркеров незакрытого вопроса");
     case "tester_feedback_has_proof":
-      return markerRuleAccount(result, ruleId, "замечаний тестировщика");
+      return testerFeedbackProofAccount(result);
     case "blocked_tag_present":
     case "blocked_task_reason":
       return defaultTaskAccount(result, ruleId, {
@@ -705,8 +886,10 @@ export function buildRuleCandidateAccount(
       return deadlineAccount(result);
     case "assignee_present":
       return defaultTaskAccount(result, ruleId, {
-        zeroCandidatesLabel: "0 карточек без исполнителя",
+        zeroCandidatesLabel: "0 активных задач (в работе/на проверке) без исполнителя",
       });
+    case "links_reachable":
+      return linksReachableAccount(result);
     case "verified_success_comment":
       return defaultTaskAccount(result, ruleId, {
         zeroCandidatesLabel: "0 завершённых без комментария «проверено»",
@@ -717,6 +900,10 @@ export function buildRuleCandidateAccount(
       return defaultTaskAccount(result, ruleId, {
         zeroCandidatesLabel: "0 задач в работе без обновлений",
       });
+    case ACTUAL_HOURS_EXCEEDS_ESTIMATE_RULE:
+      return actualHoursExceedsAccount(result);
+    case ESTIMATE_EXCEEDED_WITHOUT_COMMENT_RULE:
+      return estimateOverrunCommentAccount(result);
     case "ui_has_mockup_link":
     case "ui_mockup_approved":
     case "ui_adaptive_requirements":
@@ -741,5 +928,7 @@ export function isZeroCandidatesLabel(label: string): boolean {
   if (t.startsWith("0 найденных")) return true;
   if (t.startsWith("0 заблокированных")) return true;
   if (t.startsWith("0 задач с ПВ")) return true;
+  if (t.startsWith("0 задач с превышением")) return true;
+  if (t.startsWith("0 задач с фактом")) return true;
   return false;
 }

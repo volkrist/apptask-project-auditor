@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildRegistryRowFromEvidence } from "../../src/reports/evidence-registry-bridge.js";
-import { CONTRACT_CHECK_REGISTRY } from "../../src/config/contract-check-registry.js";
+import { getFullCheckRegistry } from "../../src/config/contract-check-registry.js";
 import type { AuditResult } from "../../src/rules/rule-types.js";
 
 function baseResult(cards: AuditResult["cards"]): AuditResult {
@@ -21,7 +21,9 @@ function baseResult(cards: AuditResult["cards"]): AuditResult {
 }
 
 test("deadline registry row uses zero candidates label", () => {
-  const entry = CONTRACT_CHECK_REGISTRY.find((e) => e.num === 1)!;
+  const entry = getFullCheckRegistry().find(
+    (e) => e.ruleIds[0] === "deadline_less_than_one_day",
+  )!;
   const cards = Array.from({ length: 3 }, (_, i) => ({
     task: {
       id: String(i + 1),
@@ -56,7 +58,9 @@ test("deadline registry row uses zero candidates label", () => {
 });
 
 test("scrum PV registry row exposes notChecked evidence", () => {
-  const entry = CONTRACT_CHECK_REGISTRY.find((e) => e.num === 13)!;
+  const entry = getFullCheckRegistry().find(
+    (e) => e.ruleIds[0] === "scrum_planned_hours_present",
+  )!;
   const row = buildRegistryRowFromEvidence(
     entry,
     baseResult([

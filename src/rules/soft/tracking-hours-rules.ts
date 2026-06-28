@@ -1,6 +1,6 @@
 import type { RawTask } from "../../adapters/apptask/types.js";
 import type { Rule, RuleContext, RuleResult } from "../rule-types.js";
-import { commentPlainTextForRules } from "../helpers.js";
+import { commentPlainTextForRules, parsePlannedTimeHours } from "../helpers.js";
 import { pass, warn, skip, notApplicable } from "../helpers.js";
 import {
   isCompletedStatus,
@@ -62,15 +62,37 @@ function actualHoursOf(metrics: TaskTrackingHours | null): number {
   return metrics?.actualHours ?? 0;
 }
 
-function estimateHoursForTask(
+export type TaskEstimateHours = {
+  hours: number;
+  source: "card" | "scrum";
+};
+
+/** ПВ для сравнения с tracking: сначала карточка AppTask, иначе строка сметы. */
+function resolveEstimateHoursForTask(
   task: RawTask,
   ctx: RuleContext,
-): number | null {
+): TaskEstimateHours | null {
+  const cardHours = parsePlannedTimeHours(task.plannedTime);
+  if (cardHours != null && cardHours > 0) {
+    return { hours: cardHours, source: "card" };
+  }
   if (!ctx.scrum?.loaded) return null;
   const match = matchTaskToEstimate(task, ctx.scrum.rows);
   if (match.kind !== "ok" && match.kind !== "title_mismatch") return null;
   const hours = match.row.estimateHours ?? match.row.plannedHours;
-  return hours != null && hours > 0 ? hours : null;
+  if (hours == null || hours <= 0) return null;
+  return { hours, source: "scrum" };
+}
+
+function estimateHoursForTask(
+  task: RawTask,
+  ctx: RuleContext,
+): number | null {
+  return resolveEstimateHoursForTask(task, ctx)?.hours ?? null;
+}
+
+function estimateSourceLabel(source: TaskEstimateHours["source"]): string {
+  return source === "card" ? "карточка" : "смета";
 }
 
 function overrunPercent(
@@ -89,9 +111,13 @@ function hasExplanationComment(
   task: RawTask,
   markers: readonly string[],
 ): boolean {
-  for (const c of task.comments ?? []) {
-    const text = commentPlainTextForRules(c).toLowerCase();
-    if (!text) continue;
+  const texts = [
+    task.descriptionText ?? "",
+    ...(task.comments ?? []).map((c) => commentPlainTextForRules(c)),
+  ];
+  for (const raw of texts) {
+    const text = raw.toLowerCase();
+    if (!text.trim()) continue;
     if (markers.some((m) => text.includes(m.toLowerCase()))) return true;
   }
   return false;
@@ -176,28 +202,30 @@ export const actualHoursExceedsEstimateRule: Rule = {
     );
     if (boardSkip) return boardSkip;
 
-    const estimateHours = estimateHoursForTask(task, ctx);
-    if (estimateHours == null) {
+    const estimate = resolveEstimateHoursForTask(task, ctx);
+    if (estimate == null) {
       return pass(
         ACTUAL_HOURS_EXCEEDS_ESTIMATE_RULE,
-        "Нет ПВ в Scrum для сравнения",
+        "Нет ПВ в карточке или смете для сравнения",
       );
     }
 
+    const { hours: estimateHours, source } = estimate;
     const actual = actualHoursOf(metricsForTask(ctx, task));
     const limit = tracking.config.estimateOverLimitPercent;
     const threshold = estimateHours * limitMultiplier(tracking.config);
     const overrun = overrunPercent(actual, estimateHours);
+    const pvSource = estimateSourceLabel(source);
 
     if (actual <= threshold) {
       return pass(
         ACTUAL_HOURS_EXCEEDS_ESTIMATE_RULE,
-        `Факт ${actual.toFixed(2)} ч ≤ ПВ ${estimateHours} ч (+${limit}%)`,
+        `Факт ${actual.toFixed(2)} ч ≤ ПВ ${estimateHours} ч (${pvSource}, +${limit}%)`,
       );
     }
     return warn(
       ACTUAL_HOURS_EXCEEDS_ESTIMATE_RULE,
-      `Факт ${actual.toFixed(2)} ч > ПВ ${estimateHours} ч (+${limit}%) — перерасход ${overrun.toFixed(1)}%`,
+      `Факт ${actual.toFixed(2)} ч > ПВ ${estimateHours} ч (${pvSource}, +${limit}%) — перерасход ${overrun.toFixed(1)}%`,
     );
   },
 };
@@ -215,11 +243,12 @@ export const estimateExceededWithoutCommentRule: Rule = {
     );
     if (boardSkip) return boardSkip;
 
-    const estimateHours = estimateHoursForTask(task, ctx);
-    if (estimateHours == null) {
+    const estimate = resolveEstimateHoursForTask(task, ctx);
+    if (estimate == null) {
       return pass(ESTIMATE_EXCEEDED_WITHOUT_COMMENT_RULE, "Нет ПВ");
     }
 
+    const { hours: estimateHours } = estimate;
     const actual = actualHoursOf(metricsForTask(ctx, task));
     const limit = tracking.config.estimateOverLimitPercent;
     if (actual <= estimateHours * limitMultiplier(tracking.config)) {
@@ -280,4 +309,5 @@ export {
   overrunPercent,
   hasExplanationComment,
   estimateHoursForTask,
+  resolveEstimateHoursForTask,
 };

@@ -10,6 +10,7 @@ import type {
   DbHistoryRow,
   DbTagRow,
   DbTaskRow,
+  DbUserRow,
 } from "./db-types.js";
 
 const ACTIVE_TASK_FILTER = `
@@ -72,6 +73,8 @@ SELECT
   t.priority,
   t.planned_start_time,
   t.planned_end_time,
+  t.planned_end_time_offset,
+  t.current_end_time_offset,
   t.end_time,
   t.update_time,
   t.create_time,
@@ -174,6 +177,18 @@ WHERE tu.board_id IN (${clause})
   AND ${ACTIVE_TASK_FILTER}
 `,
     params,
+  );
+}
+
+/** Все пользователи компании для проверки blocked/removed у исполнителей. */
+export async function fetchUsers(config: DbConfig): Promise<DbUserRow[]> {
+  return querySelect<DbUserRow>(
+    config,
+    `
+SELECT id, real_name, email, blocked, removed
+FROM dbo.Users
+`,
+    {},
   );
 }
 

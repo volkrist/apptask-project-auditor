@@ -291,6 +291,28 @@ export async function loadTaskComments(
   }
 }
 
+function mapCommentAttachments(
+  list: unknown[],
+): Array<{ name: string; url: string | null }> {
+  const out: Array<{ name: string; url: string | null }> = [];
+  for (const raw of list) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    const name =
+      typeof row.name === "string" && row.name.trim()
+        ? row.name.trim()
+        : "attachment";
+    const url =
+      typeof row.fileUrl === "string"
+        ? row.fileUrl
+        : typeof row.url === "string"
+          ? row.url
+          : null;
+    out.push({ name, url });
+  }
+  return out;
+}
+
 export function appTaskCommentsToTaskComments(
   comments: AppTaskComment[],
 ): TaskComment[] {
@@ -301,5 +323,6 @@ export function appTaskCommentsToTaskComments(
     creatorId: c.creatorId,
     createTime: c.createTime,
     parentId: c.parentId,
+    attachments: mapCommentAttachments(c.attachmentList),
   }));
 }

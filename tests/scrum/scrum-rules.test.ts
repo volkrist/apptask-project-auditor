@@ -168,6 +168,30 @@ test("scrum_planned_hours_present WARN when PV empty", async () => {
   assert.match(r.reason, /Оценка \(ч\)/);
 });
 
+test("scrum_decomposition_over_20h WARN when not in sheet but card PV > 20h", async () => {
+  const task = {
+    ...emptyRawTask(),
+    title: "Ананас",
+    boardId: "783",
+    status: "Новая задача",
+    plannedTime: "35 ч",
+  };
+  const r = await scrumDecompositionOver20hRule.evaluate(task, {
+    config,
+    allTasks: [task],
+    scrum: scrumCtx([
+      estimateRow({
+        code: "4.1",
+        title: "4.1 Backend API",
+        plannedHours: 25,
+      }),
+    ]),
+  });
+  assert.equal(r.status, "WARN");
+  assert.match(r.reason, /35 ч в карточке/i);
+  assert.match(r.reason, /не найдена в смете/i);
+});
+
 test("scrum_decomposition_over_20h WARN without subtasks", async () => {
   const task = {
     ...emptyRawTask(),
