@@ -2,6 +2,9 @@ import type { AuditResult, CardAudit, RuleResult } from "../rules/rule-types.js"
 import { collectLinkCheckTargets } from "../rules/helpers.js";
 import { isTestingStatus } from "../rules/status/status-helpers.js";
 import {
+  SCRUM_NAME_MISMATCH_RULE,
+} from "../rules/soft/scrum-board-rules.js";
+import {
   ACTUAL_HOURS_EXCEEDS_ESTIMATE_RULE,
   ESTIMATE_EXCEEDED_WITHOUT_COMMENT_RULE,
 } from "../rules/soft/tracking-hours-rules.js";
@@ -235,6 +238,67 @@ function defaultTaskAccount(
     fail,
     warn,
     outcome: outcomeFromCounts(fail, warn, { partial: opts.partial }),
+  };
+}
+
+function isTitleMatchNotInEstimateSkip(r: RuleResult): boolean {
+  return (
+    (r.status === "SKIP" || isPseudoSkip(r)) &&
+    (r.reason.includes("Нет строки сметы") ||
+      r.reason.includes("сверка названия не выполнялась"))
+  );
+}
+
+function scrumTitleMatchAccount(result: AuditResult): RuleCandidateAccount {
+  const scope = result.meta.cardsChecked;
+  const titleResults = taskResultsForRule(result, SCRUM_NAME_MISMATCH_RULE);
+
+  let skippedSource = 0;
+  let notInEstimate = 0;
+  let inEstimate = 0;
+  let warn = 0;
+
+  for (const r of titleResults) {
+    if (isTitleMatchNotInEstimateSkip(r)) {
+      notInEstimate++;
+      continue;
+    }
+    if (r.status === "SKIP" || isPseudoSkip(r)) {
+      skippedSource++;
+      continue;
+    }
+    if (r.status === "NOT_APPLICABLE") continue;
+    inEstimate++;
+    if (r.status === "WARN") warn++;
+  }
+
+  if (skippedSource === titleResults.length && titleResults.length > 0) {
+    return {
+      scopeLabel: scopeTasksLabel(scope),
+      candidatesLabel: "Scrum / смета недоступна",
+      unavailableLabel: "—",
+      fail: 0,
+      warn: 0,
+      outcome: "SKIP",
+    };
+  }
+
+  const parts: string[] = [];
+  if (inEstimate > 0) parts.push(`${inEstimate} со строкой сметы`);
+  if (notInEstimate > 0) parts.push(`не в смете: ${notInEstimate}`);
+
+  return {
+    scopeLabel: scopeTasksLabel(scope),
+    candidatesLabel:
+      parts.length > 0 ? parts.join("; ") : "Кандидатов для проверки нет",
+    unavailableLabel:
+      notInEstimate > 0
+        ? `${notInEstimate} без строки сметы (сверка названия не выполнялась)`
+        : "—",
+    fail: 0,
+    warn,
+    outcome:
+      warn > 0 ? "WARN" : notInEstimate > 0 ? "PARTIAL" : inEstimate > 0 ? "OK" : "OK",
   };
 }
 
@@ -818,6 +882,8 @@ export function buildRuleCandidateAccount(
   switch (ruleId) {
     case "scrum_planned_hours_present":
       return scrumPlannedHoursAccount(result);
+    case SCRUM_NAME_MISMATCH_RULE:
+      return scrumTitleMatchAccount(result);
     case "review_queue_over_limit": {
       const queue =
         result.meta.boardMetrics?.reviewQueueCount ??

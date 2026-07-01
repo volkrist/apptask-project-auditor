@@ -125,6 +125,28 @@ test("scrum_task_in_estimate WARN when not in estimate", async () => {
   assert.match(r.reason, /не найдена в утверждённой смете/i);
 });
 
+test("scrum_title_matches_estimate SKIP when not in estimate", async () => {
+  const task = {
+    ...emptyRawTask(),
+    title: "9.9 Unknown",
+    boardId: "783",
+    status: "В процессе",
+  };
+  const r = await scrumTitleMatchesEstimateRule.evaluate(task, {
+    config,
+    allTasks: [task],
+    scrum: scrumCtx([
+      estimateRow({
+        code: "1",
+        title: "1.0 Other",
+        plannedHours: 5,
+      }),
+    ]),
+  });
+  assert.equal(r.status, "SKIP");
+  assert.match(r.reason, /сверка названия не выполнялась/i);
+});
+
 test("scrum_title_matches_estimate WARN on mismatch", async () => {
   const task = {
     ...emptyRawTask(),

@@ -118,7 +118,7 @@ export function mapDbBundleToRawTasks(
       updatedAt: toIso(t.update_time),
       priority: t.priority != null ? String(t.priority) : null,
       status,
-      stage: null,
+      stage: t.sprint_name?.trim() ?? null,
       category: t.block_name?.trim() ?? null,
       plannedTime: formatSecondsToTime(t.planned_end_time_offset),
       actualTime: formatSecondsToTime(t.current_end_time_offset),

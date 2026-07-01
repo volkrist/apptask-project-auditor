@@ -97,19 +97,30 @@ export function isTitleBlacklisted(value: string, config: AuditConfig): boolean 
   const tokens = titleTokens(value);
   return (
     tokens.length === 1 &&
-    config.genericTitleBlacklist.includes(tokens[0] ?? "")
+    tokenMatchesGenericBlacklist(tokens[0] ?? "", config)
   );
 }
 
 /** Все значимые слова названия — из blacklist общих слов. */
 export function titleHasOnlyGenericWords(value: string, config: AuditConfig): boolean {
-  const words = normalizeTitle(value)
-    .split(" ")
-    .filter((word) => word.length > 0 && !TITLE_STOP_WORDS.has(word));
+  const words = significantTitleWordsList(value);
   if (words.length === 0) return true;
-  return words.every((word) =>
-    config.genericTitleBlacklist.some((generic) => word === generic),
-  );
+  return words.every((word) => tokenMatchesGenericBlacklist(word, config));
+}
+
+/**
+ * Название слишком общее по ТЗ: «правки», «доработки», «баги», «сайт», «проверить»
+ * и близкие формы, в т.ч. «Правки по UI», но не «Работа с регламентами: …».
+ */
+export function isTitleTooGeneric(value: string, config: AuditConfig): boolean {
+  if (isTitleBlacklisted(value, config)) return true;
+  if (titleHasOnlyGenericWords(value, config)) return true;
+
+  const sig = significantTitleWordsList(value);
+  if (sig.length === 0) return true;
+  if (!tokenMatchesGenericBlacklist(sig[0], config)) return false;
+
+  return sig.length <= 2;
 }
 
 export function descriptionMatchesPatterns(
@@ -122,12 +133,35 @@ export function descriptionMatchesPatterns(
 
 const TITLE_STOP_WORDS = new Set(["по", "за", "для", "и", "в", "на", "к", "о"]);
 
-function significantTitleWords(value: string): Set<string> {
-  return new Set(
-    normalizeTitle(value)
-      .split(" ")
-      .filter((word) => word && !TITLE_STOP_WORDS.has(word)),
+const GENERIC_TITLE_STEM_LEN = 5;
+
+function stripTrailingPunct(word: string): string {
+  return word.replace(/[.:,;!?…]+$/g, "");
+}
+
+function tokenEqualsGenericLexeme(token: string, generic: string): boolean {
+  if (token === generic) return true;
+  if (token.length < GENERIC_TITLE_STEM_LEN || generic.length < GENERIC_TITLE_STEM_LEN) {
+    return false;
+  }
+  return token.slice(0, GENERIC_TITLE_STEM_LEN) === generic.slice(0, GENERIC_TITLE_STEM_LEN);
+}
+
+function tokenMatchesGenericBlacklist(token: string, config: AuditConfig): boolean {
+  return config.genericTitleBlacklist.some((generic) =>
+    tokenEqualsGenericLexeme(token, generic),
   );
+}
+
+export function significantTitleWordsList(value: string): string[] {
+  return normalizeTitle(value)
+    .split(" ")
+    .filter((word) => word.length > 0 && !TITLE_STOP_WORDS.has(word))
+    .map(stripTrailingPunct);
+}
+
+function significantTitleWords(value: string): Set<string> {
+  return new Set(significantTitleWordsList(value));
 }
 
 export function titleSimilarity(a: string, b: string): number {

@@ -99,6 +99,8 @@ test("countTestingQueueTasks", () => {
 
 test("high priority / critical bug markers", () => {
   assert.ok(isHighPriorityOrCriticalBug(task({ priority: "Высокий" })).match);
+  assert.ok(isHighPriorityOrCriticalBug(task({ priority: "2" })).match);
+  assert.ok(!isHighPriorityOrCriticalBug(task({ priority: "0" })).match);
   assert.ok(isHighPriorityOrCriticalBug(task({ tags: ["critical"] })).match);
   assert.ok(
     isHighPriorityOrCriticalBug(task({ title: "Критичный баг в оплате" })).match,

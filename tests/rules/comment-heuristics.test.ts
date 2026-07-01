@@ -13,12 +13,42 @@ import { isUiRelatedTask } from "../../src/rules/task-ui.js";
 import { classifyTaskType } from "../../src/tasks/task-type-classification.js";
 
 test("hasMockupApprovalMarker detects customer approval phrases", () => {
-  assert.equal(
-    hasMockupApprovalMarker("С заказчиком согласовано, задачу закрываю"),
-    true,
-  );
-  assert.equal(hasMockupApprovalMarker("Макет согласован с PM"), true);
-  assert.equal(hasMockupApprovalMarker("Сверстать по Figma"), false);
+  const positive = [
+    "С заказчиком согласовано, задачу закрываю",
+    "Заказчик согласовал",
+    "Заказчик согласовал макет",
+    "Заказчик утвердил",
+    "Заказчик одобрил дизайн",
+    "Согласовано с заказчиком",
+    "Согласован заказчиком",
+    "Макет согласован с PM",
+    "Макет согласован",
+    "Дизайн согласован",
+    "UI согласован",
+    "Клиент согласовал",
+    "С клиентом согласовано",
+    "Согласовали с заказчиком",
+    "Согласовано, можно в работу",
+    "Можно верстать — согласовано с заказчиком",
+    "Mockup approved",
+    "Customer approved",
+    "Получено согласование заказчика",
+    "Есть согласование макета",
+  ];
+  for (const phrase of positive) {
+    assert.equal(hasMockupApprovalMarker(phrase), true, phrase);
+  }
+
+  const negative = [
+    "Сверстать по Figma",
+    "Ждём согласования заказчика",
+    "Не согласован с заказчиком",
+    "Нужно согласовать макет",
+    "На согласовании у заказчика",
+  ];
+  for (const phrase of negative) {
+    assert.equal(hasMockupApprovalMarker(phrase), false, phrase);
+  }
 });
 
 test("isQaCompletionReport excludes QA result from open questions", () => {

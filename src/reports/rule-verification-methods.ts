@@ -76,7 +76,7 @@ export const RULE_VERIFICATION_METHODS: Record<string, string> = {
   title_present: "поле title карточки AppTask (БД) + пороги длины и конкретики",
   title_not_generic: "поле title карточки AppTask (БД) + список общих слов",
   description_has_goal:
-    "поле content/description карточки AppTask (БД): секция «Цель:/Результат:» или ключевые формулировки из goalKeywords (audit-config.ts)",
+    "поле content/description карточки AppTask (БД): фраза «цель задачи» или «ожидаемый результат», либо заголовок «Цель» в начале секции описания",
   assignee_not_in_users_list:
     "поле assignee карточки AppTask (БД) + users API AppTask",
   deadline_present: "поле dueDate карточки AppTask (БД)",
@@ -89,11 +89,11 @@ export const RULE_VERIFICATION_METHODS: Record<string, string> = {
   task_type_valid:
     "теги карточки AppTask (БД); допустимые значения — requiredTaskTypes в audit-config.ts",
   stage_matches_column:
-    "поле stage карточки AppTask (отдельное от status); сопоставление по stageByStatus в audit-config.ts",
+    "поле stage (BoardSprints.name / «Этап» в UI) заполнено и ≠ status; для доски 783 — boardStageByStatus в audit-config.ts",
   estimate_present:
     "AppTask DB: planned_end_time_offset → plannedTime; описание/ссылки; Google Sheets смета (Scrum)",
   estimate_link_present:
-    "описание и ссылки карточки AppTask (БД, HTML→links); Google Sheets смета (Scrum); паттерны estimateLinkPatterns",
+    "описание и ссылки карточки AppTask (БД); паттерны estimateLinkPatterns; ПВ и Google-смета без ссылки в карточке не учитываются",
   artifact_links_present:
     "описание, ссылки и вложения карточки AppTask (БД); Google Sheets смета (строка задачи)",
   links_reachable:
@@ -103,7 +103,7 @@ export const RULE_VERIFICATION_METHODS: Record<string, string> = {
     "AppTask DB: BoardTaskUsers + Users.blocked; API get_users при playwright/api collector",
   description_present: "поле description карточки AppTask (БД)",
   ui_has_mockup_link:
-    "классификация UI/front; исключение задач на создание макета; Figma/mockup в description/links",
+    "пара (UI/UX)+(front) с одним номером на доске или «верстка по макету»; Figma/mockup в description/links; функциональные front без пары UI/UX — NOT_APPLICABLE",
   ui_mockup_approved:
     "описание и комментарии карточки AppTask (БД); маркеры согласования макета",
   ui_adaptive_requirements:

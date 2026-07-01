@@ -10,7 +10,14 @@ import {
 import { hoursSince } from "../../scrum/estimate-matcher.js";
 import { findInProgressStartedAt } from "../history/history-parser.js";
 import { makeStateNameResolver } from "../../collectors/state-map.js";
-import { isUiRelatedTask, requiresExistingMockupLink } from "../task-ui.js";
+import {
+  collectMockupLinkBlob,
+  findPairedUiUxTask,
+  hasMockupLinkReference,
+  isUiRelatedTask,
+  requiresExistingMockupLink,
+  requiresMockupApprovalCheck,
+} from "../task-ui.js";
 import { getAuditProfile, resolveAuditProfileId } from "../../config/audit-profiles.js";
 import { partitionTasksForAudit } from "../../tasks/task-classification.js";
 import { getTaskTrackingMetrics } from "../../tracking/load-tracking-context.js";
@@ -193,13 +200,6 @@ export const sprintDatesMatchRule: Rule = {
   },
 };
 
-function hasMockupLinkReference(textBlob: string): boolean {
-  if (/figma\.com|zeplin\.com|sketch\.com|invisionapp\.com/i.test(textBlob)) {
-    return true;
-  }
-  return /https?:\/\/\S*(mockup|макет)/i.test(textBlob);
-}
-
 export const uiHasMockupLinkRule: Rule = {
   id: "ui_has_mockup_link",
   severity: "soft",
@@ -207,16 +207,26 @@ export const uiHasMockupLinkRule: Rule = {
     if (!isUiRelatedTask(task)) {
       return notApplicable("ui_has_mockup_link", "Не UI/front задача");
     }
-    if (!requiresExistingMockupLink(task, ctx.config)) {
+    if (!requiresExistingMockupLink(task, ctx.config, ctx.allTasks)) {
       return notApplicable(
         "ui_has_mockup_link",
-        "Задача на создание UI/макета — готовый макет не требуется",
+        "Макет не требуется: задача на дизайн/создание UI или функциональная front-задача без пары (UI/UX) с тем же номером",
       );
     }
-    const links = [...(task.links ?? []), ...(task.attachments ?? []).map((a) => a.url ?? a.name)];
-    const desc = task.descriptionText ?? "";
-    const textBlob = [desc, ...links].join("\n");
+    const textBlob = collectMockupLinkBlob(task, ctx.allTasks);
     if (hasMockupLinkReference(textBlob)) {
+      const selfOnly = collectMockupLinkBlob(task, []);
+      const paired = findPairedUiUxTask(task, ctx.allTasks);
+      if (
+        paired &&
+        !hasMockupLinkReference(selfOnly) &&
+        hasMockupLinkReference(textBlob)
+      ) {
+        return pass(
+          "ui_has_mockup_link",
+          "Ссылка на макет найдена в парной задаче (UI/UX)",
+        );
+      }
       return pass("ui_has_mockup_link", "Ссылка на макет найдена");
     }
     return fail(
@@ -229,9 +239,15 @@ export const uiHasMockupLinkRule: Rule = {
 export const uiMockupApprovedRule: Rule = {
   id: "ui_mockup_approved",
   severity: "soft",
-  evaluate(task) {
+  evaluate(task, ctx) {
     if (!isUiRelatedTask(task)) {
       return notApplicable("ui_mockup_approved", "Не UI/front задача");
+    }
+    if (!requiresMockupApprovalCheck(task, ctx.config, ctx.allTasks)) {
+      return notApplicable(
+        "ui_mockup_approved",
+        "Согласование макета не требуется: функциональная front-задача без пары (UI/UX) с тем же номером",
+      );
     }
 
     const textParts = [

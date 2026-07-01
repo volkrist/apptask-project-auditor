@@ -14,10 +14,10 @@ export const descriptionHasGoalRule: Rule = {
       );
     }
 
-    if (!descriptionIndicatesGoal(text, config.goalKeywords)) {
+    if (!descriptionIndicatesGoal(text)) {
       return fail(
         "description_has_goal",
-        "В описании нет явной формулировки цели или результата (секция «Цель:/Результат:» или маркеры вроде «необходимо», «ожидаемый результат», «должен включать»)",
+        "В описании нет формулировки «цель задачи» или «ожидаемый результат» (или заголовка «Цель» в начале секции)",
       );
     }
     return pass("description_has_goal");

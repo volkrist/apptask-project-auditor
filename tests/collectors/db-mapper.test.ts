@@ -28,6 +28,7 @@ const baseTask: DbTaskRow = {
   create_time: "2026-01-01T00:00:00.000Z",
   real_sprint_id: 5,
   sprint_id: 4,
+  sprint_name: "1 этап",
   creator_id: 100,
 };
 
@@ -73,7 +74,7 @@ test("mapDbBundleToRawTasks builds url and cleans html", () => {
   assert.equal(raw.boardId, "783");
   assert.equal(raw.url, "https://apptask.ru/c/7/board/783/9001");
   assert.equal(raw.status, "В процессе");
-  assert.equal(raw.stage, null);
+  assert.equal(raw.stage, "1 этап");
   assert.equal(raw.plannedTime, "8 ч");
   assert.equal(raw.actualTime, "2 ч");
   assert.equal(raw.category, "Frontend");
@@ -99,6 +100,15 @@ test("mapDbBundleToRawTasks extracts links from HTML content", () => {
   assert.deepEqual(raw.links, [
     "https://docs.google.com/spreadsheets/d/abc/edit",
   ]);
+});
+
+test("mapDbBundleToRawTasks: sprint_name null → stage null", () => {
+  const taskNoStage: DbTaskRow = { ...baseTask, sprint_name: null };
+  const [raw] = mapDbBundleToRawTasks(
+    { tasks: [taskNoStage], assignees: [], tags: [], comments: [], histories: [] },
+    "https://apptask.ru/c/7",
+  );
+  assert.equal(raw.stage, null);
 });
 
 test("htmlToPlainText normalizes nbsp", () => {

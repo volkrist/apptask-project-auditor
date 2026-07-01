@@ -25,6 +25,7 @@ export const MANDATORY_CARD_FIELD_RULE_IDS = [
   "title_present",
   "title_not_generic",
   "description_present",
+  "description_has_goal",
   "assignee_present",
   "blocked_assignee_not_allowed",
   "assignee_not_in_users_list",

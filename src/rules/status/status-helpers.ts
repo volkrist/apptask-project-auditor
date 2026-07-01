@@ -211,7 +211,12 @@ export function isHighPriorityOrCriticalBug(task: RawTask): {
   match: boolean;
   marker: string;
 } {
-  const p = task.priority?.toLowerCase() ?? "";
+  const p = task.priority?.trim() ?? "";
+  /** AppTask DB enum: 0 = обычный, 2 = высокий (см. BoardTasks.priority). */
+  const pNum = Number(p);
+  if (Number.isFinite(pNum) && pNum >= 2) {
+    return { match: true, marker: `priority=${p} (AppTask enum)` };
+  }
   if (/высок|high|critical|критич|urgent|сроч/i.test(p)) {
     return { match: true, marker: `priority=${task.priority}` };
   }

@@ -1,19 +1,39 @@
 /**
- * Heuristic: явная цель/результат в тексте описания (поле content в БД).
- * Не использует отдельные поля карточки — только descriptionText.
+ * Явная цель задачи или ожидаемый результат в тексте описания (поле content в БД).
+ * Без эвристики по общим словам («необходимо», «должен» и т.п.).
+ * Отдельное поле «Результат» в UI не читается.
  */
 
-/** «Цель:», «Результат —», «Ожидаемый результат:» и т.п. */
-const GOAL_SECTION_RE =
-  /(?:^|[\n.!?\u2022-]\s*)(?:\*\*)?(?:цель|результат|ожидаемый результат|критерии(?:\s+готовности)?|итог)\s*(?:\*\*)?\s*[:\-—]/im;
+function normalizeForMatch(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function hasExpectedResultPhrase(text: string): boolean {
+  return normalizeForMatch(text).includes("ожидаемый результат");
+}
+
+function hasTaskGoalPhrase(text: string): boolean {
+  return normalizeForMatch(text).includes("цель задачи");
+}
+
+/** «Цель» как заголовок строки (начало описания или новой строки). */
+function hasGoalSectionHeading(text: string): boolean {
+  return text.split(/\r?\n/).some((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return false;
+    const lower = trimmed.toLowerCase().replace(/^\*+|\*+$/g, "");
+    return lower.startsWith("цель");
+  });
+}
 
 export function descriptionIndicatesGoal(
   descriptionText: string | null | undefined,
-  goalKeywords: readonly string[],
 ): boolean {
   const text = descriptionText?.trim() ?? "";
   if (!text) return false;
-  if (GOAL_SECTION_RE.test(text)) return true;
-  const lower = text.toLowerCase();
-  return goalKeywords.some((keyword) => lower.includes(keyword.toLowerCase()));
+  return (
+    hasExpectedResultPhrase(text) ||
+    hasTaskGoalPhrase(text) ||
+    hasGoalSectionHeading(text)
+  );
 }

@@ -96,16 +96,25 @@ export const scrumTitleMatchesEstimateRule: Rule = {
   id: SCRUM_NAME_MISMATCH_RULE,
   severity: "soft",
   evaluate(task, ctx) {
-    const skip = requireScrumForTask(task, ctx, SCRUM_NAME_MISMATCH_RULE);
-    if (skip) return skip;
+    const boardSkip = requireScrumForTask(task, ctx, SCRUM_NAME_MISMATCH_RULE);
+    if (boardSkip) return boardSkip;
     const match = matchTaskToEstimate(task, ctx.scrum!.rows);
+    if (match.kind === "not_found") {
+      return skip(
+        SCRUM_NAME_MISMATCH_RULE,
+        "Нет строки сметы — сверка названия не выполнялась",
+      );
+    }
     if (match.kind === "title_mismatch") {
       return warn(
         SCRUM_NAME_MISMATCH_RULE,
         `AppTask: «${match.taskTitle}» ≠ смета: «${match.estimateTitle}»`,
       );
     }
-    return pass(SCRUM_NAME_MISMATCH_RULE, "OK");
+    return pass(
+      SCRUM_NAME_MISMATCH_RULE,
+      "Название совпадает со строкой сметы",
+    );
   },
 };
 

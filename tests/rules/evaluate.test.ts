@@ -78,7 +78,7 @@ test("evaluateTask contract: включает обязательные поля 
   const task = loadFixture("task-bad.json");
   const results = await evaluateTask(task, testConfig, [task]);
   assert.equal(statusOf(results, "deadline_present"), "PASS");
-  assert.equal(statusOf(results, "artifact_links_present"), "FAIL");
+  assert.equal(statusOf(results, "description_has_goal"), "FAIL");
   assert.equal(statusOf(results, "assignee_present"), "FAIL");
 });
 

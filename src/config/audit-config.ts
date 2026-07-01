@@ -36,27 +36,6 @@ export const defaultAuditConfig = {
   descriptionMinLength: 80,
   titleMinLength: 8,
   titleMinWords: 2,
-  goalKeywords: [
-    "цель",
-    "цели",
-    "основные цели",
-    "результат",
-    "ожидаемый результат",
-    "ожидается",
-    "ожидаем",
-    "критерии",
-    "критерий",
-    "нужно чтобы",
-    "пользователь должен",
-    "должно работать",
-    "должен включать",
-    "должен содержать",
-    "должен обеспечивать",
-    "необходимо",
-    "требуется",
-    "готово когда",
-    "итог",
-  ],
   taskTypeSource: "tag_or_category" as const,
   reportMode: "summary_plus_details" as const,
   linkCheckTimeoutMs: 5000,
@@ -101,6 +80,21 @@ export const defaultAuditConfig = {
     "На проверке": ["провер", "qa", "review", "testing", "тест"],
     "Завершено": ["заверш", "готово", "done", "закрыт", "closed", "выполн"],
   } as Record<string, string[]>,
+  /**
+   * Явный маппинг «Этап» (BoardSprints.name) → допустимые статусы колонки по доске.
+   * TurboWeave (783): названия воронок на доске, не маркеры stageByStatus.
+   */
+  boardStageByStatus: {
+    "783": {
+      "ТЕСТ": ["В процессе", "На проверке", "Новая задача", "Завершено"],
+      "Написание ТЗ": ["Новая задача", "В процессе", "Завершено"],
+      "Потоковые": ["В процессе", "Завершено", "Новая задача", "На проверке"],
+      "1 этап: Основы": ["В процессе", "Завершено"],
+      "2 этап: Машины-соперники": ["В процессе", "Завершено"],
+      "3-5 этапы: Доработка механик": ["В процессе", "Завершено"],
+      "S4 - выход на tier-3": ["В процессе", "Завершено", "Новая задача"],
+    },
+  } as Record<string, Record<string, readonly string[]>>,
   emptyPlannedTimeValues: ["00:00", "0:00", "0"],
   /** Минимальный срок задачи (дни) при совпадении created/due — эвристика. */
   minRealisticDueSpanDays: 1,
@@ -132,7 +126,6 @@ export type AuditConfig = {
   readonly descriptionMinLength: number;
   readonly titleMinLength: number;
   readonly titleMinWords: number;
-  readonly goalKeywords: readonly string[];
   readonly taskTypeSource: "tag_or_category";
   readonly reportMode: "summary_plus_details";
   readonly linkCheckTimeoutMs: number;
@@ -142,6 +135,7 @@ export type AuditConfig = {
   readonly artifactLinkPatterns: readonly RegExp[];
   readonly estimateTextPatterns: readonly RegExp[];
   readonly stageByStatus: Record<string, string[]>;
+  readonly boardStageByStatus: Record<string, Record<string, readonly string[]>>;
   readonly emptyPlannedTimeValues: readonly string[];
   readonly minRealisticDueSpanDays: number;
   readonly unresolvedQuestionKeywords: readonly string[];

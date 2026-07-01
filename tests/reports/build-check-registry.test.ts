@@ -12,9 +12,9 @@ import {
 import type { AuditResult } from "../../src/rules/rule-types.js";
 
 test("full check registry has mandatory + operational items", () => {
-  assert.equal(MANDATORY_CARD_FIELD_CHECK_REGISTRY.length, 21);
+  assert.equal(MANDATORY_CARD_FIELD_CHECK_REGISTRY.length, 22);
   assert.equal(CONTRACT_OPERATIONAL_CHECK_REGISTRY.length, 45);
-  assert.equal(getFullCheckRegistry().length, 60);
+  assert.equal(getFullCheckRegistry().length, 61);
 });
 
 test("registry marks skipped entity rule", () => {
@@ -162,6 +162,6 @@ test("summarizeCheckRegistry totals", () => {
     ],
   });
   const s = summarizeCheckRegistry(rows);
-  assert.equal(s.checked + s.notApplicable + s.skip, 60);
+  assert.equal(s.checked + s.notApplicable + s.skip, 61);
   assert.equal(s.notApplicable, 0);
 });

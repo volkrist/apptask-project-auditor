@@ -57,6 +57,7 @@ function isNotInEstimateSkip(r: RuleResult): boolean {
     (r.status === "SKIP" || isPseudoSkip(r)) &&
     (r.reason.includes("Нет строки сметы") ||
       r.reason.includes("ПВ не проверялось") ||
+      r.reason.includes("сверка названия не выполнялась") ||
       r.reason.includes("не найдена в утверждённой смете"))
   );
 }

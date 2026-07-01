@@ -4,6 +4,7 @@ import { loadAuditConfig } from "../../src/config/audit-config.js";
 import {
   extractTaskType,
   isTitleBlacklisted,
+  isTitleTooGeneric,
   parseRuDate,
   titleSimilarity,
   isValidHttpUrl,
@@ -40,6 +41,18 @@ test("isValidHttpUrl", () => {
 test("isTitleBlacklisted: токен, не подстрока", () => {
   assert.equal(isTitleBlacklisted("работа", config), true);
   assert.equal(isTitleBlacklisted("Работа с регламентами: изменение процессов", config), false);
+});
+
+test("isTitleTooGeneric: ловит общие названия из ТЗ", () => {
+  assert.equal(isTitleTooGeneric("правки", config), true);
+  assert.equal(isTitleTooGeneric("Правки по UI", config), true);
+  assert.equal(isTitleTooGeneric("доработки", config), true);
+  assert.equal(isTitleTooGeneric("Доработка модуля", config), true);
+  assert.equal(isTitleTooGeneric("баги", config), true);
+  assert.equal(isTitleTooGeneric("сайт", config), true);
+  assert.equal(isTitleTooGeneric("проверить форму", config), true);
+  assert.equal(isTitleTooGeneric("Работа с регламентами: изменение процессов", config), false);
+  assert.equal(isTitleTooGeneric("7.2.3 Иконка бустера на главной", config), false);
 });
 
 test("extractTaskType: категория Найм → найм", () => {

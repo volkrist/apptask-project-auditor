@@ -117,7 +117,7 @@ test("card detail headings are clickable when url exists", () => {
 test("contract report omits removed client checks", () => {
   const md = buildContractAuditMarkdown(baseResult());
   assert.doesNotMatch(md, /артефакт/i);
-  assert.doesNotMatch(md, /цель или ожидаемый результат/i);
+  assert.match(md, /цель задачи или ожидаемый результат/i);
   assert.doesNotMatch(md, /## Область проверки/);
 });
 
@@ -169,6 +169,7 @@ test("contract report includes mandatory card fields checklist", () => {
   assert.match(md, /### 1\. Обязательные поля карточки/);
   assert.match(md, /Успешно \*\*\d+\*\* · Нарушений \*\*\d+\*\*/);
   assert.match(md, /понятное название задачи/);
+  assert.match(md, /цель задачи или ожидаемый результат/);
   assert.match(md, /При переводе на проверку назначен тестировщик/);
 });
 
@@ -178,6 +179,6 @@ test("contract report includes check registry with all contract items", () => {
   assert.match(md, /\| № \| Проверка \| Область \| Проверено \| Кандидатов \| Не проверено \| Нарушения \| Итог \|/);
   assert.match(md, /CHECKED:/);
   assert.match(md, /\| 1 \| У карточки есть понятное название задачи/);
-  assert.match(md, /\| 60 \| Названия задач и время готовы к актам/);
+  assert.match(md, /\| 61 \| Названия задач и время готовы к актам/);
   assert.doesNotMatch(md, /Статус выполнения: NOT_APPLICABLE/);
 });

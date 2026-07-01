@@ -20,7 +20,7 @@ import type { AuditResult } from "../../src/rules/rule-types.js";
 test("CONTRACT_RULE_EVIDENCE matches full check registry", () => {
   const registry = getFullCheckRegistry();
   assert.equal(CONTRACT_RULE_EVIDENCE.length, registry.length);
-  assert.equal(registry.length, 62);
+  assert.equal(registry.length, 61);
   for (let i = 0; i < registry.length; i++) {
     const reg = registry[i]!;
     const ev = CONTRACT_RULE_EVIDENCE[i]!;
@@ -43,17 +43,17 @@ test("every registry ruleId has evidence spec", () => {
 test("automation level groups cover all checks", () => {
   const groups = groupEvidenceByAutomationLevel();
   const total = Object.values(groups).reduce((s, g) => s + g.length, 0);
-  assert.equal(total, 62);
+  assert.equal(total, 61);
   assert.ok(groups.STRICT.length > 0);
   assert.ok(groups.TEXT_MARKER.length > 0);
   assert.ok(groups.PARTIAL.length > 0);
   assert.ok(groups.SOURCE_UNAVAILABLE.length > 0);
 });
 
-test("formatEvidenceMatrixTable has header and 62 data rows", () => {
+test("formatEvidenceMatrixTable has header and 61 data rows", () => {
   const lines = formatEvidenceMatrixTable();
   assert.ok(lines[0]?.includes("automationLevel"));
-  assert.equal(lines.length, 64);
+  assert.equal(lines.length, 63);
 });
 
 test("formatFullEvidenceMatrixMarkdown includes key sections", () => {

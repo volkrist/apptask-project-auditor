@@ -10,22 +10,41 @@ const config = loadAuditConfig();
 const TASK_96_DESCRIPTION =
   "Реализовать фронтенд-часть страницы «Профиль пользователя». Компонент должен включать в себя отображение персональных данных (аватар, ФИО, контакты, роль в системе), форму их редактирования с валидацией полей, а также вкладку со сменой пароля и настройками уведомлений. Необходимо интегрировать готовые UI-компоненты с существующими эндпоинтами бэкенда API, обработать состояния загрузки (лоадеры) и возможные ошибки сети.";
 
-test("descriptionIndicatesGoal: секция «Цель:»", () => {
-  assert.equal(descriptionIndicatesGoal("Цель: собрать отчёт.", config.goalKeywords), true);
+test("descriptionIndicatesGoal: заголовок «Цель» в начале", () => {
+  assert.equal(descriptionIndicatesGoal("Цель: собрать отчёт."), true);
+  assert.equal(descriptionIndicatesGoal("Цель собрать отчёт по найму."), true);
 });
 
-test("descriptionIndicatesGoal: секция «Результат —»", () => {
+test("descriptionIndicatesGoal: фраза «ожидаемый результат»", () => {
   assert.equal(
-    descriptionIndicatesGoal("Результат — страница в проде без ошибок.", config.goalKeywords),
+    descriptionIndicatesGoal("Ожидаемый результат: форма сохраняет данные."),
+    true,
+  );
+  assert.equal(
+    descriptionIndicatesGoal("Ожидаемый результат — страница в проде без ошибок."),
     true,
   );
 });
 
-test("descriptionIndicatesGoal: TurboWeave #96 — «необходимо» и «должен включать»", () => {
-  assert.equal(descriptionIndicatesGoal(TASK_96_DESCRIPTION, config.goalKeywords), true);
+test("descriptionIndicatesGoal: фраза «цель задачи»", () => {
+  assert.equal(
+    descriptionIndicatesGoal("Цель задачи — реализовать страницу профиля."),
+    true,
+  );
 });
 
-test("descriptionHasGoalRule: TurboWeave #96 → PASS", () => {
+test("descriptionIndicatesGoal: только «Результат» без «ожидаемый» → false", () => {
+  assert.equal(
+    descriptionIndicatesGoal("Результат — страница в проде без ошибок."),
+    false,
+  );
+});
+
+test("descriptionIndicatesGoal: TurboWeave #96 без цели/результата → false", () => {
+  assert.equal(descriptionIndicatesGoal(TASK_96_DESCRIPTION), false);
+});
+
+test("descriptionHasGoalRule: TurboWeave #96 → FAIL", () => {
   const task = {
     ...emptyRawTask(),
     descriptionText: TASK_96_DESCRIPTION,
@@ -34,14 +53,22 @@ test("descriptionHasGoalRule: TurboWeave #96 → PASS", () => {
     config,
     allTasks: [task],
   });
-  assert.equal(result.status, "PASS");
+  assert.equal(result.status, "FAIL");
 });
 
-test("descriptionIndicatesGoal: только ссылки без маркеров → false", () => {
+test("descriptionIndicatesGoal: общие слова без цели/результата → false", () => {
+  assert.equal(
+    descriptionIndicatesGoal(
+      "Необходимо сделать форму. Компонент должен включать валидацию.",
+    ),
+    false,
+  );
+});
+
+test("descriptionIndicatesGoal: только ссылка на ТЗ → false", () => {
   assert.equal(
     descriptionIndicatesGoal(
       "Ссылка на ТЗ https://docs.google.com/document/d/abc/edit",
-      config.goalKeywords,
     ),
     false,
   );

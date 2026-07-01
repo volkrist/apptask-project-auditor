@@ -80,12 +80,15 @@ SELECT
   t.create_time,
   t.real_sprint_id,
   t.sprint_id,
+  sp.name AS sprint_name,
   t.creator_id
 FROM dbo.BoardTasks t
 LEFT JOIN dbo.BoardBlocks b
   ON b.id = t.block_id AND b.board_id = t.board_id
 LEFT JOIN dbo.BoardStates s
   ON s.id = t.state_id AND s.board_id = t.board_id
+LEFT JOIN dbo.BoardSprints sp
+  ON sp.id = t.sprint_id AND sp.board_id = t.board_id AND ISNULL(sp.removed, 0) = 0
 WHERE t.board_id IN (${clause})
   AND ${ACTIVE_TASK_FILTER}
 ORDER BY t.board_id, t.id

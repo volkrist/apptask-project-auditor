@@ -70,9 +70,9 @@ const MANDATORY_EVIDENCE_BY_RULE: Record<
     "описание заполнено",
   ),
   description_has_goal: mandatoryFieldEvidence(
-    "в тексте описания (content) нет секции «Цель:/Результат:» и ни одного маркера из goalKeywords",
-    "цель или ожидаемый результат указаны явно в описании",
-    { automationLevel: "TEXT_MARKER", autoProvable: "частично" },
+    "в тексте описания (content) нет фразы «цель задачи» или «ожидаемый результат» и нет заголовка «Цель» в начале секции",
+    "цель задачи или ожидаемый результат указаны явно в описании",
+    { automationLevel: "STRICT", autoProvable: "да" },
   ),
   assignee_present: mandatoryFieldEvidence(
     "задача в работе или на проверке без назначенного исполнителя",
@@ -146,7 +146,8 @@ const MANDATORY_EVIDENCE_BY_RULE: Record<
     "этап не указан, дублирует статус колонки или не содержит маркеров для текущего статуса",
     "этап/воронка соответствует статусу",
     {
-      sources: "AppTask: поле «Этап» (Playwright) или stage в RawTask; status — колонка BoardStates",
+      sources:
+        "AppTask: «Этап» (Playwright) или BoardSprints.name (DB); boardStageByStatus для доски 783",
       automationLevel: "PARTIAL",
       autoProvable: "частично",
     },
@@ -160,11 +161,11 @@ const MANDATORY_EVIDENCE_BY_RULE: Record<
     },
   ),
   estimate_link_present: mandatoryFieldEvidence(
-    "нет ссылки/упоминания сметы, договора, заявки, согласования и нет строки в Google-смете",
-    "связь со сметой/договором есть",
+    "нет ссылки или упоминания сметы/договора/заявки/согласования в описании и ссылках карточки",
+    "ссылка на смету или договор указана в карточке",
     {
       sources:
-        "AppTask DB: content/links; Scrum/Google Sheets (строка задачи в смете)",
+        "AppTask DB: content/links; ПВ в карточке и строка Google-сметы без ссылки в карточке не засчитываются",
     },
   ),
   artifact_links_present: mandatoryFieldEvidence(

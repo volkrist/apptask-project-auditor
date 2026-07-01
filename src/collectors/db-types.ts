@@ -25,6 +25,8 @@ export type DbTaskRow = {
   create_time: Date | string | null;
   real_sprint_id: number | null;
   sprint_id: number | null;
+  /** BoardSprints.name via sprint_id — поле «Этап» в UI карточки. */
+  sprint_name: string | null;
   creator_id: number | null;
 };
 

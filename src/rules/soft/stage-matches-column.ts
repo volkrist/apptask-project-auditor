@@ -1,10 +1,9 @@
 import type { Rule } from "../rule-types.js";
-import { fail, isBlank, pass, warn } from "../helpers.js";
+import { fail, isBlank, pass } from "../helpers.js";
 import {
-  configuredStatusLabels,
-  expectedStageMarkers,
+  isBoardStageAllowed,
   isStageSameAsStatus,
-  stageMatchesStatus,
+  stageColumnCheckPasses,
 } from "./stage-match-helpers.js";
 
 export const stageMatchesColumnRule: Rule = {
@@ -21,7 +20,7 @@ export const stageMatchesColumnRule: Rule = {
     if (isBlank(task.stage)) {
       return fail(
         "stage_matches_column",
-        `Поле «Этап» не заполнено. Для статуса «${task.status}» ожидается этап с маркерами: ${expectedStageMarkers(task.status!, config)}`,
+        "Поле «Этап» не заполнено — укажите воронку/спринт в карточке AppTask",
       );
     }
 
@@ -32,20 +31,25 @@ export const stageMatchesColumnRule: Rule = {
       );
     }
 
-    const expected = config.stageByStatus[task.status!];
-    if (!expected?.length) {
-      return warn(
+    if (!stageColumnCheckPasses(task)) {
+      return fail(
         "stage_matches_column",
-        `Для статуса «${task.status}» нет эталона в конфиге (настроены: ${configuredStatusLabels(config)})`,
+        `Этап «${task.stage}» не соответствует статусу «${task.status}»`,
       );
     }
 
-    if (!stageMatchesStatus(task.stage!, task.status!, config)) {
-      return fail(
+    if (
+      isBoardStageAllowed(task.boardId, task.stage!, task.status!, config)
+    ) {
+      return pass(
         "stage_matches_column",
-        `Этап «${task.stage}» не соответствует статусу «${task.status}» (ожидаются маркеры: ${expected.join(", ")})`,
+        `Этап «${task.stage}» соответствует статусу «${task.status}» (маппинг доски ${task.boardId})`,
       );
     }
-    return pass("stage_matches_column");
+
+    return pass(
+      "stage_matches_column",
+      "Этап заполнен и отличается от статуса колонки",
+    );
   },
 };

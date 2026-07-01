@@ -23,6 +23,8 @@ const MANDATORY_CHECK_TITLES: Record<(typeof MANDATORY_CARD_FIELD_RULE_IDS)[numb
   title_present: "У карточки есть понятное название задачи",
   title_not_generic: "Название карточки не слишком общее",
   description_present: "У карточки есть подробное описание задачи",
+  description_has_goal:
+    "В описании указана цель задачи или ожидаемый результат",
   assignee_present: "У активной карточки (в работе / на проверке) указан исполнитель",
   blocked_assignee_not_allowed: "Задачи не назначены на уволенных или неактивных сотрудников",
   assignee_not_in_users_list: "Исполнитель найден в списке активных пользователей AppTask",
@@ -45,7 +47,7 @@ const MANDATORY_CHECK_TITLES: Record<(typeof MANDATORY_CARD_FIELD_RULE_IDS)[numb
     "При переводе на проверку назначен тестировщик",
 };
 
-/** Блок «1. Обязательные поля карточки» — 21 проверка по ТЗ заказчика. */
+/** Блок «1. Обязательные поля карточки» — 22 проверки по ТЗ заказчика. */
 export const MANDATORY_CARD_FIELD_CHECK_REGISTRY: readonly ContractCheckRegistryEntry[] =
   MANDATORY_CARD_FIELD_RULE_IDS.map((ruleId, index) => ({
     num: index + 1,
