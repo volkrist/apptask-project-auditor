@@ -19,4 +19,8 @@ if exist "%LOCK%" (
   del /f /q "%LOCK%" 2>nul
 )
 
-npm run discord:bot >> logs\bot.log 2>&1
+for /f "tokens=1-3 delims=/ " %%a in ("%date%") do set "DS=%%c-%%b-%%a"
+for /f "tokens=1-3 delims=:.," %%a in ("%time%") do set "TS=%%a:%%b:%%c"
+echo [%DS% %TS%] [start-bot] spawning bot detached >> logs\bot.log
+start "" /MIN cmd /c "cd /d %~dp0 && npm run discord:bot >> logs\bot.log 2>&1"
+exit /b 0

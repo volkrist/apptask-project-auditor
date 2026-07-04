@@ -22,6 +22,7 @@
     "publish:audit": "tsx src/scripts/publish-audit-report.ts",
     "web": "tsx src/web/server.ts",
     "discord:bot": "tsx src/discord/bot.ts",
+    "bot:ensure": "ensure-bot-running.bat",
     "debug:users": "tsx src/scripts/debug-users-page.ts",
     "probe:comments:bulk": "tsx scripts/probe-task-comments-bulk.ts",
     "probe:comments:targets": "tsx scripts/probe-task-comments-targets.ts",

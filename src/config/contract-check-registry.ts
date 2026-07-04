@@ -36,7 +36,7 @@ const MANDATORY_CHECK_TITLES: Record<(typeof MANDATORY_CARD_FIELD_RULE_IDS)[numb
   tags_required: "У карточки указан хотя бы один тег",
   task_type_valid: "У карточки указан тип задачи (тег: баг, доработка, дизайн и т.д.)",
   stage_matches_column: "Указан этап или воронка, соответствующий статусу задачи",
-  estimate_present: "У карточки есть оценка времени или бюджета",
+  estimate_present: "У карточки есть оценка времени или бюджета по смете",
   estimate_link_present: "Есть ссылка на смету, договор, заявку или согласование",
   links_reachable: "Все вложения и ссылки открываются и не пустые",
   not_duplicate: "Карточка не является дубликатом другой задачи",

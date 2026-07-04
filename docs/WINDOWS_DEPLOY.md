@@ -24,6 +24,38 @@ This creates a shortcut in the user **Startup** folder (`shell:startup`) pointin
 
 Safe to run again: if the shortcut already exists, it is not duplicated.
 
+### Watchdog (auto-restart every 2 hours)
+
+If the bot process dies (crash, closed window, sleep/reboot without login), a scheduled task brings it back.
+
+From the project root in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File infra\windows\setup-bot-watchdog.ps1
+```
+
+Or **startup + watchdog** in one step:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File infra\windows\setup-bot-resilience.ps1
+```
+
+| Setting | Value |
+|--------|--------|
+| Task name | **AppTask Bot Watchdog** (at logon +1 min) and **AppTask Bot Watchdog Repeat** (every 2 h) |
+| At logon | **+1 min** → `ensure-bot-running.bat` |
+| Repeat | Every **2 hours** while PC is on |
+| Action | `ensure-bot-running.bat` → `start-bot.bat` (idempotent) |
+| Log | `logs\watchdog.log` |
+
+`start-bot.bat` now spawns the bot **detached** (`start /MIN`): closing the `cmd` window no longer kills the process.
+
+Remove watchdog only:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File infra\windows\remove-bot-watchdog.ps1
+```
+
 ### `logs\bot.pid` (single instance)
 
 `start-bot.bat` and the Node bot both use `logs\bot.pid` to prevent two Discord bots at once:
@@ -104,6 +136,7 @@ Get-ScheduledTaskInfo -TaskName "AppTask Daily Audit"
 | File | Source |
 |------|--------|
 | `logs\bot.log` | `start-bot.bat` → `npm run discord:bot` (stdout/stderr append) |
+| `logs\watchdog.log` | `ensure-bot-running.bat` (scheduled + manual health checks) |
 | `logs\bot.pid` | Lock file: live bot PID; stale locks removed automatically by `start-bot.bat` |
 | `logs\scheduled.log` | `start-scheduled-audit.bat` → `npm run audit:scheduled` |
 
@@ -132,10 +165,14 @@ npm run audit:scheduled
 ```
 apptask-auditor/
   start-bot.bat
+  ensure-bot-running.bat
   start-scheduled-audit.bat
   logs/
   infra/windows/
     setup-startup.ps1
+    setup-bot-watchdog.ps1
+    setup-bot-resilience.ps1
+    remove-bot-watchdog.ps1
     setup-task-scheduler.ps1
 ```
 

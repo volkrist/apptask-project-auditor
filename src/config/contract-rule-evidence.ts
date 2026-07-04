@@ -153,11 +153,11 @@ const MANDATORY_EVIDENCE_BY_RULE: Record<
     },
   ),
   estimate_present: mandatoryFieldEvidence(
-    "нет ПВ в карточке, ссылки на смету и ПВ в Google-смете",
+    "нет упоминания сметы/бюджета в описании и нет ПВ в Google-смете (поле ПВ в карточке без сметы не засчитывается)",
     "оценка времени или бюджет по смете указаны",
     {
       sources:
-        "AppTask DB: planned_end_time_offset; описание/ссылки; Scrum/Google Sheets",
+        "AppTask DB: описание/ссылки; Scrum/Google Sheets (ПВ в строке сметы)",
     },
   ),
   estimate_link_present: mandatoryFieldEvidence(

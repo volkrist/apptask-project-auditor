@@ -7,18 +7,9 @@ import {
   collectLinkTargets,
   descriptionMatchesPatterns,
   fail,
-  isBlank,
   matchesAnyPattern,
   pass,
 } from "../helpers.js";
-
-function hasPlannedTime(task: RawTask, config: AuditConfig): boolean {
-  const planned = task.plannedTime?.trim() ?? "";
-  return (
-    !isBlank(planned) &&
-    !(config.emptyPlannedTimeValues as readonly string[]).includes(planned)
-  );
-}
 
 function hasEstimateInDescription(task: RawTask, config: AuditConfig): boolean {
   if (descriptionMatchesPatterns(task.descriptionText, config.estimateTextPatterns)) {
@@ -37,17 +28,17 @@ function hasScrumPv(task: RawTask, ctx?: RuleContext): boolean {
   return hours != null && Number.isFinite(hours) && hours > 0;
 }
 
-/** ПВ в карточке, упоминание/ссылка на смету в описании, или ПВ в Google-смете. */
+/**
+ * Оценка «по смете»: упоминание/ссылка на смету или бюджет в карточке,
+ * либо ПВ > 0 в Google-смете. Поле «Примерное время» в AppTask само по себе не засчитывается
+ * (см. estimate_link_present для обязательной ссылки на смету).
+ */
 export function taskHasEstimatePresent(
   task: RawTask,
   config: AuditConfig,
   ctx?: RuleContext,
 ): boolean {
-  return (
-    hasPlannedTime(task, config) ||
-    hasEstimateInDescription(task, config) ||
-    hasScrumPv(task, ctx)
-  );
+  return hasEstimateInDescription(task, config) || hasScrumPv(task, ctx);
 }
 
 export const estimatePresentRule: Rule = {
@@ -58,9 +49,16 @@ export const estimatePresentRule: Rule = {
       return pass("estimate_present");
     }
 
+    const pv = task.plannedTime?.trim();
+    const pvNote =
+      pv && pv !== "00:00"
+        ? ` Поле «Примерное время» (${pv}) без сметы не засчитывается.`
+        : "";
+
     return fail(
       "estimate_present",
-      "Не указано плановое время (ПВ) в карточке, нет ссылки/упоминания сметы в описании и нет ПВ в Google-смете",
+      "Нет упоминания сметы/бюджета в описании и нет ПВ в Google-смете для этой задачи." +
+        pvNote,
     );
   },
 };
