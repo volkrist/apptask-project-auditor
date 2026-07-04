@@ -11,6 +11,16 @@ cp .env.example .env
 npm run auth:profile
 ```
 
+### Новый компьютер (production: Discord-бот + DB)
+
+Секреты **не в git**. После `git clone` / `git pull`:
+
+1. Скопируйте `.env` с рабочего ПК в папку проекта.
+2. Запустите `.\setup-machine.bat` (npm install, watchdog, автозапуск).
+3. Проверка: `npm run setup:check`.
+
+Подробно: **[docs/NEW_MACHINE_SETUP.md](./docs/NEW_MACHINE_SETUP.md)**.
+
 ## Как залогиниться
 
 Сессия хранится в **persistent-профиле Chromium** (не в git):
@@ -117,6 +127,7 @@ npm run web
 | `npm run test:rules` | Unit-тесты правил |
 | `npm run test:reports` | Unit-тесты отчётов |
 | `npm run test:parse` | E2E парсера (нужен профиль) |
+| `npm run setup:check` | Проверка .env, БД и Google Sheets (новый ПК) |
 | `npm run typecheck` | Проверка TypeScript |
 
 Подробности по правилам и архитектуре: [AGENTS.md](./AGENTS.md), [PLAN.md](./PLAN.md).

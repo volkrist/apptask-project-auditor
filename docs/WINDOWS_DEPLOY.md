@@ -4,9 +4,27 @@ Infrastructure for running the Discord bot at login and the daily audit via Task
 
 ## Prerequisites
 
-- Node.js and `npm install` completed in the project root
-- `.env` configured (see `.env.example`)
+- Node.js 20+ and `npm install` completed in the project root
+- `.env` configured (see `.env.example`) — **copy from working PC**; not in git
 - Project path stable (scheduled task and startup shortcut use absolute paths from setup time)
+
+**New machine:** run `setup-machine.bat` once, then `npm run setup:check`. See [NEW_MACHINE_SETUP.md](./NEW_MACHINE_SETUP.md).
+
+## One-shot machine setup
+
+From the project root in PowerShell:
+
+```powershell
+.\setup-machine.bat
+```
+
+Or:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File infra\windows\setup-machine.ps1
+```
+
+Installs dependencies, creates `logs/`, registers bot watchdog + startup shortcut + TurboWeave audit at logon. Skips if `-SkipWatchdog` or `-SkipScheduledAudit`.
 
 ## API collector (optional)
 
@@ -164,16 +182,20 @@ npm run audit:scheduled
 
 ```
 apptask-auditor/
+  setup-machine.bat
   start-bot.bat
   ensure-bot-running.bat
   start-scheduled-audit.bat
   logs/
   infra/windows/
+    setup-machine.ps1
     setup-startup.ps1
     setup-bot-watchdog.ps1
     setup-bot-resilience.ps1
     remove-bot-watchdog.ps1
     setup-task-scheduler.ps1
+    setup-scheduled-audit.ps1
+  docs/NEW_MACHINE_SETUP.md
 ```
 
 Setup scripts are **not** run automatically; run them once when you are ready.

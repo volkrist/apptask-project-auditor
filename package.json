@@ -23,6 +23,8 @@
     "web": "tsx src/web/server.ts",
     "discord:bot": "tsx src/discord/bot.ts",
     "bot:ensure": "ensure-bot-running.bat",
+    "setup:check": "tsx scripts/setup-check.ts",
+    "setup:check:quick": "tsx scripts/setup-check.ts -- --quick",
     "debug:users": "tsx src/scripts/debug-users-page.ts",
     "probe:comments:bulk": "tsx scripts/probe-task-comments-bulk.ts",
     "probe:comments:targets": "tsx scripts/probe-task-comments-targets.ts",
